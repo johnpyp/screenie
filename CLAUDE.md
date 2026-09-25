@@ -17,3 +17,4 @@ Workflow:
 - Add tools that are helpful for you to verify or troubleshoot stuff to `tools/`. python is fine.
 - Feel free to install any dep, system or otherwise, you need.
 - Mise for project tooling
+- Commit directly to `main` (no feature branches). Intermediate commits don't need to build.
