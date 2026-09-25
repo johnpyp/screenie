@@ -20,14 +20,15 @@ pub(crate) struct Daemon {
     /// A selector (or other capture UI) is on screen.
     pub capturing: bool,
     pub recording: Option<crate::recording::Active>,
+    commit: &'static str,
     watchers: Vec<async_channel::Sender<Status>>,
 }
 
 impl Global for Daemon {}
 
 impl Daemon {
-    pub fn new(config: Config, capture: Arc<CaptureContext>) -> Self {
-        Self { config, capture, last_region: None, capturing: false, recording: None, watchers: Vec::new() }
+    pub fn new(config: Config, capture: Arc<CaptureContext>, commit: &'static str) -> Self {
+        Self { config, capture, last_region: None, capturing: false, recording: None, commit, watchers: Vec::new() }
     }
 
     pub fn get(cx: &App) -> &Daemon {
@@ -41,8 +42,11 @@ impl Daemon {
     pub fn status(&self) -> Status {
         Status {
             recording: self.recording.as_ref().map(|a| a.status()),
+            capturing: self.capturing,
             pid: std::process::id(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            commit: self.commit.to_string(),
+            build: screenie_ipc::exe_stamp(),
             compositor: self.capture.compositor().name().to_string(),
             capture_backend: self.capture.backend_name(self.config.advanced.capture_backend).to_string(),
         }

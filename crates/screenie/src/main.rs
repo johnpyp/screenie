@@ -17,8 +17,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use screenie_core::Rect;
 use screenie_ipc::{ActionOverrides, Client, RecordRequest, Request, Response, ScreenshotRequest, SelectMode, Target};
 
+/// `0.1.0 (46bce20 2026-09-25 23:20)`
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("SCREENIE_COMMIT"), ")");
+
 #[derive(Parser)]
-#[command(name = "screenie", version, about = "Screenshots and screen recordings for Wayland")]
+#[command(name = "screenie", version = VERSION, about = "Screenshots and screen recordings for Wayland")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -196,7 +199,7 @@ fn main() -> ExitCode {
 
     if let Command::Daemon = command {
         init_logging(true);
-        return match screenie_app::run() {
+        return match screenie_app::run(env!("SCREENIE_COMMIT")) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("screenie daemon: {e:#}");
@@ -337,7 +340,10 @@ fn status(json: bool, watch: bool) -> anyhow::Result<ExitCode> {
                     r.elapsed_secs,
                     if r.paused { ", paused" } else { "" }
                 ),
-                None => println!("idle (daemon pid {}, {} via {})", s.pid, s.compositor, s.capture_backend),
+                None => println!(
+                    "idle (daemon {} ({}), pid {}, {} via {})",
+                    s.version, s.commit, s.pid, s.compositor, s.capture_backend
+                ),
             }
         }
     };

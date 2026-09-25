@@ -28,6 +28,8 @@ pub enum Error {
     Disconnected,
     #[error("the daemon did not start; see {log}")]
     DaemonDidNotStart { log: PathBuf },
+    #[error("the outdated daemon did not exit; run `screenie quit` and retry")]
+    DaemonDidNotStop,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -50,6 +52,26 @@ pub fn read_message<T: DeserializeOwned>(r: &mut impl BufRead) -> Result<Option<
     Ok(Some(serde_json::from_str(&line)?))
 }
 
+/// Identity of the running executable: its size and modification time. Any rebuild or
+/// reinstall changes it, which is how a CLI notices the daemon runs an older binary. It
+/// reads through `/proc/self/exe`, so it names the binary this process started from even
+/// after that file was replaced on disk.
+pub fn exe_stamp() -> String {
+    static STAMP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    STAMP
+        .get_or_init(|| {
+            let meta = std::fs::metadata("/proc/self/exe").or_else(|_| std::fs::metadata(std::env::current_exe()?));
+            match meta {
+                Ok(m) => {
+                    let mtime = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+                    format!("{:x}-{:x}", mtime.map_or(0, |d| d.as_nanos()), m.len())
+                }
+                Err(_) => String::from("unknown"),
+            }
+        })
+        .clone()
+}
+
 /// Path of the daemon's log file.
 pub fn daemon_log_path() -> PathBuf {
     Paths::get().state_dir().join("daemon.log")
@@ -65,10 +87,18 @@ impl Client {
         Ok(Client { stream: UnixStream::connect(Paths::get().socket())? })
     }
 
-    /// Connect, starting the daemon first if it isn't running.
+    /// Connect, starting the daemon first if it isn't running. A daemon running a
+    /// different executable than this one (an upgrade, or a rebuild) is replaced first,
+    /// unless it's busy, in which case it's used as-is and replaced on a later call.
     pub fn connect_or_spawn() -> Result<Client> {
         if let Ok(client) = Self::connect() {
-            return Ok(client);
+            match client.request(&Request::Status) {
+                Ok(Response::Status(status)) if status.build != exe_stamp() && !status.busy() => {
+                    tracing::info!(daemon = %status.commit, "replacing a daemon running another build");
+                    Self::replace_daemon()?;
+                }
+                _ => return Self::connect(),
+            }
         }
         spawn_daemon()?;
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -79,6 +109,19 @@ impl Client {
                 Err(_) => return Err(Error::DaemonDidNotStart { log: daemon_log_path() }),
             }
         }
+    }
+
+    /// Ask the running daemon to quit, and wait until it has.
+    fn replace_daemon() -> Result<()> {
+        Self::connect()?.request(&Request::Quit)?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Self::connect().is_ok() {
+            if Instant::now() >= deadline {
+                return Err(Error::DaemonDidNotStop);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        Ok(())
     }
 
     /// Send a request and wait (as long as it takes) for the response.
@@ -153,6 +196,22 @@ pub fn bind_listener(path: &Path) -> Result<std::os::unix::net::UnixListener> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Daemons from before build stamps must read as "another build, idle", so a new
+    /// CLI replaces them instead of talking to them forever.
+    #[test]
+    fn a_legacy_daemon_status_looks_outdated_and_idle() {
+        let legacy = r#"{"type":"status","recording":null,"pid":7,"version":"0.1.0","compositor":"Hyprland","capture_backend":"wlr-screencopy-unstable-v1"}"#;
+        let Response::Status(status) = serde_json::from_str(legacy).unwrap() else { panic!("not a status") };
+        assert_ne!(status.build, exe_stamp());
+        assert!(!status.busy());
+    }
+
+    #[test]
+    fn exe_stamp_is_stable_and_known() {
+        assert_eq!(exe_stamp(), exe_stamp());
+        assert_ne!(exe_stamp(), "unknown");
+    }
 
     #[test]
     fn messages_roundtrip() {

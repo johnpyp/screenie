@@ -148,6 +148,11 @@ cargo build --release
 install -Dm755 target/release/screenie ~/.local/bin/screenie
 ```
 
+To upgrade, replace the binary. The next `screenie` command notices that the daemon
+is running a different build and restarts it, unless a recording or selector is active,
+in which case it waits for a later command. `screenie --version` and `screenie status`
+show the git commit each side was built from.
+
 At runtime, recording uses VA-API when a driver is present (`mesa-va-drivers`,
 `intel-media-va-driver`), and falls back to x264 otherwise.
 

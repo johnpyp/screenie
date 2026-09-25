@@ -130,10 +130,26 @@ impl Response {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Status {
     pub recording: Option<RecordingStatus>,
+    /// A selector or other capture UI is on screen.
+    #[serde(default)]
+    pub capturing: bool,
     pub pid: u32,
     pub version: String,
+    /// Git commit and commit time the daemon was built from.
+    #[serde(default)]
+    pub commit: String,
+    /// Identity of the daemon's executable (see [`crate::exe_stamp`]).
+    #[serde(default)]
+    pub build: String,
     pub compositor: String,
     pub capture_backend: String,
+}
+
+impl Status {
+    /// Whether restarting the daemon now would interrupt the user.
+    pub fn busy(&self) -> bool {
+        self.recording.is_some() || self.capturing
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
