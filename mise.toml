@@ -1,5 +1,5 @@
 [tools]
-rust = "stable"
+rust = { version = "stable", mr_boxington = true }
 uv = "latest"
 
 [tasks.refs]
