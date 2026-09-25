@@ -1,0 +1,7 @@
+[tools]
+rust = "stable"
+uv = "latest"
+
+[tasks.refs]
+description = "Clone/update reference repos from references/manifest.toml"
+run = "uv run --script tools/fetch_references.py"

@@ -1,0 +1,15 @@
+# Reference repos, synced into references/<name>/ by `mise run refs`
+# (tools/fetch_references.py). Checkouts are shallow and gitignored.
+#
+# Fields: name, url, optional `ref` (branch/tag/commit; defaults to upstream HEAD),
+# and `notes` on what's worth looking at.
+
+[[repo]]
+name = "screendrop"
+url = "https://github.com/fayazara/Screendrop"
+notes = "TODO"
+
+[[repo]]
+name = "omarchy"
+url = "https://github.com/omacom/omarchy"
+notes = "TODO"

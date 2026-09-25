@@ -1,4 +1,4 @@
 /target
 
 references/*
-!references/.gitkeep
+!references/manifest.toml
