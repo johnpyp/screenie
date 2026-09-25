@@ -30,6 +30,10 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 
 ## Fixed
 
+- "no supported shm format among [Bgr888]" on Hyprland: compositors that offer only
+  the output's native packed 24-bit format are now supported. `auto` also falls back
+  to the other capture protocol when one fails.
+
 - Clicks on gaps in HUD panels (the selector toolbar) fell through to the selector
   canvas. `hud::panel()` now occludes the pointer.
 - x264's B-frames skewed variable-frame-rate timestamps (inflated container duration).

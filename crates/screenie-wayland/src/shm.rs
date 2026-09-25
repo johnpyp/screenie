@@ -11,14 +11,17 @@ use wayland_client::{Dispatch, QueueHandle};
 
 use crate::Error;
 
-/// Formats we can read, in order of preference. 8-bit formats convert for free (they are
-/// already an [`Image`] layout); 10-bit ones appear on HDR/deep-color outputs, where some
-/// compositors only offer the output's native format.
+/// Formats we can read, in order of preference. 32-bit formats convert for free (they
+/// are already an [`Image`] layout). Packed 24-bit and 10-bit formats need a pass; some
+/// compositors (e.g. Hyprland's screencopy) only offer the output's native format, which
+/// can be either.
 pub(crate) const SUPPORTED_FORMATS: &[wl_shm::Format] = &[
     wl_shm::Format::Xrgb8888,
     wl_shm::Format::Argb8888,
     wl_shm::Format::Xbgr8888,
     wl_shm::Format::Abgr8888,
+    wl_shm::Format::Rgb888,
+    wl_shm::Format::Bgr888,
     wl_shm::Format::Xrgb2101010,
     wl_shm::Format::Argb2101010,
     wl_shm::Format::Xbgr2101010,
@@ -28,6 +31,82 @@ pub(crate) const SUPPORTED_FORMATS: &[wl_shm::Format] = &[
 /// Pick the most preferred format from those the compositor offers.
 pub(crate) fn choose_format(offered: &[wl_shm::Format]) -> Option<wl_shm::Format> {
     SUPPORTED_FORMATS.iter().copied().find(|f| offered.contains(f))
+}
+
+/// Bytes per pixel of a supported format.
+pub(crate) fn bytes_per_pixel(format: wl_shm::Format) -> u32 {
+    match format {
+        wl_shm::Format::Rgb888 | wl_shm::Format::Bgr888 => 3,
+        _ => 4,
+    }
+}
+
+/// How a supported format's pixels are laid out in memory. (wl_shm formats are DRM
+/// fourccs: components listed high bit to low, stored little-endian.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    /// 4 bytes, already an [`Image`] byte order.
+    Native,
+    /// 3 bytes, already in [`Image`] order minus the padding byte.
+    Packed24,
+    /// 32-bit words of 2:10:10:10. `bgr`: blue in the high bits.
+    Deep { bgr: bool, alpha: bool },
+}
+
+fn layout(format: wl_shm::Format) -> Layout {
+    match format {
+        wl_shm::Format::Rgb888 | wl_shm::Format::Bgr888 => Layout::Packed24,
+        wl_shm::Format::Xrgb2101010 => Layout::Deep { bgr: false, alpha: false },
+        wl_shm::Format::Argb2101010 => Layout::Deep { bgr: false, alpha: true },
+        wl_shm::Format::Xbgr2101010 => Layout::Deep { bgr: true, alpha: false },
+        wl_shm::Format::Abgr2101010 => Layout::Deep { bgr: true, alpha: true },
+        _ => Layout::Native,
+    }
+}
+
+/// The [`PixelFormat`] of the image decoded from a buffer of this shm format.
+fn pixel_format(format: wl_shm::Format) -> PixelFormat {
+    // Screen contents are opaque even when the format carries alpha (compositors fill it
+    // with garbage or zeroes on some drivers), so treat everything as padded.
+    match format {
+        // R in the low byte: R,G,B(,x) in memory.
+        wl_shm::Format::Xbgr8888 | wl_shm::Format::Abgr8888 | wl_shm::Format::Bgr888 => PixelFormat::Rgbx,
+        _ => PixelFormat::Bgrx,
+    }
+}
+
+/// Decode raw buffer memory into an 8-bit [`Image`], flipping rows if `y_invert`.
+fn decode(format: wl_shm::Format, mem: &[u8], width: u32, height: u32, stride: usize, y_invert: bool) -> Image {
+    let (w, h) = (width as usize, height as usize);
+    let row_bytes = w * bytes_per_pixel(format) as usize;
+    let layout = layout(format);
+    let mut data = Vec::with_capacity(w * 4 * h);
+    for y in 0..h {
+        let src_y = if y_invert { h - 1 - y } else { y };
+        let row = &mem[src_y * stride..src_y * stride + row_bytes];
+        match layout {
+            Layout::Native => data.extend_from_slice(row),
+            Layout::Packed24 => {
+                for &[a, b, c] in row.as_chunks::<3>().0 {
+                    data.extend_from_slice(&[a, b, c, 255]);
+                }
+            }
+            Layout::Deep { bgr, alpha } => {
+                for &px in row.as_chunks::<4>().0 {
+                    let v = u32::from_le_bytes(px);
+                    let hi = ((v >> 20) & 0x3ff) >> 2;
+                    let mid = ((v >> 10) & 0x3ff) >> 2;
+                    let lo = (v & 0x3ff) >> 2;
+                    let a = if alpha { (((v >> 30) & 0x3) * 85) as u8 } else { 255 };
+                    // Written out in our Bgrx order: xRGB has red high, xBGR blue high.
+                    let (b, r) = if bgr { (hi, lo) } else { (lo, hi) };
+                    data.extend_from_slice(&[b as u8, mid as u8, r as u8, a]);
+                }
+            }
+        }
+    }
+    let out_format = if matches!(layout, Layout::Deep { .. }) { PixelFormat::Bgrx } else { pixel_format(format) };
+    Image::from_raw(width, height, w * 4, out_format, data)
 }
 
 pub(crate) struct ShmBuffer {
@@ -78,63 +157,13 @@ impl ShmBuffer {
     }
 
     fn read(&self, y_invert: bool) -> Image {
-        let (w, h, stride) = (self.width, self.height, self.stride as usize);
-        let row_bytes = w as usize * 4;
-        let mut data = Vec::with_capacity(row_bytes * h as usize);
-        let deep = deep_color_layout(self.format);
-        for y in 0..h as usize {
-            let src_y = if y_invert { h as usize - 1 - y } else { y };
-            let row = &self.map[src_y * stride..src_y * stride + row_bytes];
-            match deep {
-                None => data.extend_from_slice(row),
-                Some(bgr_order) => {
-                    for px in row.as_chunks::<4>().0 {
-                        let v = u32::from_le_bytes([px[0], px[1], px[2], px[3]]);
-                        let hi = ((v >> 20) & 0x3ff) >> 2;
-                        let mid = ((v >> 10) & 0x3ff) >> 2;
-                        let lo = (v & 0x3ff) >> 2;
-                        let a = if has_alpha(self.format) { (((v >> 30) & 0x3) * 85) as u8 } else { 255 };
-                        // xRGB2101010 stores R in the high bits: B,G,R,A bytes when packed
-                        // as our Bgra layout. xBGR is the reverse.
-                        let (b, r) = if bgr_order { (hi, lo) } else { (lo, hi) };
-                        data.extend_from_slice(&[b as u8, mid as u8, r as u8, a]);
-                    }
-                }
-            }
-        }
-        Image::from_raw(w, h, row_bytes, pixel_format(self.format), data)
+        decode(self.format, &self.map, self.width, self.height, self.stride as usize, y_invert)
     }
 }
 
 impl Drop for ShmBuffer {
     fn drop(&mut self) {
         self.wl_buffer.destroy();
-    }
-}
-
-fn has_alpha(format: wl_shm::Format) -> bool {
-    matches!(
-        format,
-        wl_shm::Format::Argb8888 | wl_shm::Format::Abgr8888 | wl_shm::Format::Argb2101010 | wl_shm::Format::Abgr2101010
-    )
-}
-
-/// For 10-bit formats, whether the high component is blue (xBGR); `None` for 8-bit.
-fn deep_color_layout(format: wl_shm::Format) -> Option<bool> {
-    match format {
-        wl_shm::Format::Xrgb2101010 | wl_shm::Format::Argb2101010 => Some(false),
-        wl_shm::Format::Xbgr2101010 | wl_shm::Format::Abgr2101010 => Some(true),
-        _ => None,
-    }
-}
-
-/// The [`PixelFormat`] of the image produced from a buffer of this shm format.
-fn pixel_format(format: wl_shm::Format) -> PixelFormat {
-    // Screen contents are opaque even when the format carries alpha (compositors fill it
-    // with garbage or zeroes on some drivers), so treat everything as padded.
-    match format {
-        wl_shm::Format::Xbgr8888 | wl_shm::Format::Abgr8888 => PixelFormat::Rgbx,
-        _ => PixelFormat::Bgrx,
     }
 }
 
@@ -171,4 +200,53 @@ pub fn transform_image(src: &Image, transform: Transform) -> Image {
         }
     }
     Image::from_raw(dw as u32, dh as u32, dw * 4, src.format(), out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RED: [u8; 4] = [255, 0, 0, 255];
+    const BLUE: [u8; 4] = [0, 0, 255, 255];
+
+    /// A 2x2 image, top row red, bottom row blue, stored with padded rows.
+    fn buffer(format: wl_shm::Format, red: &[u8], blue: &[u8]) -> Vec<u8> {
+        let stride = 2 * bytes_per_pixel(format) as usize + 4;
+        let mut mem = vec![0xee; stride * 2];
+        for (y, px) in [red, blue].into_iter().enumerate() {
+            for x in 0..2 {
+                let at = y * stride + x * px.len();
+                mem[at..at + px.len()].copy_from_slice(px);
+            }
+        }
+        mem
+    }
+
+    fn check(format: wl_shm::Format, red: &[u8], blue: &[u8]) {
+        let bpp = bytes_per_pixel(format) as usize;
+        let mem = buffer(format, red, blue);
+        let image = decode(format, &mem, 2, 2, 2 * bpp + 4, false);
+        assert_eq!(image.rgba_at(1, 0), RED, "{format:?} top row");
+        assert_eq!(image.rgba_at(0, 1), BLUE, "{format:?} bottom row");
+        let flipped = decode(format, &mem, 2, 2, 2 * bpp + 4, true);
+        assert_eq!(flipped.rgba_at(0, 0), BLUE, "{format:?} y-invert");
+    }
+
+    #[test]
+    fn decodes_every_supported_format() {
+        use wl_shm::Format::*;
+        // Memory bytes of one red and one blue pixel in each format.
+        check(Xrgb8888, &[0, 0, 255, 0], &[255, 0, 0, 0]);
+        check(Argb8888, &[0, 0, 255, 255], &[255, 0, 0, 255]);
+        check(Xbgr8888, &[255, 0, 0, 0], &[0, 0, 255, 0]);
+        check(Abgr8888, &[255, 0, 0, 255], &[0, 0, 255, 255]);
+        check(Rgb888, &[0, 0, 255], &[255, 0, 0]);
+        check(Bgr888, &[255, 0, 0], &[0, 0, 255]);
+        let deep = |hi: u32, lo: u32| ((3 << 30) | (hi << 20) | lo).to_le_bytes();
+        check(Xrgb2101010, &deep(0x3ff, 0), &deep(0, 0x3ff));
+        check(Xbgr2101010, &deep(0, 0x3ff), &deep(0x3ff, 0));
+        check(Argb2101010, &deep(0x3ff, 0), &deep(0, 0x3ff));
+        check(Abgr2101010, &deep(0, 0x3ff), &deep(0x3ff, 0));
+        assert_eq!(SUPPORTED_FORMATS.len(), 10, "every supported format is covered above");
+    }
 }

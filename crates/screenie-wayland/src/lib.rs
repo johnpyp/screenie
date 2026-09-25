@@ -332,7 +332,7 @@ impl Capturer {
             .iter()
             .find(|(f, _)| *f == format)
             .map(|(_, s)| *s)
-            .unwrap_or(width * 4);
+            .unwrap_or(width * shm::bytes_per_pixel(format));
         if !cap.buffer.as_ref().is_some_and(|b| b.matches(width, height, format) && b.stride == stride) {
             cap.buffer = Some(shm::ShmBuffer::new(&shm, width, height, stride, format, &self.qh)?);
         }

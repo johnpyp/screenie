@@ -33,8 +33,14 @@ Backends (`advanced.capture_backend`):
 - `portal`: xdg-desktop-portal Screenshot. For GNOME and KDE. **Not implemented yet.**
 - `auto`: `ext`, then `wlr`, then `portal`.
 
-Both native paths handle 8-bit and 10-bit shm formats, y-invert and all eight output
-transforms. They are verified pixel-identical to `grim` (see `tools/imgdiff.py`).
+In `auto` mode, if one protocol fails at capture time, the other one is tried, and
+whichever works is remembered. A protocol can be advertised yet unusable, e.g. when it
+only offers a pixel format we can't read. Recording streams are checked the same way:
+the first frame is pulled before recording starts.
+
+Both native paths handle 32-bit, packed 24-bit (`RGB888`/`BGR888`, which Hyprland's
+screencopy offers on some setups) and 10-bit shm formats, y-invert, and all eight
+output transforms. They are verified pixel-identical to `grim` (see `tools/imgdiff.py`).
 
 ## Coordinates
 

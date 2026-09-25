@@ -4,12 +4,12 @@
 //! Native Wayland protocols are preferred (fast, silent, per-output, exact pixels). The
 //! xdg-desktop-portal backend covers compositors without them (KDE, GNOME).
 
-use std::sync::Arc;
-use std::time::{Instant, SystemTime};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 use screenie_compositor::Compositor;
 use screenie_config::CaptureBackend;
-use screenie_core::{FrameSource, OutputInfo, Rect, Snapshot};
+use screenie_core::{FrameSource, Image, OutputInfo, Rect, Snapshot, SourceError};
 use screenie_wayland::{Backend, Capturer, Support};
 
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +34,8 @@ pub struct SnapshotOptions {
 pub struct CaptureContext {
     compositor: Arc<dyn Compositor>,
     support: Support,
+    /// The protocol that last worked in `auto` mode; tried first next time.
+    working: Mutex<Option<Backend>>,
 }
 
 impl CaptureContext {
@@ -50,7 +52,7 @@ impl CaptureContext {
             layer_shell = support.layer_shell,
             "capture context"
         );
-        Self { compositor, support }
+        Self { compositor, support, working: Mutex::new(None) }
     }
 
     pub fn compositor(&self) -> &Arc<dyn Compositor> {
@@ -63,21 +65,68 @@ impl CaptureContext {
 
     /// Human-readable name of the backend `backend` resolves to.
     pub fn backend_name(&self, backend: CaptureBackend) -> &'static str {
-        match self.resolve(backend) {
+        match self.candidates(backend).first() {
             Some(b) => b.name(),
             None => "xdg-desktop-portal",
         }
     }
 
-    fn resolve(&self, backend: CaptureBackend) -> Option<Backend> {
+    /// Native protocols to try for `backend`, best first. In `auto` mode that's every
+    /// protocol the compositor offers, starting with the one that last worked: an
+    /// advertised protocol can still be unusable (e.g. only offering a pixel format we
+    /// can't read), and the other one may be fine.
+    fn candidates(&self, backend: CaptureBackend) -> Vec<Backend> {
         match backend {
-            CaptureBackend::Ext => Some(Backend::ExtImageCopyCapture),
-            CaptureBackend::Wlr => Some(Backend::WlrScreencopy),
-            CaptureBackend::Portal => None,
-            CaptureBackend::Auto if self.support.ext_image_copy_capture => Some(Backend::ExtImageCopyCapture),
-            CaptureBackend::Auto if self.support.wlr_screencopy => Some(Backend::WlrScreencopy),
-            CaptureBackend::Auto => None,
+            CaptureBackend::Ext => vec![Backend::ExtImageCopyCapture],
+            CaptureBackend::Wlr => vec![Backend::WlrScreencopy],
+            CaptureBackend::Portal => Vec::new(),
+            CaptureBackend::Auto => {
+                let mut all = Vec::new();
+                if self.support.ext_image_copy_capture {
+                    all.push(Backend::ExtImageCopyCapture);
+                }
+                if self.support.wlr_screencopy {
+                    all.push(Backend::WlrScreencopy);
+                }
+                if let Some(working) = *self.working.lock().unwrap() {
+                    all.sort_by_key(|b| *b != working);
+                }
+                all
+            }
         }
+    }
+
+    /// Run `capture` with each candidate protocol until one succeeds.
+    fn with_backends<T>(
+        &self,
+        backend: CaptureBackend,
+        mut capture: impl FnMut(Backend) -> Result<T, screenie_wayland::Error>,
+    ) -> Result<T> {
+        let candidates = self.candidates(backend);
+        let mut last = None;
+        for (i, b) in candidates.iter().enumerate() {
+            match capture(*b) {
+                Ok(value) => {
+                    if i > 0 {
+                        tracing::info!(backend = b.name(), "capturing with the fallback protocol from now on");
+                        *self.working.lock().unwrap() = Some(*b);
+                    }
+                    return Ok(value);
+                }
+                Err(e) => {
+                    if i + 1 < candidates.len() {
+                        tracing::warn!(backend = b.name(), "capture failed ({e}); trying the next protocol");
+                    }
+                    last = Some(e);
+                }
+            }
+        }
+        Err(last.map(Error::from).unwrap_or_else(|| {
+            Error::Unsupported(
+                "this compositor has no screen capture protocol screenie can use (portal support is not built yet)"
+                    .into(),
+            )
+        }))
     }
 
     /// Capture every output. Blocking; call off the UI thread.
@@ -90,14 +139,8 @@ impl CaptureContext {
             std::thread::spawn(move || compositor.windows())
         });
 
-        let outputs = match self.resolve(opts.backend) {
-            Some(backend) => Capturer::connect_with(Some(backend))?.capture_outputs(None, opts.cursor)?,
-            None => {
-                return Err(Error::Unsupported(
-                    "this compositor has no screen capture protocol screenie can use (portal support is not built yet)".into(),
-                ));
-            }
-        };
+        let outputs =
+            self.with_backends(opts.backend, |b| Capturer::connect_with(Some(b))?.capture_outputs(None, opts.cursor))?;
 
         let windows = windows
             .and_then(|h| h.join().ok())
@@ -108,7 +151,8 @@ impl CaptureContext {
     }
 
     /// Start a live stream of `output`, or of `region` (logical, relative to the output's
-    /// top-left) within it, for recording.
+    /// top-left) within it, for recording. Blocks until the first frame arrives, so a
+    /// protocol that can't actually deliver is caught (and another tried) up front.
     pub fn stream(
         &self,
         backend: CaptureBackend,
@@ -116,17 +160,38 @@ impl CaptureContext {
         region: Option<Rect>,
         cursor: bool,
     ) -> Result<Box<dyn FrameSource>> {
-        match self.resolve(backend) {
-            Some(backend) => Ok(Box::new(Capturer::connect_with(Some(backend))?.into_stream(output, region, cursor)?)),
-            None => Err(Error::Unsupported(
-                "this compositor has no screen capture protocol screenie can use (portal support is not built yet)".into(),
-            )),
-        }
+        self.with_backends(backend, |b| {
+            let mut stream = Capturer::connect_with(Some(b))?.into_stream(output, region, cursor)?;
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                if let Some(frame) = stream.next_frame(Duration::from_millis(250))? {
+                    return Ok(Box::new(Primed { first: Some(frame.image), stream }) as Box<dyn FrameSource>);
+                }
+                if Instant::now() >= deadline {
+                    return Err(screenie_wayland::Error::Timeout);
+                }
+            }
+        })
     }
 
     /// Output layout without capturing pixels.
     pub fn outputs(&self) -> Result<Vec<OutputInfo>> {
         Ok(Capturer::connect()?.outputs())
+    }
+}
+
+/// A stream whose first frame was already pulled (to prove the protocol works).
+struct Primed {
+    first: Option<Image>,
+    stream: screenie_wayland::FrameStream,
+}
+
+impl FrameSource for Primed {
+    fn next_frame(&mut self, timeout: Duration) -> Result<Option<Image>, SourceError> {
+        match self.first.take() {
+            Some(frame) => Ok(Some(frame)),
+            None => FrameSource::next_frame(&mut self.stream, timeout),
+        }
     }
 }
 
