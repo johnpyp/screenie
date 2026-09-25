@@ -1,0 +1,70 @@
+# Capture & selector
+
+Status: **done** for screenshots on wlroots-family compositors. Portal backend: planned.
+
+## Commands
+
+| Command | What happens |
+| --- | --- |
+| `screenie` / `screenie shot` | Freeze all outputs, show the selector in area mode. |
+| `screenie shot window` | Selector in window mode (click a window). |
+| `screenie shot pick-screen` | Selector in screen mode (click a screen). |
+| `screenie shot screen` | Focused output, no UI. `--output-name DP-1` picks one. |
+| `screenie shot all` | Every output stitched into one image at the highest scale. |
+| `screenie shot active` | Focused window, no UI (needs compositor IPC). |
+| `screenie shot last` | Same region as the previous capture. |
+| `screenie shot --region "X,Y WxH"` | That logical region, no UI. `WxH+X+Y` also parses. |
+
+`--delay N` waits first. `--cursor` includes the pointer. Exit codes are 0 for
+captured, 1 for cancelled, and 2 for errors.
+
+## Freezing
+
+`screenie-capture` takes a `Snapshot`: one image per output, captured concurrently, plus
+the window list from compositor IPC. It is taken **before** any UI appears. The overlay
+then paints the frozen pixels, so the result is exactly what was on screen when the key
+was pressed. Menus, tooltips and fullscreen apps are left undisturbed, because the
+overlay is a layer surface and not a window.
+
+Backends (`advanced.capture_backend`):
+
+- `ext`: `ext-image-copy-capture-v1` (newer wlroots, niri, COSMIC, KDE 6.3+ partial).
+- `wlr`: `wlr-screencopy-unstable-v1` (Sway, Hyprland, river, Wayfire…).
+- `portal`: xdg-desktop-portal Screenshot. For GNOME and KDE. **Not implemented yet.**
+- `auto`: `ext`, then `wlr`, then `portal`.
+
+Both native paths handle 8-bit and 10-bit shm formats, y-invert and all eight output
+transforms. They are verified pixel-identical to `grim` (see `tools/imgdiff.py`).
+
+## Coordinates
+
+Everything the user sees is in **logical** coordinates (the compositor layout). Pixels
+are **physical**. Each output's scale is *measured* (buffer width / logical width) rather
+than trusted, which keeps fractional scales exact. Selection edges snap to the physical
+pixel grid of the output under them, so a 1.5× output never produces half-pixel
+blurring. A region spanning mixed-DPI outputs is rendered at the highest scale.
+
+## Selector interactions
+
+| Input | Effect |
+| --- | --- |
+| Drag | Region. Shift: square. Alt: from center. Space (held): move while drawing. |
+| Click | The window under the pointer, or the screen if there is none. |
+| Enter | Confirm, or take the screen under the pointer. |
+| Esc | Cancel (or leave adjust mode). |
+| 1/2/3, a/w/s, Tab | Area / window / screen mode. |
+| Space (idle) | Toggle area and window mode. |
+| Arrows | Nudge an editable selection by one physical pixel (Shift: 10; Ctrl: resize). |
+| M | Toggle the magnifier. |
+
+With `selector.capture_on_release = false`, a drawn region stays editable. It has
+handles, can be dragged, and Enter or the toolbar button confirms. The loupe shows a
+15×15 pixel neighbourhood, the hex colour and coordinates, or the size while drawing.
+
+The interaction logic is a pure state machine (`screenie-selector/src/model.rs`) with
+unit tests. The view only paints it and forwards events.
+
+## Recording
+
+Recording uses the same selector over a **live** backdrop, since there's nothing to
+freeze. Regions are clamped to one output. See [recording](recording.md).
