@@ -1,0 +1,19 @@
+[package]
+name = "screenie-record"
+description = "Recording engine: frame source → GStreamer encode/mux, with audio and encoder probing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+screenie-config.workspace = true
+gst.workspace = true
+gst-app.workspace = true
+gst-video.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+screenie-capture.workspace = true
+tracing-subscriber.workspace = true
