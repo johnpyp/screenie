@@ -1,0 +1,19 @@
+[package]
+name = "screenie-selector"
+description = "The capture overlay: region, window, and screen picking over a frozen or live desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+screenie-ui-kit.workspace = true
+gpui.workspace = true
+async-channel.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+screenie-capture.workspace = true
+screenie-config.workspace = true
+gpui-kit.workspace = true
+tracing-subscriber.workspace = true

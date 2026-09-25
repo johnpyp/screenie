@@ -1,0 +1,17 @@
+[package]
+name = "screenie-ui-kit"
+description = "Shared GPUI building blocks: HUD styling, layer-shell windows, assets, image conversion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+gpui.workspace = true
+gpui-kit.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+rust-embed = { version = "8", features = ["debug-embed"] }
+image = { version = "0.25", default-features = false }
+smallvec = "1"
+uuid = { version = "1", features = ["v5"] }
