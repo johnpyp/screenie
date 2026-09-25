@@ -1,0 +1,126 @@
+//! Daemon-wide state and request routing.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
+use gpui::{App, AsyncApp, BorrowAppContext, Global};
+use screenie_capture::CaptureContext;
+use screenie_config::{Config, Paths};
+use screenie_core::Rect;
+use screenie_ipc::{Request, Response, Status};
+
+use crate::server::Incoming;
+
+pub(crate) struct Daemon {
+    pub config: Config,
+    pub capture: Arc<CaptureContext>,
+    /// Region of the last capture, for `screenie shot last`.
+    pub last_region: Option<Rect>,
+    /// A selector (or other capture UI) is on screen.
+    pub capturing: bool,
+    pub recording: Option<crate::recording::Active>,
+    watchers: Vec<async_channel::Sender<Status>>,
+}
+
+impl Global for Daemon {}
+
+impl Daemon {
+    pub fn new(config: Config, capture: Arc<CaptureContext>) -> Self {
+        Self { config, capture, last_region: None, capturing: false, recording: None, watchers: Vec::new() }
+    }
+
+    pub fn get(cx: &App) -> &Daemon {
+        cx.global::<Daemon>()
+    }
+
+    pub fn update<R>(cx: &mut App, f: impl FnOnce(&mut Daemon, &mut App) -> R) -> R {
+        cx.update_global(f)
+    }
+
+    pub fn status(&self) -> Status {
+        Status {
+            recording: self.recording.as_ref().map(|a| a.status()),
+            pid: std::process::id(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            compositor: self.capture.compositor().name().to_string(),
+            capture_backend: self.capture.backend_name(self.config.advanced.capture_backend).to_string(),
+        }
+    }
+
+    /// Tell status watchers something changed.
+    pub fn broadcast(&mut self) {
+        let status = self.status();
+        self.watchers.retain(|w| w.try_send(status.clone()).is_ok() || !w.is_closed());
+    }
+}
+
+/// Route requests from the socket to their handlers. Each runs as its own task so a
+/// long-running one (a selector waiting for the user) never blocks `status` or `stop`.
+pub(crate) async fn serve(incoming: async_channel::Receiver<Incoming>, cx: &mut AsyncApp) {
+    while let Ok(message) = incoming.recv().await {
+        match message {
+            Incoming::Watch { updates } => {
+                cx.update(|cx| {
+                    Daemon::update(cx, |d, _| {
+                        let _ = updates.try_send(d.status());
+                        d.watchers.push(updates);
+                    })
+                });
+            }
+            Incoming::Request { request, reply } => {
+                cx.spawn(async move |cx| {
+                    let response = handle(request, cx).await;
+                    let _ = reply.send(response).await;
+                })
+                .detach();
+            }
+        }
+    }
+}
+
+async fn handle(request: Request, cx: &mut AsyncApp) -> Response {
+    match request {
+        Request::Ping => Response::Ok,
+        Request::Status => Response::Status(cx.update(|cx| Daemon::get(cx).status())),
+        Request::Quit => {
+            // Never lose a recording to a quit.
+            if cx.update(|cx| Daemon::get(cx).recording.is_some()) {
+                crate::recording::stop(cx).await;
+            }
+            cx.update(|cx| cx.quit());
+            Response::Ok
+        }
+        Request::Screenshot(req) => crate::screenshot::take(req, cx).await,
+        Request::Record(req) => crate::recording::record(req, cx).await,
+        Request::RecordStop => crate::recording::stop(cx).await,
+        Request::RecordCancel => crate::recording::cancel(cx).await,
+        Request::RecordPause => cx.update(crate::recording::toggle_pause),
+        Request::Settings => Response::error("the settings window is not implemented yet"),
+        Request::Edit { .. } => Response::error("the editor is not implemented yet"),
+        Request::Pin { .. } => Response::error("pinning is not implemented yet"),
+        Request::Watch => Response::error("watch is a streaming request"),
+    }
+}
+
+/// Reload the config when the file changes (from the settings window or by hand).
+pub(crate) async fn watch_config(cx: &mut AsyncApp) {
+    let path: PathBuf = Paths::get().config_file();
+    let mtime = |p: &PathBuf| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let mut last: Option<SystemTime> = mtime(&path);
+    loop {
+        cx.background_executor().timer(Duration::from_secs(1)).await;
+        let now = mtime(&path);
+        if now == last {
+            continue;
+        }
+        last = now;
+        match Config::load() {
+            Ok(config) => {
+                tracing::info!("config reloaded");
+                cx.update(|cx| Daemon::update(cx, |d, _| d.config = config));
+            }
+            Err(e) => tracing::warn!("{e}; keeping the previous settings"),
+        }
+    }
+}

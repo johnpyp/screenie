@@ -1,0 +1,25 @@
+[package]
+name = "screenie-app"
+description = "The screenie daemon: request routing, capture flows, after-capture actions, and floating UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+screenie-config.workspace = true
+screenie-record.workspace = true
+screenie-ipc.workspace = true
+screenie-capture.workspace = true
+screenie-compositor.workspace = true
+screenie-selector.workspace = true
+screenie-ui-kit.workspace = true
+gpui.workspace = true
+gpui-kit.workspace = true
+anyhow.workspace = true
+async-channel.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+wl-clipboard-rs.workspace = true
+url.workspace = true
+png.workspace = true

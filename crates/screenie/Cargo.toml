@@ -1,0 +1,21 @@
+[package]
+name = "screenie"
+description = "Screenshots and screen recordings for Wayland"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "screenie"
+path = "src/main.rs"
+
+[dependencies]
+screenie-core.workspace = true
+screenie-config.workspace = true
+screenie-ipc.workspace = true
+screenie-app.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
