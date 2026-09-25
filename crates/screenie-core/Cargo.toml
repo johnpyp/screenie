@@ -1,0 +1,11 @@
+[package]
+name = "screenie-core"
+description = "Shared domain types: geometry, pixel buffers, outputs and snapshots"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+png.workspace = true
+thiserror.workspace = true

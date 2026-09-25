@@ -1,0 +1,16 @@
+[package]
+name = "screenie-wayland"
+description = "Wayland screen capture (ext-image-copy-capture, wlr-screencopy) and output discovery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+wayland-client.workspace = true
+wayland-protocols.workspace = true
+wayland-protocols-wlr.workspace = true
+rustix.workspace = true
+memmap2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

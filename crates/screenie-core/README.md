@@ -1,0 +1,16 @@
+# screenie-core
+
+The vocabulary every other crate shares. It has no Wayland or GUI dependencies.
+
+- **`geom`**: `Point`, `Size`, `Rect` (logical, `f64`) and `PixelRect` (physical, integer).
+  `Rect::to_pixels(origin, scale)` is the one place logical becomes physical. Rects parse
+  from `"X,Y WxH"` and `"WxH+X+Y"`. `Transform` models `wl_output` transforms.
+- **`image`**: `Image`, a cheap-to-clone (Arc'd) 8-bit pixel buffer in one of four
+  byte orders. It supports crop, blit, bilinear resize, format conversion and PNG
+  encode/decode. Opaque images are written as RGB.
+- **`desktop`**: `OutputInfo`, `WindowInfo`, and `Snapshot` (every output's pixels plus
+  the window list at one instant). `Snapshot::render_region` turns any logical rect into
+  an image. It crops natively when the rect is on one output and composites at the
+  highest scale when it spans several.
+- **`stream`**: the `FrameSource` trait, a live view of the screen that yields frames as
+  it changes. The recorder consumes it; screencopy (and later PipeWire) implement it.

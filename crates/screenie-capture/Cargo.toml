@@ -1,0 +1,14 @@
+[package]
+name = "screenie-capture"
+description = "Freeze the desktop: picks a capture backend and assembles Snapshots"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+screenie-config.workspace = true
+screenie-wayland.workspace = true
+screenie-compositor.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
