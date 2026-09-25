@@ -1,6 +1,65 @@
-[package]
-name = "screenie"
+[workspace]
+resolver = "3"
+members = ["crates/*", "tools/wlinput"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+rust-version = "1.90"
 
-[dependencies]
+[workspace.dependencies]
+# Internal crates
+screenie-core = { path = "crates/screenie-core" }
+screenie-config = { path = "crates/screenie-config" }
+screenie-ipc = { path = "crates/screenie-ipc" }
+screenie-wayland = { path = "crates/screenie-wayland" }
+screenie-portal = { path = "crates/screenie-portal" }
+screenie-capture = { path = "crates/screenie-capture" }
+screenie-compositor = { path = "crates/screenie-compositor" }
+screenie-record = { path = "crates/screenie-record" }
+screenie-annotate = { path = "crates/screenie-annotate" }
+screenie-ui-kit = { path = "crates/screenie-ui-kit" }
+screenie-selector = { path = "crates/screenie-selector" }
+screenie-editor = { path = "crates/screenie-editor" }
+screenie-app = { path = "crates/screenie-app" }
+
+# Ecosystem
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+clap = { version = "4", features = ["derive"] }
+chrono = "0.4"
+directories = "6"
+async-channel = "2"
+rustix = { version = "1", features = ["fs", "shm", "mm", "process", "event"] }
+memmap2 = "0.9"
+png = "0.18"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wl-clipboard-rs = "0.9"
+url = "2"
+ashpd = "0.13"
+# UI: GPUI (Zed's GPU UI framework, via the gpui-pre snapshots) and gpui-component.
+gpui = { package = "gpui-pre", version = "=0.3.6" }
+gpui-kit = { version = "=0.6.6", default-features = false, features = ["component", "assets"] }
+tiny-skia = "0.11"
+gst = { package = "gstreamer", version = "0.25" }
+gst-app = { package = "gstreamer-app", version = "0.25" }
+gst-video = { package = "gstreamer-video", version = "0.25" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+# Image encoding and pixel shuffling are unbearably slow unoptimized.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 4

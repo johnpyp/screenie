@@ -70,6 +70,14 @@ def git(*args: str, cwd: Path) -> str:
     return result.stdout.strip()
 
 
+def has_commit(path: Path) -> bool:
+    """False for a checkout whose first fetch never completed."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=path, capture_output=True, check=False
+    )
+    return result.returncode == 0
+
+
 def is_dirty(path: Path) -> bool:
     return bool(git("status", "--porcelain", cwd=path))
 
@@ -81,11 +89,15 @@ def head_summary(path: Path) -> str:
 def sync(ref: Reference, force: bool) -> tuple[Reference, str, bool]:
     """Bring one reference up to date. Returns (ref, message, ok)."""
     try:
-        fresh = not (ref.path / ".git").exists()
-        if fresh:
+        initialized = (ref.path / ".git").exists()
+        fresh = not initialized or not has_commit(ref.path)
+        if not initialized:
             ref.path.mkdir(parents=True, exist_ok=True)
             git("init", "--quiet", cwd=ref.path)
             git("remote", "add", "origin", ref.url, cwd=ref.path)
+        elif fresh:
+            # A previous first fetch failed part-way; retry it.
+            git("remote", "set-url", "origin", ref.url, cwd=ref.path)
         else:
             git("remote", "set-url", "origin", ref.url, cwd=ref.path)
             if is_dirty(ref.path) and not force:

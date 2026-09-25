@@ -7,9 +7,14 @@
 [[repo]]
 name = "screendrop"
 url = "https://github.com/fayazara/Screendrop"
-notes = "TODO"
+notes = "macOS screenshot/recording app; the feature and UX bar (preview stack, annotation editor, recording studio)."
 
 [[repo]]
 name = "omarchy"
 url = "https://github.com/omacom/omarchy"
-notes = "TODO"
+notes = "bin/omarchy-capture-*: the grim/slurp and recorder scripts screenie replaces (smart region picking, recording finalize)."
+
+[[repo]]
+name = "gpui-component"
+url = "https://github.com/longbridge/gpui-component"
+notes = "GPUI component library screenie's UI uses; crates/story has usage examples for every component."
