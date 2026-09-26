@@ -15,8 +15,6 @@ use crate::server::Incoming;
 pub(crate) struct Daemon {
     pub config: Config,
     pub capture: Arc<CaptureContext>,
-    /// Region of the last capture, for `screenie shot last`.
-    pub last_region: Option<Rect>,
     /// A selector (or other capture UI) is on screen.
     pub capturing: bool,
     /// The screenshot selector on screen, to hand a second request to.
@@ -26,9 +24,8 @@ pub(crate) struct Daemon {
     pub saving: bool,
     /// Open editor windows.
     pub editors: u32,
-    last_screenshot: Option<LastCapture>,
-    last_recording: Option<LastCapture>,
-    /// What's remembered between runs (the editor's last style).
+    /// What's remembered between runs: the editor's last style, and the last captures
+    /// (so `shot last` and `query last` survive a restart, above all an automatic one).
     pub state: screenie_state::StateFile,
     commit: &'static str,
     watchers: Vec<async_channel::Sender<Status>>,
@@ -43,14 +40,11 @@ impl Daemon {
         Self {
             config,
             capture,
-            last_region: None,
             capturing: false,
             selector: None,
             recording: None,
             saving: false,
             editors: 0,
-            last_screenshot: None,
-            last_recording: None,
             state: screenie_state::StateFile::open(),
             commit,
             watchers: Vec::new(),
@@ -86,8 +80,8 @@ impl Daemon {
             state,
             recording,
             editors: self.editors,
-            last_screenshot: self.last_screenshot.clone(),
-            last_recording: self.last_recording.clone(),
+            last_screenshot: self.last_capture(CaptureKind::Screenshot),
+            last_recording: self.last_capture(CaptureKind::Recording),
             capturing: self.capturing,
             pid: std::process::id(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -101,17 +95,52 @@ impl Daemon {
         }
     }
 
-    /// Remember a finished capture (for `screenie last` and status watchers).
+    /// Remember a finished capture (for `screenie query last` and status watchers).
     pub fn note_capture(&mut self, kind: CaptureKind, path: Option<PathBuf>) {
         let time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
-        let last = Some(LastCapture { kind, path, time });
-        match kind {
-            CaptureKind::Screenshot => self.last_screenshot = last,
-            CaptureKind::Recording => self.last_recording = last,
-        }
+        let capture = Some(screenie_state::Capture { path, time });
+        self.remember(|last| match kind {
+            CaptureKind::Screenshot => last.screenshot = capture,
+            CaptureKind::Recording => last.recording = capture,
+        });
         self.broadcast();
+    }
+
+    fn last_capture(&self, kind: CaptureKind) -> Option<LastCapture> {
+        let last = &self.state.state().last;
+        let capture = match kind {
+            CaptureKind::Screenshot => &last.screenshot,
+            CaptureKind::Recording => &last.recording,
+        };
+        capture.as_ref().map(|c| LastCapture {
+            kind,
+            path: c.path.clone(),
+            time: c.time,
+        })
+    }
+
+    /// The region of the latest capture, for `screenie shot last` / `record last`.
+    pub fn last_region(&self) -> Option<Rect> {
+        let r = self.state.state().last.region?;
+        Some(Rect::new(r.x, r.y, r.width, r.height))
+    }
+
+    pub fn remember_region(&mut self, rect: Rect) {
+        let region = screenie_state::Region {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        };
+        self.remember(|last| last.region = Some(region));
+    }
+
+    fn remember(&mut self, change: impl FnOnce(&mut screenie_state::LastState)) {
+        if let Err(e) = self.state.update(|s| change(&mut s.last)) {
+            tracing::warn!("{e}");
+        }
     }
 
     /// Tell status watchers the status, if it changed since they were last told.

@@ -12,7 +12,7 @@ Status: **done** for screenshots on wlroots-family compositors. Portal backend: 
 | `screenie shot screen` | Focused output, no UI. `--output-name DP-1` picks one. |
 | `screenie shot all` | Every output stitched into one image at the highest scale. |
 | `screenie shot active` | Focused window, no UI (needs compositor IPC). |
-| `screenie shot last` | Same region as the previous capture. |
+| `screenie shot last` | Same region as the previous capture, even across daemon restarts (clipped to the current screens). |
 | `screenie shot --region "X,Y WxH"` | That logical region, no UI. `WxH+X+Y` also parses. |
 
 `--delay N` waits first. `--cursor` includes the pointer. Exit codes are 0 for

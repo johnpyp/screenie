@@ -1,0 +1,19 @@
+# A state file as version 2 writes it, with every field set. Don't edit: add a new
+# fixture for each new version instead (see src/migrate.rs).
+version: 2
+editor:
+  color: '#0a84ff'
+  size: 8.0
+  fill: true
+last:
+  region:
+    x: 1920.0
+    y: 40.5
+    width: 800.0
+    height: 600.0
+  screenshot:
+    path: /home/me/Pictures/Screenshots/Screenshot_2026-09-26_14-02-11_firefox.png
+    time: 1790431331
+  recording:
+    path: /home/me/Videos/Screencasts/Recording_2026-09-26_14-05-40.mp4
+    time: 1790431540

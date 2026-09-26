@@ -38,7 +38,10 @@ plain `px`.
 
 Other paths:
 
-- State and logs: `$XDG_STATE_HOME/screenie/`. That holds `daemon.log`, and
-  `state.yaml`, what screenie remembers between runs, such as the editor's last colour
-  and size. That file isn't settings: screenie rewrites it, and it's safe to delete.
-- Socket: `$XDG_RUNTIME_DIR/screenie/<WAYLAND_DISPLAY>.sock`, one daemon per session.
+- State and logs: `$XDG_STATE_HOME/screenie/`. That holds `daemon.log` (and the
+  previous run's, `daemon.log.1`), and `state.yaml`, what screenie remembers between
+  runs: the editor's last colour and size, and the last captures (the region
+  `shot last` reuses, and what `query last` reports). That file isn't settings: screenie
+  rewrites it, and it's safe to delete.
+- Socket: `$XDG_RUNTIME_DIR/screenie/<WAYLAND_DISPLAY>.sock`, one daemon per session,
+  kept to one by the `<WAYLAND_DISPLAY>.lock` it holds.

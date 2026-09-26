@@ -1,5 +1,5 @@
 //! What screenie remembers between runs, as opposed to what the user sets
-//! (`screenie-config`): today, the editor's last colour and size.
+//! (`screenie-config`): the editor's last style, and the last captures.
 //!
 //! It lives in `$XDG_STATE_HOME/screenie/state.yaml`. [`StateFile`] is the only reader
 //! and writer. The file carries a `version`; older files are brought up to date by the
@@ -23,6 +23,7 @@ pub use migrate::VERSION;
 #[serde(default)]
 pub struct State {
     pub editor: EditorState,
+    pub last: LastState,
 }
 
 /// The editor's style as last used.
@@ -38,6 +39,39 @@ pub struct EditorState {
     /// Filled shapes and labelled text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fill: Option<bool>,
+}
+
+/// The latest captures, so `shot last` and `query last` survive a daemon restart (an
+/// upgrade, a crash, logging out).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LastState {
+    /// The region of the latest capture, for `screenie shot last` / `record last`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<Region>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screenshot: Option<Capture>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recording: Option<Capture>,
+}
+
+/// A rectangle in the compositor's logical coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Region {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// A finished capture.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Capture {
+    /// Where it was saved; absent if it was only copied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+    /// When it was taken, in Unix seconds.
+    pub time: u64,
 }
 
 #[derive(Debug, thiserror::Error)]

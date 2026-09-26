@@ -216,7 +216,7 @@ fn home_output(region: Rect, outputs: &[OutputInfo]) -> Option<&OutputInfo> {
 async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<PathBuf>> {
     let (config, capture, last_region) = cx.update(|cx| {
         let d = Daemon::get(cx);
-        (d.config.clone(), d.capture.clone(), d.last_region)
+        (d.config.clone(), d.capture.clone(), d.last_region())
     });
     let background = cx.background_executor().clone();
     let compositor = capture.compositor().clone();
@@ -313,7 +313,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     if region.width < 8.0 || region.height < 8.0 {
         bail!("the region is too small to record");
     }
-    cx.update(|cx| Daemon::update(cx, |d, _| d.last_region = Some(region)));
+    cx.update(|cx| Daemon::update(cx, |d, _| d.remember_region(region)));
 
     // A window is recorded by itself where the compositor allows: the recording follows
     // it and shows nothing that covers it. Opened now, so a failure shows before the

@@ -14,21 +14,16 @@
 use serde_json::Value;
 
 /// The layout this build reads and writes.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// Turn a version `from` document into a [`VERSION`] one.
-#[allow(unused_mut, unused_variables)] // until the first step exists
 pub(crate) fn migrate(mut doc: Value, from: u32) -> Value {
-    // Version 1 is the first layout, so there's nothing to do yet. Steps go here, in
-    // order, e.g.:
-    //
-    // if from < 2 {
-    //     // v2 renamed `editor.size` to `editor.width`.
-    //     if let Some(editor) = doc.get_mut("editor").and_then(Value::as_object_mut)
-    //         && let Some(size) = editor.remove("size")
-    //     {
-    //         editor.insert("width".into(), size);
-    //     }
-    // }
+    if from < 2 {
+        // v2 remembers the last captures, under `last`. A v1 file has none yet.
+        if let Some(map) = doc.as_object_mut() {
+            map.entry("last")
+                .or_insert_with(|| Value::Object(Default::default()));
+        }
+    }
     doc
 }

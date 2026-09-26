@@ -1,7 +1,9 @@
 # screenie-state
 
 What screenie remembers between runs, as opposed to what the user sets
-(`screenie-config`). Today that's the editor's last colour, size and fill.
+(`screenie-config`): the editor's last colour, size and fill, and the last captures (the
+region `shot last` reuses, and the latest screenshot and recording `query last`
+reports), so they survive the daemon restarting.
 
 - **`StateFile`** is the only reader and writer of `$XDG_STATE_HOME/screenie/state.yaml`.
   `open()` never fails: a missing file is empty state, and a broken or unversioned one

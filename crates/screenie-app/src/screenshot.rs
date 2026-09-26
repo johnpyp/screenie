@@ -81,7 +81,7 @@ async fn run(
 ) -> anyhow::Result<Option<deliver::Delivered>> {
     let (config, capture, last_region) = cx.update(|cx| {
         let d = Daemon::get(cx);
-        (d.config.clone(), d.capture.clone(), d.last_region)
+        (d.config.clone(), d.capture.clone(), d.last_region())
     });
     let mut actions = Actions::resolve(
         &config.screenshot.after_capture,
@@ -250,7 +250,7 @@ async fn run(
         .await;
     let taken = snapshot.taken_at.into();
     drop(snapshot);
-    cx.update(|cx| Daemon::update(cx, |d, _| d.last_region = Some(region)));
+    cx.update(|cx| Daemon::update(cx, |d, _| d.remember_region(region)));
 
     let capture = Capture {
         scale: (image.width() as f64 / region.width) as f32,
