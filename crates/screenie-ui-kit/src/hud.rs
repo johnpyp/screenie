@@ -88,17 +88,18 @@ pub fn panel_shadow() -> Vec<BoxShadow> {
 const PANEL_RADIUS: f32 = 14.0;
 const PANEL_PADDING: f32 = 3.0;
 
-/// Taken off a concentric inner radius so the gap *looks* even: along a curve both
+/// Added to a concentric inner radius so the gap *looks* even: along a curve both
 /// edges are antialiased, and their grey pixels eat into the gap, so an exactly
-/// concentric corner reads tighter than the straight sides. A slightly tighter inner
-/// curve opens the corner back up (as type designers overshoot round letters).
+/// concentric corner reads tighter than the straight sides. A rounder inner corner
+/// pulls back from the panel's, opening the gap across the corner by about 0.4px per
+/// pixel of radius (as type designers overshoot round letters).
 const OPTICAL_CORRECTION: f32 = 1.0;
 
 /// The corner radius of a control sitting in a [`panel`]: the panel's radius less the gap
 /// between the two edges (padding and the 1px border), so both corners share a centre,
-/// less [`OPTICAL_CORRECTION`].
+/// plus [`OPTICAL_CORRECTION`].
 pub fn inner_radius() -> Rems {
-    ui(PANEL_RADIUS - PANEL_PADDING - 1.0 - OPTICAL_CORRECTION)
+    ui(PANEL_RADIUS - PANEL_PADDING - 1.0 + OPTICAL_CORRECTION)
 }
 
 /// A floating HUD panel (flex row by default). It swallows the pointer, so clicks on
