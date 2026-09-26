@@ -16,7 +16,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gpui::BorrowAppContext;
 use gpui::layer_shell::Anchor;
 use gpui::prelude::*;
 use gpui::{
@@ -251,6 +250,11 @@ impl PreviewItem {
         matches!(self.media, Media::Recording { saving: true, .. })
     }
 
+    /// In use, so it mustn't go: under the pointer, or a recording still being finished.
+    fn pinned(&self) -> bool {
+        self.hovered || self.is_saving()
+    }
+
     /// The thumbnail is scaled on a background thread.
     async fn new(
         media: Media,
@@ -322,89 +326,150 @@ impl PreviewItem {
     }
 }
 
-/// Where the open stack lives; a new capture elsewhere moves it.
+/// Where a stack lives.
 #[derive(Clone, PartialEq)]
 struct Placement {
     output: Option<String>,
     position: ScreenPosition,
 }
 
+/// The open stacks, one per placement. A capture on another output (or after
+/// `preview.position` changed) opens a stack there, and the cards already up stay where
+/// they are.
+#[derive(Default)]
 struct Previews {
-    window: Option<(WindowHandle<PreviewStack>, Placement)>,
+    stacks: Vec<(WindowHandle<PreviewStack>, Placement)>,
 }
 
 impl Global for Previews {}
 
-/// Show a card, on `output` if given.
-pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
-    if !cx.has_global::<Previews>() {
-        cx.set_global(Previews { window: None });
-    }
-    let placement = Placement {
-        output: output.clone(),
-        position: Daemon::get(cx).config.preview.position,
-    };
-    // Reuse the open stack if it's in the same place.
-    if let Some((handle, current)) = cx.global::<Previews>().window.clone()
-        && current == placement
-    {
-        let pushed = handle.update(cx, |stack, _, cx| stack.push(item, cx));
-        if pushed.is_ok() {
-            return;
-        }
-        // The window is gone; fall through and open a new one. (The item was moved into
-        // the failed update, so there's nothing to show.)
-        cx.global_mut::<Previews>().window = None;
-        return;
-    }
-    if let Some((handle, _)) = cx.global_mut::<Previews>().window.take() {
-        let _ = handle.update(cx, |_, window, _| window.remove_window());
+impl Previews {
+    /// Forget stacks whose surface is gone: closed by the compositor (an output
+    /// unplugged or turned off) rather than by us.
+    fn prune(cx: &mut App) {
+        let stacks = std::mem::take(&mut cx.default_global::<Previews>().stacks);
+        let live = stacks
+            .into_iter()
+            .filter(|(handle, _)| handle.update(cx, |_, _, _| ()).is_ok())
+            .collect();
+        cx.global_mut::<Previews>().stacks = live;
     }
 
+    fn forget(handle: WindowHandle<PreviewStack>, cx: &mut App) {
+        cx.default_global::<Previews>()
+            .stacks
+            .retain(|(h, _)| *h != handle);
+    }
+
+    fn handles(cx: &App) -> Vec<WindowHandle<PreviewStack>> {
+        cx.try_global::<Previews>()
+            .map(|p| p.stacks.iter().map(|(h, _)| *h).collect())
+            .unwrap_or_default()
+    }
+}
+
+/// Show a card, on `output` if given.
+pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
+    Previews::prune(cx);
+    let placement = Placement {
+        output,
+        position: Daemon::get(cx).config.preview.position,
+    };
+    let existing = cx
+        .global::<Previews>()
+        .stacks
+        .iter()
+        .find(|(_, p)| *p == placement)
+        .map(|(h, _)| *h);
+    let mut item = Some(item);
+    if let Some(handle) = existing {
+        // If the surface is gone after all, the closure never runs and the item is still
+        // here for a new one.
+        let _ = handle.update(cx, |stack, _, cx| {
+            if let Some(item) = item.take() {
+                stack.push(item, cx);
+            }
+        });
+        if item.is_none() {
+            return;
+        }
+        Previews::forget(handle, cx);
+    }
+    open_stack(placement, item.into_iter().collect(), cx);
+}
+
+/// Open a stack surface at `placement`, holding `items`.
+fn open_stack(placement: Placement, items: Vec<PreviewItem>, cx: &mut App) {
     // One transparent surface over the output's free area (a size of 0 lets the compositor
     // stretch it between the anchors, clear of bars); input is limited to the cards, so
     // the rest is click-through. Positions are just alignments within it.
     let spec = LayerSpec {
-        output: output.clone(),
+        output: placement.output.clone(),
         ..LayerSpec::floating(
             NAMESPACE,
             Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
             size(px(0.), px(0.)),
         )
     };
-    let position = placement.position;
+    let (position, output) = (placement.position, placement.output.clone());
     let opened = cx.open_window(layer_options(cx, &spec), |window, cx| {
         screenie_ui_kit::conceal::track(window, &spec, cx);
         let stack = cx.new(|cx| PreviewStack::new(position, output, window, cx));
         stack.update(cx, |s, cx| {
-            s.push(item, cx);
+            for item in items {
+                s.push(item, cx);
+            }
         });
         stack
     });
     match opened {
-        Ok(handle) => cx.global_mut::<Previews>().window = Some((handle, placement)),
+        Ok(handle) => cx
+            .default_global::<Previews>()
+            .stacks
+            .push((handle, placement)),
         Err(e) => tracing::warn!("cannot show the preview card: {e}"),
     }
 }
 
-/// A recording's card, shown while it was being finished, now has its file.
-pub(crate) fn saved(id: u64, finished: &screenie_record::Finished, copied: bool, cx: &mut App) {
+/// A recording's card, shown while it was being finished, now has its file. False if
+/// the card is gone (its surface closed with its output, say).
+pub(crate) fn saved(
+    id: u64,
+    finished: &screenie_record::Finished,
+    copied: bool,
+    cx: &mut App,
+) -> bool {
     let (path, bytes, duration) = (finished.path.clone(), finished.bytes, finished.duration);
-    with_stack(cx, move |stack, cx| {
+    with_card(id, cx, move |stack, cx| {
         stack.saved(id, path, bytes, duration, copied, cx)
-    });
+    })
 }
 
 /// Take a card away, e.g. a recording that couldn't be finished.
 pub(crate) fn discard(id: u64, cx: &mut App) {
-    with_stack(cx, move |stack, cx| stack.remove(id, cx));
+    with_card(id, cx, move |stack, cx| stack.remove(id, cx));
 }
 
-fn with_stack(cx: &mut App, f: impl FnOnce(&mut PreviewStack, &mut Context<PreviewStack>)) {
-    let Some((handle, _)) = cx.try_global::<Previews>().and_then(|p| p.window.clone()) else {
-        return;
-    };
-    let _ = handle.update(cx, |stack, _, cx| f(stack, cx));
+/// Run `f` on the stack holding card `id`. False if none does.
+fn with_card(
+    id: u64,
+    cx: &mut App,
+    f: impl FnOnce(&mut PreviewStack, &mut Context<PreviewStack>),
+) -> bool {
+    let mut f = Some(f);
+    for handle in Previews::handles(cx) {
+        let _ = handle.update(cx, |stack, _, cx| {
+            if stack.items.iter().any(|i| i.id == id)
+                && let Some(f) = f.take()
+            {
+                f(stack, cx);
+            }
+        });
+        if f.is_none() {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) struct PreviewStack {
@@ -433,6 +498,7 @@ impl PreviewStack {
         })
         .detach();
         screenie_editor::observe_overlays(cx, |_, cx| cx.notify()).detach();
+        let handle = window.window_handle().downcast::<Self>();
         cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -441,15 +507,17 @@ impl PreviewStack {
                 let alive = this.update_in(cx, |stack, window, cx| {
                     stack.expire(window, cx);
                     // Not while it has the keyboard: a held key would go to the app beneath.
-                    if stack.items.is_empty() && !stack.hover.read(cx).has_keyboard() {
+                    let done = stack.items.is_empty() && !stack.hover.read(cx).has_keyboard();
+                    if done {
                         window.remove_window();
-                        cx.update_global::<Previews, _>(|p, _| p.window = None);
-                        false
-                    } else {
-                        true
                     }
+                    !done
                 });
                 if !matches!(alive, Ok(true)) {
+                    // Emptied, or closed by the compositor along with its output.
+                    if let Some(handle) = handle {
+                        AsyncApp::update(cx, |cx| Previews::forget(handle, cx));
+                    }
                     break;
                 }
             }
@@ -475,7 +543,11 @@ impl PreviewStack {
         item.deadline = Self::timeout(cx).map(|t| Instant::now() + t);
         self.items.push(item);
         if self.items.len() > MAX_CARDS {
-            self.items.remove(0);
+            // The oldest that isn't in use: never the one under the pointer, or a
+            // recording still being finished (its file would get no card).
+            if let Some(i) = self.items.iter().position(|i| !i.pinned()) {
+                self.items.remove(i);
+            }
         }
         cx.notify();
     }
@@ -497,7 +569,7 @@ impl PreviewStack {
         self.ticked = now;
         let before = self.items.len();
         self.items
-            .retain(|i| i.hovered || i.is_saving() || i.deadline.is_none_or(|d| d > now));
+            .retain(|i| i.pinned() || i.deadline.is_none_or(|d| d > now));
         if self.items.len() != before {
             cx.notify();
         }

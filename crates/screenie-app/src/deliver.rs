@@ -301,13 +301,15 @@ pub(crate) async fn recording(
             .await
             .is_ok()
     };
-    match (actions.preview, card) {
-        (true, Some(card)) => cx.update(|cx| preview::saved(card, &finished, copied, cx)),
-        (true, None) => {
-            let item = PreviewItem::recording(finished, copied, cx).await;
-            cx.update(|cx| preview::show(item, output_name, cx));
-        }
-        (false, _) => {}
+    if !actions.preview {
+        return;
+    }
+    // Its card, or a new one if that's gone (its output unplugged, say).
+    let finished_card =
+        card.is_some_and(|card| cx.update(|cx| preview::saved(card, &finished, copied, cx)));
+    if !finished_card {
+        let item = PreviewItem::recording(finished, copied, cx).await;
+        cx.update(|cx| preview::show(item, output_name, cx));
     }
 }
 
