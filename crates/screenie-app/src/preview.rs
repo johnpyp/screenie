@@ -40,6 +40,7 @@ const CARD_MAX: f32 = 236.0;
 const CARD_MIN: (f32, f32) = (204.0, 116.0);
 const EDGE_MARGIN: f32 = 18.0;
 const GAP: f32 = 12.0;
+/// At most this many cards stack, fewer if they don't fit the output (see [`overflow`]).
 const MAX_CARDS: usize = 5;
 /// The stack's layer namespace, which also names it for [`conceal`](screenie_ui_kit::conceal).
 pub(crate) const NAMESPACE: &str = "screenie-preview";
@@ -640,6 +641,28 @@ impl PreviewStack {
         cx.notify();
     }
 
+    /// Let the oldest cards go while the stack is taller than the surface (a small
+    /// screen, tall captures, a large interface scale), rather than spill off it.
+    fn fit(&mut self, window: &Window, cx: &App) {
+        let height = f32::from(window.viewport_size().height);
+        // Not laid out yet.
+        if height <= 0. {
+            return;
+        }
+        let k = screenie_ui_kit::ui_scale(cx);
+        let cards: Vec<_> = self
+            .items
+            .iter()
+            .map(|i| (i.card.1 * k, i.pinned()))
+            .collect();
+        for i in overflow(&cards, height - 2. * EDGE_MARGIN * k, GAP * k)
+            .into_iter()
+            .rev()
+        {
+            self.items.remove(i);
+        }
+    }
+
     fn expire(&mut self, window: &Window, cx: &mut Context<Self>) {
         let now = Instant::now();
         // While their screen is recorded, cards are concealed. One that came meanwhile (a
@@ -1078,6 +1101,8 @@ impl PreviewStack {
             .relative()
             .w(px(w))
             .h(px(h))
+            // Never squeezed: a stack that doesn't fit drops cards instead.
+            .flex_none()
             .rounded(ui(12.))
             .bg(color::panel_solid())
             .border_1()
@@ -1119,6 +1144,27 @@ impl PreviewStack {
     }
 }
 
+/// Which of a stack's cards (oldest first: their heights, and whether each is pinned)
+/// to let go so the rest fit in `room`: the oldest first, never a pinned one, and never
+/// the newest.
+fn overflow(cards: &[(f32, bool)], room: f32, gap: f32) -> Vec<usize> {
+    let Some(newest) = cards.len().checked_sub(1) else {
+        return Vec::new();
+    };
+    let mut height = cards.iter().map(|c| c.0).sum::<f32>() + gap * newest as f32;
+    let mut drop = Vec::new();
+    for (i, &(h, pinned)) in cards[..newest].iter().enumerate() {
+        if height <= room {
+            break;
+        }
+        if !pinned {
+            drop.push(i);
+            height -= h + gap;
+        }
+    }
+    drop
+}
+
 fn format_duration(d: Duration) -> String {
     let s = d.as_secs_f64().round() as u64;
     format!("{}:{:02}", s / 60, s % 60)
@@ -1134,6 +1180,7 @@ fn format_bytes(n: u64) -> String {
 
 impl Render for PreviewStack {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.fit(window, cx);
         // The newest card sits nearest the edge (at the bottom, for the side middles).
         let vertical = self.position.vertical();
         let mut cards: Vec<_> = self.items.iter().map(|item| self.card(item, cx)).collect();
@@ -1160,5 +1207,34 @@ impl Render for PreviewStack {
         let stack = stack.gap(ui(GAP)).p(ui(EDGE_MARGIN)).children(cards);
         let stack = screenie_ui_kit::conceal::root(stack, window, cx);
         Hover::root(&self.hover, stack, cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stack_that_fits_keeps_every_card() {
+        assert!(overflow(&[(100., false); 3], 324., 12.).is_empty());
+        assert!(overflow(&[], 0., 12.).is_empty());
+    }
+
+    #[test]
+    fn the_oldest_cards_go_first() {
+        // 3 × 100 + 2 × 12 = 324: one too many for 300.
+        assert_eq!(overflow(&[(100., false); 3], 300., 12.), [0]);
+        assert_eq!(overflow(&[(100., false); 3], 150., 12.), [0, 1]);
+    }
+
+    #[test]
+    fn pinned_cards_and_the_newest_stay() {
+        let cards = [(100., true), (100., false), (100., false)];
+        assert_eq!(overflow(&cards, 150., 12.), [1]);
+        // Nothing else can go: it overflows rather than lose them.
+        assert_eq!(
+            overflow(&[(100., true), (100., false)], 50., 12.),
+            Vec::<usize>::new()
+        );
     }
 }

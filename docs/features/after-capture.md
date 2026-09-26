@@ -59,11 +59,12 @@ the default) or the middle of an edge (`top-middle`, `bottom-middle`, `left-midd
 `right-middle`). It sits 18px from the edges it touches, clear of bars, and slides in
 from the nearest edge. The newest card is closest to that edge.
 It stays for `preview.timeout` seconds (default 10; 0 = until dismissed). Hovering pauses the
-timer, and leaving gives it a short fresh lease. Up to five cards stack; a sixth pushes
-out the oldest one that isn't under the pointer or still being saved. Each output keeps
-its own stack, so a capture on another screen (or after `preview.position` changed)
-leaves the cards already up where they are. If the compositor closes a stack's surface
-(its output unplugged or turned off), the next card opens a new one. With copy and save
+timer, and leaving gives it a short fresh lease. Up to five cards stack, fewer if they
+wouldn't fit on the screen: a card past that pushes out the oldest one that isn't under
+the pointer or still being saved. Each output keeps its own stack, so a capture on
+another screen (or after `preview.position` changed) leaves the cards already up where
+they are. If the compositor closes a stack's surface (its output unplugged or turned
+off), the next card opens a new one. With copy and save
 off, an unsaved capture exists only in its card, so it's gone when the card goes.
 That's intended: turning on copy or save is how you keep captures.
 
