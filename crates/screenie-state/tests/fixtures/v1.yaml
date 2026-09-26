@@ -1,0 +1,7 @@
+# A state file as version 1 writes it, with every field set. Don't edit: add a new
+# fixture for each new version instead (see src/migrate.rs).
+version: 1
+editor:
+  color: '#0a84ff'
+  size: 8.0
+  fill: true

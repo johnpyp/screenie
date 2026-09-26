@@ -139,7 +139,9 @@ Bold, with system fonts as fallback for emoji and CJK.
   and Save instead. `editor.confirm_discard: false` turns the prompt off everywhere
   (Esc, Done, a window's close button): unkept annotations are then discarded.
 
-The last colour and size are remembered for the next editor while the daemon runs.
+The last colour, size and fill are remembered for the next editor, across restarts, in
+`$XDG_STATE_HOME/screenie/state.yaml` (see `screenie-state`). Until then the editor
+starts from `editor.default_color` and `editor.stroke_width`.
 
 ## Architecture
 

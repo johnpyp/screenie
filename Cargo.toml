@@ -12,6 +12,7 @@ rust-version = "1.90"
 # Internal crates
 screenie-core = { path = "crates/screenie-core" }
 screenie-config = { path = "crates/screenie-config" }
+screenie-state = { path = "crates/screenie-state" }
 screenie-ipc = { path = "crates/screenie-ipc" }
 screenie-wayland = { path = "crates/screenie-wayland" }
 screenie-portal = { path = "crates/screenie-portal" }

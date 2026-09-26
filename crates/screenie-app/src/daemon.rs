@@ -26,8 +26,8 @@ pub(crate) struct Daemon {
     pub editors: u32,
     last_screenshot: Option<LastCapture>,
     last_recording: Option<LastCapture>,
-    /// The style the last editor closed with, for the next one.
-    pub editor_style: Option<screenie_annotate::Style>,
+    /// What's remembered between runs (the editor's last style).
+    pub state: screenie_state::StateFile,
     commit: &'static str,
     watchers: Vec<async_channel::Sender<Status>>,
 }
@@ -42,7 +42,7 @@ impl Daemon {
             editors: 0,
             last_screenshot: None,
             last_recording: None,
-            editor_style: None,
+            state: screenie_state::StateFile::open(),
             commit, watchers: Vec::new() }
     }
 

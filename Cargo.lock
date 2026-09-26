@@ -6343,6 +6343,7 @@ dependencies = [
  "screenie-ipc",
  "screenie-record",
  "screenie-selector",
+ "screenie-state",
  "screenie-ui-kit",
  "tracing",
  "url",
@@ -6450,6 +6451,18 @@ dependencies = [
  "screenie-ui-kit",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "screenie-state"
+version = "0.1.0"
+dependencies = [
+ "screenie-config",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]

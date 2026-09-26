@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 screenie-core.workspace = true
 screenie-config.workspace = true
+screenie-state.workspace = true
 screenie-record.workspace = true
 screenie-ipc.workspace = true
 screenie-capture.workspace = true

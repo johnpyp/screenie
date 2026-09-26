@@ -12,5 +12,7 @@ Sections: `screenshot`, `recording`, `preview`, `selector`, `editor`, `advanced`
 
 Other paths:
 
-- State and logs: `$XDG_STATE_HOME/screenie/` (`daemon.log`).
+- State and logs: `$XDG_STATE_HOME/screenie/`. That holds `daemon.log`, and
+  `state.yaml`, what screenie remembers between runs, such as the editor's last colour
+  and size. That file isn't settings: screenie rewrites it, and it's safe to delete.
 - Socket: `$XDG_RUNTIME_DIR/screenie/<WAYLAND_DISPLAY>.sock`, one daemon per session.

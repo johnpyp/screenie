@@ -245,6 +245,7 @@ per-feature docs are in [`docs/features/`](docs/features), and known problems ar
 | `screenie-ui-kit` | Shared GPUI look: fonts, icons, HUD widgets, layer-shell helpers |
 | `screenie-ipc` | CLI ⇄ daemon protocol and socket |
 | `screenie-config` | Config schema, XDG paths, file naming |
+| `screenie-state` | What's remembered between runs: a versioned, migrated state file |
 | `screenie-core` | Geometry, images, snapshots, frame sources |
 
 You don't need a display to develop. `tools/` has a headless sway session with two

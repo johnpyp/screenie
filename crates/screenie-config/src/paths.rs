@@ -48,9 +48,14 @@ impl Paths {
         &self.config_dir
     }
 
-    /// Persistent state: capture history, portal permission tokens.
+    /// Persistent state: the daemon log and what screenie remembers (`state.yaml`).
     pub fn state_dir(&self) -> &Path {
         &self.state_dir
+    }
+
+    /// What screenie remembers between runs; owned by `screenie-state`.
+    pub fn state_file(&self) -> PathBuf {
+        self.state_dir.join("state.yaml")
     }
 
     /// Per-session files: the daemon socket, temporary captures.

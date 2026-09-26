@@ -1,0 +1,251 @@
+//! What screenie remembers between runs, as opposed to what the user sets
+//! (`screenie-config`): today, the editor's last colour and size.
+//!
+//! It lives in `$XDG_STATE_HOME/screenie/state.yaml`. [`StateFile`] is the only reader
+//! and writer. The file carries a `version`; older files are brought up to date by the
+//! migration chain in [`migrate`] before being read, so [`State`] only ever describes the
+//! current layout. Nothing here is precious: a broken file is set aside and screenie
+//! starts afresh.
+
+mod migrate;
+
+use std::path::{Path, PathBuf};
+
+use screenie_config::Paths;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+pub use migrate::VERSION;
+
+/// Everything remembered. Every field is optional: absent means "nothing yet", and the
+/// caller falls back to the configured default.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct State {
+    pub editor: EditorState,
+}
+
+/// The editor's style as last used.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorState {
+    /// `#rrggbb` or `#rrggbbaa`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Stroke width in logical pixels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<f32>,
+    /// Filled shapes and labelled text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fill: Option<bool>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("writing {path}: {source}")]
+    Write { path: PathBuf, source: std::io::Error },
+    #[error("serializing state: {0}")]
+    Serialize(#[from] serde_saphyr::SerializeError),
+}
+
+/// Why a state file couldn't be used.
+#[derive(Debug, thiserror::Error)]
+enum LoadError {
+    #[error("{0}")]
+    Read(#[from] std::io::Error),
+    #[error("not valid YAML: {0}")]
+    Parse(#[from] Box<serde_saphyr::Error>),
+    #[error("no version number")]
+    NoVersion,
+    #[error("written by a newer screenie (version {0}, this one knows up to {VERSION})")]
+    Newer(u64),
+    #[error("doesn't match version {VERSION}: {0}")]
+    Shape(#[from] serde_json::Error),
+}
+
+const HEADER: &str = "\
+# What screenie remembers between runs (settings are in config.yaml). Rewritten by
+# screenie; safe to delete.
+
+";
+
+/// The state file: loaded once, then kept in step with every [`StateFile::update`].
+#[derive(Debug)]
+pub struct StateFile {
+    path: PathBuf,
+    state: State,
+    /// False for a file from a newer screenie, which we mustn't overwrite with less.
+    writable: bool,
+}
+
+impl StateFile {
+    /// Open `$XDG_STATE_HOME/screenie/state.yaml`.
+    pub fn open() -> Self {
+        Self::open_at(Paths::get().state_file())
+    }
+
+    /// Open the state file at `path`. Never fails: a missing file is empty state, and a
+    /// broken one is renamed to `*.bad` (with a warning) and replaced.
+    pub fn open_at(path: impl Into<PathBuf>) -> Self {
+        let path = path.into();
+        match load(&path) {
+            Ok(state) => Self { path, state, writable: true },
+            Err(LoadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                Self { path, state: State::default(), writable: true }
+            }
+            Err(e @ LoadError::Newer(_)) => {
+                tracing::warn!("{}: {e}; not remembering anything this run", path.display());
+                Self { path, state: State::default(), writable: false }
+            }
+            Err(e) => {
+                let aside = path.with_extension("yaml.bad");
+                tracing::warn!("{}: {e}; moved it to {} and starting afresh", path.display(), aside.display());
+                let _ = std::fs::rename(&path, &aside);
+                Self { path, state: State::default(), writable: true }
+            }
+        }
+    }
+
+    pub fn state(&self) -> &State {
+        &self.state
+    }
+
+    /// Change the state, writing the file if anything changed.
+    pub fn update(&mut self, change: impl FnOnce(&mut State)) -> Result<(), Error> {
+        let mut state = self.state.clone();
+        change(&mut state);
+        if state == self.state {
+            return Ok(());
+        }
+        self.state = state;
+        if self.writable { self.save() } else { Ok(()) }
+    }
+
+    /// Write atomically, so a reader never sees half a file.
+    fn save(&self) -> Result<(), Error> {
+        #[derive(Serialize)]
+        struct OnDisk<'a> {
+            version: u32,
+            #[serde(flatten)]
+            state: &'a State,
+        }
+        let text = format!("{HEADER}{}", serde_saphyr::to_string(&OnDisk { version: VERSION, state: &self.state })?);
+        let werr = |source| Error::Write { path: self.path.clone(), source };
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir).map_err(werr)?;
+        }
+        let tmp = self.path.with_extension("yaml.tmp");
+        std::fs::write(&tmp, text).map_err(werr)?;
+        std::fs::rename(&tmp, &self.path).map_err(werr)
+    }
+}
+
+fn load(path: &Path) -> Result<State, LoadError> {
+    parse(&std::fs::read_to_string(path)?)
+}
+
+/// Read a state file of any known version as the current [`State`].
+fn parse(text: &str) -> Result<State, LoadError> {
+    let mut doc: Value = serde_saphyr::from_str(text).map_err(Box::new)?;
+    let version = doc.get("version").and_then(Value::as_u64).ok_or(LoadError::NoVersion)?;
+    if version > u64::from(VERSION) {
+        return Err(LoadError::Newer(version));
+    }
+    if let Some(map) = doc.as_object_mut() {
+        map.remove("version");
+    }
+    Ok(serde_json::from_value(migrate::migrate(doc, version as u32))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("screenie-state-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir.join("state.yaml")
+    }
+
+    fn remembered() -> EditorState {
+        EditorState { color: Some("#0a84ff".into()), size: Some(8.0), fill: Some(true) }
+    }
+
+    #[test]
+    fn missing_file_is_empty_and_updates_are_written_back() {
+        let path = scratch("roundtrip");
+        let mut file = StateFile::open_at(&path);
+        assert_eq!(file.state(), &State::default());
+        file.update(|s| s.editor = remembered()).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(&format!("version: {VERSION}")), "{text}");
+        assert_eq!(StateFile::open_at(&path).state().editor, remembered());
+    }
+
+    #[test]
+    fn broken_file_is_set_aside() {
+        let path = scratch("broken");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "editor: [not, a, map").unwrap();
+        let file = StateFile::open_at(&path);
+        assert_eq!(file.state(), &State::default());
+        assert!(path.with_extension("yaml.bad").exists());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn unversioned_file_is_set_aside() {
+        let path = scratch("unversioned");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "editor: { size: 8 }\n").unwrap();
+        assert_eq!(StateFile::open_at(&path).state(), &State::default());
+        assert!(path.with_extension("yaml.bad").exists());
+    }
+
+    #[test]
+    fn newer_file_is_left_alone() {
+        let path = scratch("newer");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let newer = format!("version: {}\neditor: {{ size: 8 }}\n", VERSION + 1);
+        std::fs::write(&path, &newer).unwrap();
+        let mut file = StateFile::open_at(&path);
+        assert_eq!(file.state(), &State::default());
+        file.update(|s| s.editor = remembered()).unwrap();
+        assert_eq!(file.state().editor, remembered(), "remembered for this run");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer, "but never written");
+    }
+
+    /// Every released layout still loads, and migrating loses nothing: what a fixture
+    /// migrates to reads back as the same document.
+    #[test]
+    fn every_version_migrates_without_loss() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        for version in 1..=VERSION {
+            let path = dir.join(format!("v{version}.yaml"));
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let mut doc: Value = serde_saphyr::from_str(&text).unwrap();
+            doc.as_object_mut().unwrap().remove("version");
+            let migrated = migrate::migrate(doc, version);
+            let state: State = serde_json::from_value(migrated.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&state).unwrap(), migrated, "v{version} lost something on the way");
+            assert_eq!(parse(&text).unwrap(), state);
+        }
+    }
+
+    #[test]
+    fn current_fixture_is_what_we_write() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/v{VERSION}.yaml"));
+        let fixture = parse(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+        let path = scratch("fixture");
+        StateFile::open_at(&path).update(|s| *s = fixture.clone()).unwrap();
+        assert_eq!(StateFile::open_at(&path).state(), &fixture);
+    }
+
+    #[test]
+    fn unchanged_state_isnt_written() {
+        let path = scratch("unchanged");
+        let mut file = StateFile::open_at(&path);
+        file.update(|_| {}).unwrap();
+        assert!(!path.exists());
+    }
+}

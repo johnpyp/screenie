@@ -6,7 +6,8 @@ use std::rc::Rc;
 
 use anyhow::Context as _;
 use gpui::{App, AsyncApp};
-use screenie_annotate::Color;
+use screenie_annotate::{Color, Style};
+use screenie_state::EditorState;
 use screenie_config::{EditorMode, Subject};
 use screenie_core::Image;
 use screenie_editor::{EditorOptions, Mode, OnDone, Output};
@@ -36,11 +37,7 @@ pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx
     let d = Daemon::get(cx);
     let config = &d.config.editor;
     let palette: Vec<Color> = config.palette.iter().filter_map(|c| c.parse().ok()).collect();
-    let mut style = d.editor_style.unwrap_or_default();
-    if d.editor_style.is_none() {
-        style.color = config.default_color.parse().unwrap_or(style.color);
-        style.size = config.stroke_width as f32;
-    }
+    let style = remembered_style(d);
     // A path passed in holds this very image; `-o` only says where it should go.
     let on_disk = path.is_some();
     let path = path.or_else(|| actions.output.clone());
@@ -109,6 +106,27 @@ pub(crate) async fn open_file(path: PathBuf, cx: &mut AsyncApp) -> anyhow::Resul
     })
 }
 
+/// The style the last editor closed with (even in an earlier run), or the configured
+/// defaults.
+fn remembered_style(d: &Daemon) -> Style {
+    let (config, last) = (&d.config.editor, &d.state.state().editor);
+    let color = last.color.as_deref().and_then(|c| c.parse().ok()).or_else(|| config.default_color.parse().ok());
+    Style {
+        color: color.unwrap_or(Style::default().color),
+        size: last.size.unwrap_or(config.stroke_width as f32),
+        fill: last.fill.unwrap_or_default(),
+    }
+}
+
+fn remember_style(style: Style, d: &mut Daemon) {
+    let result = d.state.update(|s| {
+        s.editor = EditorState { color: Some(style.color.to_string()), size: Some(style.size), fill: Some(style.fill) };
+    });
+    if let Err(e) = result {
+        tracing::warn!("{e}");
+    }
+}
+
 fn default_palette() -> Vec<Color> {
     screenie_config::EditorConfig::default().palette.iter().filter_map(|c| c.parse().ok()).collect()
 }
@@ -174,7 +192,7 @@ fn handle(
         }
         Output::Closed { style } => {
             Daemon::update(cx, |d, _| {
-                d.editor_style = Some(style);
+                remember_style(style, d);
                 d.editors = d.editors.saturating_sub(1);
                 d.broadcast();
             });

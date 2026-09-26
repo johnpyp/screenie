@@ -210,6 +210,8 @@ pub struct EditorConfig {
     pub mode: EditorMode,
     /// Hex colors offered in the palette.
     pub palette: Vec<String>,
+    /// The first editor's colour and size. After that the editor remembers the last ones
+    /// used (in the state file, across restarts).
     pub default_color: String,
     pub stroke_width: f64,
     /// Close the editor as soon as the image is copied (Ctrl+C or the Copy button).
