@@ -599,7 +599,7 @@ impl PreviewStack {
         let Media::Screenshot { png, capture } = item.media.clone() else {
             return;
         };
-        let path = crate::deliver::screenshot_path(&Daemon::get(cx).config, &capture.subject);
+        let path = crate::deliver::screenshot_path(&Daemon::get(cx).config, &capture);
         match crate::deliver::write_atomic(&path, &png) {
             Ok(()) => {
                 if let Some(item) = self.item(id) {

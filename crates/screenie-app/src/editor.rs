@@ -123,6 +123,10 @@ pub(crate) async fn open_file(path: PathBuf, cx: &mut AsyncApp) -> anyhow::Resul
             )
         })
         .await;
+    // Taken when it was last written, as far as anyone can tell.
+    let taken = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .map_or_else(|_| chrono::Local::now(), chrono::DateTime::from);
     cx.update(|cx| {
         let config = &Daemon::get(cx).config.screenshot.after_capture;
         let actions = Actions::resolve(config, &Default::default(), None, false);
@@ -132,6 +136,7 @@ pub(crate) async fn open_file(path: PathBuf, cx: &mut AsyncApp) -> anyhow::Resul
             subject: Subject::default(),
             output,
             placement: None,
+            taken,
         };
         open(capture, Some(path), actions, cx)
     })
@@ -267,7 +272,7 @@ fn handle(
 fn save_target(target: &Rc<RefCell<Option<PathBuf>>>, capture: &Capture, cx: &App) -> PathBuf {
     let mut target = target.borrow_mut();
     target
-        .get_or_insert_with(|| screenshot_path(&Daemon::get(cx).config, &capture.subject))
+        .get_or_insert_with(|| screenshot_path(&Daemon::get(cx).config, capture))
         .clone()
 }
 

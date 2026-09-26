@@ -2,9 +2,14 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use anyhow::Context as _;
+use chrono::{DateTime, Local};
 use gpui::AsyncApp;
-use screenie_config::{AfterCapture, Config, Paths, Subject, expand_template, unique_path};
+use screenie_config::{
+    AfterCapture, Config, Paths, Subject, claim_unique, expand_template, unique_path,
+};
 use screenie_core::{Image, Rect};
 use screenie_ipc::{ActionOverrides, CaptureKind};
 
@@ -57,6 +62,8 @@ pub(crate) struct Capture {
     /// Where it was on that output (logical, relative to the output), if entirely on it:
     /// the overlay editor shows it right there.
     pub placement: Option<Rect>,
+    /// When the screen was frozen, which names its file however much later it's saved.
+    pub taken: DateTime<Local>,
 }
 
 pub(crate) struct Delivered {
@@ -64,24 +71,59 @@ pub(crate) struct Delivered {
     pub temporary: bool,
 }
 
-/// Write `bytes` to `path` atomically, creating parent directories.
+/// Write `bytes` to `path` atomically, creating parent directories: readers see the old
+/// file or the new one, never part of one. Nothing is left behind if it fails, not even
+/// the empty file a [`claim_unique`]d name starts as.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension(format!(
-        "{}.part",
-        path.extension().and_then(|e| e.to_str()).unwrap_or("tmp")
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    // Beside the file (a rename can't cross filesystems), hidden, and never shared.
+    let tmp = dir.join(format!(
+        ".{name}.{}-{}.part",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+    let written = std::fs::create_dir_all(dir)
+        .and_then(|()| std::fs::write(&tmp, bytes))
+        .and_then(|()| std::fs::rename(&tmp, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        if std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == 0) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    written
 }
 
-/// Where a new screenshot would be saved.
-pub(crate) fn screenshot_path(config: &Config, subject: &Subject) -> PathBuf {
+/// A new file in the screenshot folder for `capture`, named as configured for when it
+/// was taken. The name is claimed straight away, so two captures can't get the same one;
+/// write it with [`write_atomic`].
+pub(crate) fn screenshot_path(config: &Config, capture: &Capture) -> PathBuf {
     let dir = config.screenshot_dir();
-    let stem = expand_template(&config.screenshot.filename, chrono::Local::now(), subject);
-    unique_path(&dir, &stem, "png")
+    let stem = file_stem(config, capture);
+    claim_unique(&dir, &stem, "png").unwrap_or_else(|e| {
+        // Saving will fail too, and say why.
+        tracing::debug!("claiming a name in {}: {e}", dir.display());
+        unique_path(&dir, &stem, "png")
+    })
+}
+
+fn file_stem(config: &Config, capture: &Capture) -> String {
+    expand_template(&config.screenshot.filename, capture.taken, &capture.subject)
+}
+
+/// Where `-o` puts a screenshot: in a directory (one that exists, or a path ending in
+/// `/`), a new file named as configured; otherwise that file, with `.png` added if it has
+/// no extension. An existing file is replaced.
+pub(crate) fn output_path(output: &Path, config: &Config, capture: &Capture) -> PathBuf {
+    if output.is_dir() || output.as_os_str().as_encoded_bytes().ends_with(b"/") {
+        unique_path(output, &file_stem(config, capture), "png")
+    } else if output.extension().is_none() {
+        output.with_extension("png")
+    } else {
+        output.to_path_buf()
+    }
 }
 
 pub(crate) fn encode_png(image: &Image) -> anyhow::Result<Vec<u8>> {
@@ -113,29 +155,36 @@ pub(crate) async fn screenshot(
         }
     }
     let started = std::time::Instant::now();
-    let work_image = capture.image.clone();
+    let work_capture = capture.clone();
     let work_actions = actions.clone();
-    let subject = capture.subject.clone();
-    let (path, temporary, png, copied) = cx
+    let (path, temporary, png, copied, failed) = cx
         .background_executor()
         .spawn(async move {
-            let png = encode_png(&work_image)?;
-            let saved = if work_actions.save {
-                let path = work_actions
-                    .output
-                    .clone()
-                    .unwrap_or_else(|| screenshot_path(&config, &subject));
-                write_atomic(&path, &png)?;
-                Some(path)
-            } else {
-                None
+            let png = encode_png(&work_capture.image)?;
+            // A file that can't be written doesn't lose the capture: it's still copied
+            // and previewed (where it can be saved again), and the error comes after.
+            let saved = work_actions
+                .save
+                .then(|| {
+                    let path = match &work_actions.output {
+                        Some(output) => output.clone(),
+                        None => screenshot_path(&config, &work_capture),
+                    };
+                    write_atomic(&path, &png)
+                        .with_context(|| format!("saving {}", path.display()))
+                        .map(|()| path)
+                })
+                .transpose();
+            let (saved, failed) = match saved {
+                Ok(saved) => (saved, None),
+                Err(e) => (None, Some(e)),
             };
-            let temp = if saved.is_none() && work_actions.want_file {
-                let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S%.3f");
-                let path = Paths::get()
-                    .runtime_dir()
-                    .join(format!("capture-{stamp}.png"));
-                write_atomic(&path, &png)?;
+            let temp = if saved.is_none() && failed.is_none() && work_actions.want_file {
+                let stamp = chrono::Local::now().format("capture-%Y%m%d-%H%M%S%.3f");
+                let dir = Paths::get().runtime_dir();
+                let path = claim_unique(dir, &stamp.to_string(), "png")
+                    .and_then(|path| write_atomic(&path, &png).map(|()| path))
+                    .context("writing the capture to a temporary file")?;
                 Some(path)
             } else {
                 None
@@ -148,7 +197,7 @@ pub(crate) async fn screenshot(
                 .inspect_err(|e| tracing::warn!("{e}"))
                 .is_ok();
             let temporary = temp.is_some();
-            anyhow::Ok((saved.or(temp), temporary, png, copied))
+            anyhow::Ok((saved.or(temp), temporary, png, copied, failed))
         })
         .await?;
     tracing::info!(elapsed = ?started.elapsed(), path = ?path, "screenshot delivered");
@@ -160,6 +209,9 @@ pub(crate) async fn screenshot(
         let output = capture.output.clone();
         let item = PreviewItem::screenshot(capture, Arc::new(png), saved, copied, cx).await;
         cx.update(|cx| preview::show(item, output, cx));
+    }
+    if let Some(e) = failed {
+        return Err(e);
     }
     Ok(Delivered { path, temporary })
 }
@@ -196,5 +248,97 @@ pub(crate) async fn recording(
             cx.update(|cx| preview::show(item, output_name, cx));
         }
         (false, _) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+    use screenie_core::PixelFormat;
+
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("screenie-deliver-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn files(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn capture() -> Capture {
+        Capture {
+            image: Image::new(1, 1, PixelFormat::Bgra),
+            scale: 1.0,
+            subject: Subject::default(),
+            output: None,
+            placement: None,
+            taken: Local.with_ymd_and_hms(2026, 9, 26, 14, 2, 0).unwrap(),
+        }
+    }
+
+    #[test]
+    fn files_are_named_for_when_they_were_taken() {
+        let dir = scratch("named");
+        let mut config = Config::default();
+        config.screenshot.directory = dir.clone();
+        let first = screenshot_path(&config, &capture());
+        let second = screenshot_path(&config, &capture());
+        assert_eq!(
+            first.file_name().unwrap(),
+            "Screenshot_2026-09-26_14-02-00.png"
+        );
+        assert_eq!(
+            second.file_name().unwrap(),
+            "Screenshot_2026-09-26_14-02-00-2.png"
+        );
+        write_atomic(&first, b"png").unwrap();
+        assert_eq!(std::fs::read(&first).unwrap(), b"png");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_write_leaves_nothing_behind() {
+        let dir = scratch("failed");
+        // A directory where the file should go (`-o ~/Desktop` before directories were
+        // understood): the rename fails.
+        let target = dir.join("shot.png");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("keep"), b"").unwrap();
+        assert!(write_atomic(&target, b"png").is_err());
+        // No temporary file is left beside it.
+        assert_eq!(files(&dir), ["shot.png"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn output_to_a_directory_or_without_an_extension() {
+        let dir = scratch("output");
+        let config = Config::default();
+        let named = dir.join("Screenshot_2026-09-26_14-02-00.png");
+        assert_eq!(output_path(&dir, &config, &capture()), named);
+        let fresh = dir.join("new/");
+        assert_eq!(
+            output_path(&fresh, &config, &capture()),
+            dir.join("new").join("Screenshot_2026-09-26_14-02-00.png")
+        );
+        assert_eq!(
+            output_path(&dir.join("shot"), &config, &capture()),
+            dir.join("shot.png")
+        );
+        assert_eq!(
+            output_path(&dir.join("shot.jpeg"), &config, &capture()),
+            dir.join("shot.jpeg")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -72,7 +72,7 @@ In the selector:
 By default a screenshot is just shown in a preview card, whose buttons copy, save or
 annotate it. What happens after a capture (copy, save, preview, edit) is configurable, and can be
 overridden per call with `--copy/--no-copy`, `--save/--no-save`, `--no-preview`,
-`--edit` and `-o FILE`.
+`--edit` and `-o FILE` (or `-o DIR/`).
 
 ### Annotating
 

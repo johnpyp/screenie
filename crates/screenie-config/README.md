@@ -7,4 +7,6 @@ The user's settings and where things live.
 - `Config::load` / `save`: `$XDG_CONFIG_HOME/screenie/config.yaml`. Saves are atomic.
 - `Paths`: config, state (`state.yaml` belongs to `screenie-state`), runtime socket,
   and Pictures/Videos directories.
-- `expand_template` / `unique_path`: strftime file names that never overwrite.
+- `expand_template` / `unique_path` / `claim_unique`: strftime file names that never
+  overwrite. `claim_unique` takes the name on the spot (an empty file to replace), so
+  concurrent captures never pick the same one.

@@ -108,16 +108,41 @@ fn clean_part(value: &str) -> String {
         .to_string()
 }
 
-/// `dir/stem.ext`, or `dir/stem-2.ext`, `dir/stem-3.ext`, … if taken.
+/// `dir/stem.ext`, then `dir/stem-2.ext`, `dir/stem-3.ext`, …
+fn candidates<'a>(
+    dir: &'a Path,
+    stem: &'a str,
+    ext: &'a str,
+) -> impl Iterator<Item = PathBuf> + 'a {
+    std::iter::once(dir.join(format!("{stem}.{ext}")))
+        .chain((2..).map(move |n| dir.join(format!("{stem}-{n}.{ext}"))))
+}
+
+/// The first of `dir/stem.ext`, `dir/stem-2.ext`, `dir/stem-3.ext`, … that's free now.
+/// Someone else may take it before it's written; [`claim_unique`] makes sure they can't.
 pub fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
-    let candidate = dir.join(format!("{stem}.{ext}"));
-    if !candidate.exists() {
-        return candidate;
-    }
-    (2..)
-        .map(|n| dir.join(format!("{stem}-{n}.{ext}")))
+    candidates(dir, stem, ext)
         .find(|p| !p.exists())
         .expect("unbounded")
+}
+
+/// Like [`unique_path`], but the name is taken on the spot, as an empty file (and `dir`
+/// created), so captures named in the same second can't pick the same one. Write the
+/// file by replacing it (a rename), or remove it if nothing comes of it.
+pub fn claim_unique(dir: &Path, stem: &str, ext: &str) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    for path in candidates(dir, stem, ext) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("unbounded")
 }
 
 #[cfg(test)]
@@ -174,5 +199,24 @@ mod tests {
         std::fs::write(dir.join("x.png"), b"").unwrap();
         assert_eq!(unique_path(&dir, "x", "png"), dir.join("x-2.png"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn claims_are_never_shared() {
+        let dir = std::env::temp_dir()
+            .join(format!("screenie-claim-{}", std::process::id()))
+            .join("new");
+        let claims: Vec<PathBuf> = std::thread::scope(|s| {
+            let threads: Vec<_> = (0..8)
+                .map(|_| s.spawn(|| claim_unique(&dir, "x", "png").unwrap()))
+                .collect();
+            threads.into_iter().map(|t| t.join().unwrap()).collect()
+        });
+        let mut names: Vec<_> = claims.iter().map(|p| p.file_name().unwrap()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 8);
+        assert!(claims.contains(&dir.join("x.png")) && claims.contains(&dir.join("x-8.png")));
+        std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
     }
 }

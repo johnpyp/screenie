@@ -55,7 +55,7 @@ async fn run(
         let d = Daemon::get(cx);
         (d.config.clone(), d.capture.clone(), d.last_region)
     });
-    let actions = Actions::resolve(
+    let mut actions = Actions::resolve(
         &config.screenshot.after_capture,
         &req.actions,
         req.output.clone(),
@@ -175,6 +175,7 @@ async fn run(
         .background_executor()
         .spawn(async move { render_snapshot.render_region(region) })
         .await;
+    let taken = snapshot.taken_at.into();
     drop(snapshot);
     cx.update(|cx| Daemon::update(cx, |d, _| d.last_region = Some(region)));
 
@@ -189,7 +190,11 @@ async fn run(
             .unwrap_or_default(),
         output: output_name,
         placement,
+        taken,
     };
+    actions.output = actions
+        .output
+        .map(|output| deliver::output_path(&output, &config, &capture));
     deliver::screenshot(capture, actions, config, cx)
         .await
         .map(Some)

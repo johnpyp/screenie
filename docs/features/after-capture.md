@@ -17,14 +17,21 @@ Recordings get the same card; see [recording](recording.md).
 Recordings are always saved (`recording.after_capture` defaults to save + preview).
 
 The CLI overrides them per call with `--copy/--no-copy`, `--save/--no-save`,
-`--no-preview`, `--edit` and `-o PATH` (which implies saving). `--stdout` writes the
-PNG bytes to stdout for scripts.
+`--no-preview`, `--edit` and `-o PATH` (which implies saving). `-o` takes a file (`.png`
+is added if it has no extension; an existing file is replaced) or a directory (one that
+exists, or a path ending in `/`), which gets a file named as below. `--stdout` writes
+the PNG bytes to stdout for scripts.
 
 File names come from `screenshot.filename`, a strftime template (default
-`Screenshot_%Y-%m-%d_%H-%M-%S_{app}`). `{app}` (the window's app, e.g. `firefox`, or
-`Nautilus` for `org.gnome.Nautilus`) and `{title}` fill in when a window was captured,
-and disappear along with one adjacent separator otherwise. Recordings work the same way.
-Collisions get `-2`, `-3`… suffixes. Writes are atomic.
+`Screenshot_%Y-%m-%d_%H-%M-%S_{app}`), filled in with the moment the screen was frozen,
+however much later the capture is saved (from its card, or the editor). `{app}` (the
+window's app, e.g. `firefox`, or `Nautilus` for `org.gnome.Nautilus`) and `{title}` fill
+in when a window was captured, and disappear along with one adjacent separator
+otherwise. Recordings work the same way. Collisions get `-2`, `-3`… suffixes; a name is
+claimed the moment it's chosen, so captures in the same second (a script capturing two
+screens at once) never share one. Writes are atomic, and a failed one leaves nothing
+behind. A capture whose file can't be written is still copied and previewed, so it
+isn't lost; the CLI reports the error.
 
 ## Clipboard
 
