@@ -36,8 +36,8 @@ use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::Options;
 
 pub use focus::focused_output;
-use pointer::{CursorFeed, Over, Report};
-pub use pointer::{Placement, Tracker};
+use pointer::{CursorFeed, Report};
+pub use pointer::{Placement, Tracker, WindowPointer};
 pub use shm::transform_image;
 use state::{
     Capture, Constraints, Gpu, InFlight, OutputState, Phase, Protocol, State, Target, ToplevelInfo,
@@ -352,7 +352,11 @@ impl Capturer {
     ///
     /// The window is found by its toplevel identifier where the compositor's IPC reported
     /// one, otherwise by app id and title, which must then be unique.
-    pub fn into_window_stream(mut self, window: &WindowInfo, cursor: bool) -> Result<FrameStream> {
+    pub fn into_window_stream(
+        mut self,
+        window: &WindowInfo,
+        pointer: WindowPointer,
+    ) -> Result<FrameStream> {
         if self.backend != Backend::ExtImageCopyCapture || self.state.ext_toplevel_sources.is_none()
         {
             return Err(Error::Unsupported(
@@ -368,25 +372,21 @@ impl Capturer {
         self.queue.roundtrip(&mut self.state)?;
         self.queue.roundtrip(&mut self.state)?;
         let index = find_toplevel(self.state.toplevels.iter().map(|t| &t.info), window)?;
-        // The compositor may not paint the pointer into a window's frames (wlroots
-        // doesn't): where it reports it separately, it's drawn over them instead, and
-        // not asked for in them, so it can't show twice.
-        let feeds = cursor && self.open_cursor_feeds(index);
-        let slot = self.new_capture(Target::Toplevel(index), cursor && !feeds, None);
+        let drawn = pointer == WindowPointer::Drawn && self.open_cursor_feeds();
+        let painted = pointer == WindowPointer::Painted;
+        let slot = self.new_capture(Target::Toplevel(index), painted, None);
         let mut stream = FrameStream::new(self, slot, None);
-        if feeds {
+        if drawn {
             stream.overlay = Some(Overlay::new(Placement::new(window.rect)));
         }
         Ok(stream)
     }
 
-    /// Open cursor sessions for the pointer over `toplevel`: on the window itself, and
-    /// on every output. `false` if there's no pointer to ask about.
-    fn open_cursor_feeds(&mut self, toplevel: usize) -> bool {
-        let (Some(manager), Some(output_sources), Some(toplevel_sources)) = (
+    /// Open a cursor session on every output. `false` if there's no pointer to ask about.
+    fn open_cursor_feeds(&mut self) -> bool {
+        let (Some(manager), Some(output_sources)) = (
             self.state.ext_copy.clone(),
             self.state.ext_output_sources.clone(),
-            self.state.ext_toplevel_sources.clone(),
         ) else {
             return false;
         };
@@ -402,26 +402,12 @@ impl Capturer {
             return false;
         }
         let pointer = seat.get_pointer(&self.qh, ());
-        let outputs: Vec<Over> = (0..self.state.outputs.len())
-            .filter(|&i| self.state.outputs[i].wl_output.is_some())
-            .map(Over::Output)
+        let outputs: Vec<(usize, wl_output::WlOutput)> = (self.state.outputs.iter())
+            .enumerate()
+            .filter_map(|(i, o)| Some((i, o.wl_output.clone()?)))
             .collect();
-        for over in std::iter::once(Over::Window).chain(outputs) {
-            let source = match over {
-                Over::Window => toplevel_sources.create_source(
-                    &self.state.toplevels[toplevel].handle,
-                    &self.qh,
-                    (),
-                ),
-                Over::Output(i) => output_sources.create_source(
-                    self.state.outputs[i]
-                        .wl_output
-                        .as_ref()
-                        .expect("filtered above"),
-                    &self.qh,
-                    (),
-                ),
-            };
+        for (output, wl_output) in outputs {
+            let source = output_sources.create_source(&wl_output, &self.qh, ());
             let feed = self.state.cursors.len();
             let session = manager.create_pointer_cursor_session(&source, &pointer, &self.qh, feed);
             let slot = self.state.captures.len();
@@ -439,7 +425,7 @@ impl Capturer {
             self.state.cursors.push(CursorFeed {
                 session,
                 slot,
-                report: Report::new(over),
+                report: Report::new(output),
                 failures: 0,
             });
         }
@@ -453,7 +439,7 @@ impl Capturer {
                 .cursors
                 .iter()
                 .filter(|c| c.report.entered)
-                .map(|c| c.report.over)
+                .map(|c| c.report.output)
                 .collect::<Vec<_>>(),
             "following the pointer"
         );
@@ -1084,7 +1070,7 @@ impl FrameStream {
                             != feed.report.image.as_ref().map(|(s, _)| size(s))
                         {
                             tracing::debug!(
-                                over = ?feed.report.over,
+                                output = feed.report.output,
                                 buffer = ?size(&image),
                                 sprite = ?sprite.as_ref().map(|(s, _)| size(s)),
                                 "the pointer's picture changed"
@@ -1183,16 +1169,9 @@ impl FrameStream {
         if overlay.told {
             return;
         }
-        let window = self
-            .capturer
-            .state
-            .cursors
-            .iter()
-            .any(|c| c.report.over == Over::Window && c.report.heard);
         if found {
             overlay.told = true;
             tracing::info!(
-                source = if window { "the window" } else { "the output" },
                 "drawing the pointer over the window from the compositor's cursor session"
             );
         } else if overlay.started.elapsed() > Duration::from_secs(5)

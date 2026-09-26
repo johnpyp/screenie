@@ -13,7 +13,7 @@ use screenie_core::{
     DmabufFormat, Frame, FrameSource, GpuDevice, GpuOffer, Image, Next, OutputInfo, Rect, Snapshot,
     SourceError, WindowInfo,
 };
-use screenie_wayland::{Backend, Capturer, Support};
+use screenie_wayland::{Backend, Capturer, Support, WindowPointer};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -189,12 +189,17 @@ impl CaptureContext {
     /// Start a live stream of one window by itself (only `ext-image-copy-capture` can).
     /// Blocks until the first frame arrives.
     ///
-    /// Where the stream draws the pointer over the window from where it is on an output,
-    /// the window's place on the desktop is kept current from compositor IPC for as long
-    /// as the stream lasts.
+    /// With `cursor`, a compositor that doesn't paint the pointer into a window's frames
+    /// has it drawn over them instead, from where it is on an output: the window's place
+    /// on the desktop is kept current from compositor IPC for as long as the stream lasts.
     pub fn stream_window(&self, window: &WindowInfo, cursor: bool) -> Result<Box<dyn FrameSource>> {
         let capturer = Capturer::connect_with(Some(Backend::ExtImageCopyCapture))?;
-        let stream = capturer.into_window_stream(window, cursor)?;
+        let pointer = match cursor {
+            false => WindowPointer::Hidden,
+            true if self.compositor.paints_pointer_into_windows() => WindowPointer::Painted,
+            true => WindowPointer::Drawn,
+        };
+        let stream = capturer.into_window_stream(window, pointer)?;
         if let Some(placement) = stream.window_placement() {
             follow_window(
                 self.compositor.clone(),

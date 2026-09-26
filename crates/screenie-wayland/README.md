@@ -25,18 +25,18 @@ to grim.
     buffers), so a paused recording copies nothing and a captured output can scan out
     a fullscreen app directly again. `set_paused(false)` starts it over, and its first
     frame comes right away.
-  - `into_window_stream(window, cursor)` streams one window by itself
+  - `into_window_stream(window, pointer)` streams one window by itself
     (`ext-foreign-toplevel-image-capture-source-v1`), found through
     `ext-foreign-toplevel-list-v1` by identifier, or by app id and title. Its frames
     change size with the window, and the stream ends when it closes.
-  - A window stream with `cursor` asks the compositor to paint the pointer, which
-    wlroots ignores for windows. So it also follows the pointer through
-    ext-image-copy-capture cursor sessions (`pointer`): one on the window, where the
-    compositor offers it (Hyprland), and one per output (wlroots, whenever the pointer
-    is a hardware cursor). Each frame carries the pointer's sprite and position in frame
-    pixels (`Frame::pointer`), placed with the window's rectangle (`Placement`, kept up
-    to date by the caller) and left out while the window is hidden. A pointer that moves
-    over a still window re-sends the last frame, at most once per paced interval.
+  - `WindowPointer::Painted` asks the compositor to paint the pointer into a window's
+    frames. wlroots ignores that, so there `WindowPointer::Drawn` follows the pointer
+    through each output's ext-image-copy-capture cursor session (`pointer`), which
+    wlroots answers only for a hardware cursor. Each frame carries the pointer's sprite
+    and position in frame pixels (`Frame::pointer`), placed with the window's rectangle
+    (`Placement`, kept up to date by the caller) and left out while the window is
+    hidden. A pointer that moves over a still window re-sends the last frame, at most
+    once per paced interval.
 - `focused_output()` finds the output the user is on without compositor IPC: it maps a
   transparent 1×1 layer surface with no output (the compositor places it on the one the
   user last interacted with), reads `wl_surface.enter`, and removes it.

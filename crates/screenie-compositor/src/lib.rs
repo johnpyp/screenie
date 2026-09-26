@@ -46,6 +46,13 @@ pub trait Compositor: Send + Sync {
 
     /// Connector name of the output with keyboard focus.
     fn focused_output(&self) -> Result<Option<String>>;
+
+    /// Whether a capture of one window has the pointer painted in when asked for it
+    /// (ext-image-copy-capture's `paint_cursors`). Where it doesn't, screenie draws the
+    /// pointer over the window itself, from where [`Compositor::windows`] puts it.
+    fn paints_pointer_into_windows(&self) -> bool {
+        true
+    }
 }
 
 /// Pick the IPC for the running compositor from its environment variables.

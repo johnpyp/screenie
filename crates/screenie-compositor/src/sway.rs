@@ -51,6 +51,11 @@ impl Compositor for Sway {
         Ok(windows_from_tree(&self.request(GET_TREE)?))
     }
 
+    /// wlroots captures a window from its scene node, which ignores `paint_cursors`.
+    fn paints_pointer_into_windows(&self) -> bool {
+        false
+    }
+
     fn focused_output(&self) -> Result<Option<String>> {
         let outputs = self.request(GET_OUTPUTS)?;
         Ok(outputs

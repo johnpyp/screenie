@@ -9,8 +9,9 @@ layer-shell probe in `screenie-wayland`.
 
 `stream(...)` starts a live stream of an output or a region of it, and `stream_window`
 one of a window by itself where `can_stream_window` says the compositor allows it. Both
-block until the first frame arrives. A window stream that draws the pointer is told
-where the window is by a thread polling compositor IPC four times a second. In `auto` mode a region goes to wlr-screencopy
+block until the first frame arrives. Where the compositor doesn't paint the pointer into
+a window's frames (`Compositor::paints_pointer_into_windows`), a window stream draws it
+itself, told where the window is by a thread polling compositor IPC four times a second. In `auto` mode a region goes to wlr-screencopy
 first where it's offered: it copies just the region, where ext-image-copy-capture copies
 the whole output and leaves the crop to the consumer.
 

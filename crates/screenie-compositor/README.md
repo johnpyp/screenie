@@ -1,7 +1,7 @@
 # screenie-compositor
 
-Optional window geometry from compositor IPC, used for window snapping and "active
-window". Capture never depends on it.
+Optional window geometry from compositor IPC, used for window snapping, "active window"
+and placing the pointer over a recorded window on sway. Capture works without it.
 
 `detect()` picks an implementation from the environment:
 
@@ -13,7 +13,9 @@ window". Capture never depends on it.
 | anything else | `Generic` (no windows) |
 
 `Compositor::windows()` returns visible windows in logical coordinates, topmost first.
-`focused_output()` names the output with focus.
+`focused_output()` names the output with focus. `paints_pointer_into_windows()` is false
+where a window capture ignores `paint_cursors` (sway), so a window recording draws the
+pointer itself, placed through `windows()`.
 
 ```sh
 cargo run -p screenie-compositor --example windows

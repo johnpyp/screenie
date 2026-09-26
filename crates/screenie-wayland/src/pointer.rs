@@ -1,17 +1,15 @@
-//! The pointer for a window captured by itself.
+//! The pointer for a window captured by itself, where the compositor won't paint it in.
 //!
-//! Compositors don't paint the pointer into a window's frames the way they do into an
-//! output's: wlroots ignores `paint_cursors` for windows. What they do offer is a cursor
-//! session (`ext_image_copy_capture_cursor_session_v1`): where the pointer is over a
-//! source and what it looks like, for the client to draw itself. This is how screen
-//! sharing gets the pointer too (the portal's "metadata" cursor mode).
+//! wlroots ignores `paint_cursors` for a window, and offers no cursor session on one
+//! either: only on outputs (`ext_image_copy_capture_cursor_session_v1`, where the
+//! pointer is over a source and what it looks like, for the client to draw itself). So
+//! a session is opened on every output, and the pointer's position on one is mapped
+//! into the window's frame through where the window is on the desktop ([`Placement`],
+//! kept current by the caller from compositor IPC).
 //!
-//! Sessions are opened on the window itself, which Hyprland answers with positions in
-//! the window's pixels, and on every output, which is all wlroots (sway) and niri
-//! answer. An output's position is mapped into the window's frame through where the
-//! window is on the desktop ([`Placement`], kept current by the caller from compositor
-//! IPC). wlroots only reports a hardware cursor: with software cursors
-//! (`WLR_NO_HARDWARE_CURSORS`) nothing is reported, and nothing is drawn.
+//! wlroots only reports a hardware cursor. With the cursor drawn in software (always on
+//! NVIDIA, or with `WLR_NO_HARDWARE_CURSORS`) the sessions stay silent and nothing is
+//! drawn.
 //!
 //! Each session's picture is captured like any other source, into shared memory, and
 //! only changes when the cursor's shape does.
@@ -27,16 +25,18 @@ use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_captu
 
 use crate::state::State;
 
-/// What a cursor session watches.
+/// How a window stream shows the pointer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Over {
-    /// The captured window: positions are in its frames' pixels.
-    Window,
-    /// An output, by index into `State::outputs`: positions are in its pixels.
-    Output(usize),
+pub enum WindowPointer {
+    Hidden,
+    /// Painted into the frames by the compositor.
+    Painted,
+    /// Drawn over the frames from the outputs' cursor sessions, for a compositor that
+    /// doesn't paint it into a window's (wlroots).
+    Drawn,
 }
 
-/// One cursor session.
+/// One output's cursor session.
 pub(crate) struct CursorFeed {
     pub session: ExtImageCopyCaptureCursorSessionV1,
     /// The capture of the cursor's picture: a slot in `State::captures`.
@@ -49,12 +49,13 @@ pub(crate) struct CursorFeed {
 /// What a cursor session has said.
 #[derive(Debug, Clone)]
 pub(crate) struct Report {
-    pub over: Over,
+    /// The output, by index into `State::outputs`.
+    pub output: usize,
     /// Whether the compositor has said anything at all: sessions it can't serve stay
     /// silent.
     pub heard: bool,
     pub entered: bool,
-    /// Where the pointer is, in the source's pixels.
+    /// Where the pointer is, in the output's pixels.
     pub position: (i32, i32),
     /// The pointer's point within the picture.
     pub hotspot: (i32, i32),
@@ -63,9 +64,9 @@ pub(crate) struct Report {
 }
 
 impl Report {
-    pub fn new(over: Over) -> Self {
+    pub fn new(output: usize) -> Self {
         Self {
-            over,
+            output,
             heard: false,
             entered: false,
             position: (0, 0),
@@ -74,7 +75,7 @@ impl Report {
         }
     }
 
-    /// Where the picture's visible part goes, in the source's pixels, and the picture.
+    /// Where the picture's visible part goes, in the output's pixels, and the picture.
     fn sprite(&self) -> Option<(Arc<Image>, (i32, i32))> {
         if !self.entered {
             return None;
@@ -123,31 +124,16 @@ impl Tracker {
     }
 }
 
-/// The pointer over a `frame`-sized frame of the window, from what the feeds say: the
-/// window's own session if the compositor serves it, else the output the pointer is on.
+/// The pointer over a `frame`-sized frame of the window, from the output it's on.
 pub(crate) fn locate(
     feeds: &[&Report],
     outputs: &[Option<OutputInfo>],
     window: Option<Rect>,
     frame: (u32, u32),
 ) -> Option<Pointer> {
-    if let Some(feed) = feeds.iter().find(|f| f.over == Over::Window && f.heard) {
-        let (image, (x, y)) = feed.sprite()?;
-        let pointer = Pointer {
-            x,
-            y,
-            width: image.width(),
-            height: image.height(),
-            image,
-        };
-        return pointer.over(frame).then_some(pointer);
-    }
     let window = window?;
     feeds.iter().find_map(|feed| {
-        let Over::Output(index) = feed.over else {
-            return None;
-        };
-        let output = outputs.get(index)?.as_ref()?;
+        let output = outputs.get(feed.output)?.as_ref()?;
         let (image, at) = feed.sprite()?;
         let pointer = place(image, at, output, window, frame);
         pointer.over(frame).then_some(pointer)
@@ -218,20 +204,20 @@ impl Dispatch<ExtImageCopyCaptureCursorSessionV1, usize> for State {
         feed.heard = true;
         match event {
             Event::Enter => {
-                tracing::debug!(over = ?feed.over, "the pointer entered a cursor session");
+                tracing::debug!(output = feed.output, "the pointer entered a cursor session");
                 feed.entered = true;
             }
             Event::Leave => {
-                tracing::debug!(over = ?feed.over, "the pointer left a cursor session");
+                tracing::debug!(output = feed.output, "the pointer left a cursor session");
                 feed.entered = false;
             }
             Event::Position { x, y } => {
-                tracing::trace!(over = ?feed.over, x, y, "pointer position");
+                tracing::trace!(output = feed.output, x, y, "pointer position");
                 feed.position = (x, y);
             }
             Event::Hotspot { x, y } => {
                 if feed.hotspot != (x, y) {
-                    tracing::debug!(over = ?feed.over, x, y, "pointer hotspot");
+                    tracing::debug!(output = feed.output, x, y, "pointer hotspot");
                 }
                 feed.hotspot = (x, y);
             }
@@ -316,47 +302,37 @@ mod tests {
         assert_eq!((p.x, p.y, p.width, p.height), (100, 100, 24, 24));
     }
 
-    fn feed(over: Over, entered: bool, position: (i32, i32)) -> Report {
+    fn feed(output: usize, entered: bool, position: (i32, i32)) -> Report {
         Report {
             heard: true,
             entered,
             position,
             hotspot: (4, 2),
             image: Some((picture(10, 16), (1, 1))),
-            ..Report::new(over)
+            ..Report::new(output)
         }
     }
 
     #[test]
-    fn the_windows_own_session_wins_and_is_in_frame_pixels() {
-        let outputs = [Some(output(0.0, 1.0))];
+    fn the_picture_goes_by_its_hotspot() {
+        let outputs = [None, Some(output(0.0, 1.0))];
         let window = Some(Rect::new(0.0, 0.0, 800.0, 600.0));
-        let feeds = [
-            feed(Over::Output(0), true, (500, 500)),
-            feed(Over::Window, true, (50, 60)),
-        ];
-        let p = locate(&[&feeds[0], &feeds[1]], &outputs, window, (800, 600)).unwrap();
+        let feeds = [feed(1, true, (50, 60))];
+        let p = locate(&[&feeds[0]], &outputs, window, (800, 600)).unwrap();
         // The hotspot (4, 2) at (50, 60), the picture's visible part 1, 1 in.
         assert_eq!((p.x, p.y), (47, 59));
-        // A silent window session defers to the outputs.
-        let mut feeds = feeds;
-        feeds[1].heard = false;
-        assert_eq!(
-            locate(&[&feeds[0], &feeds[1]], &outputs, window, (800, 600)).map(|p| (p.x, p.y)),
-            Some((497, 499))
-        );
     }
 
     #[test]
     fn no_pointer_off_the_window_or_while_its_hidden() {
         let outputs = [Some(output(0.0, 1.0))];
-        let feeds = [feed(Over::Output(0), true, (1500, 900))];
+        let feeds = [feed(0, true, (1500, 900))];
         let window = Rect::new(0.0, 0.0, 800.0, 600.0);
         assert!(locate(&[&feeds[0]], &outputs, Some(window), (800, 600)).is_none());
-        let feeds = [feed(Over::Output(0), true, (100, 100))];
+        let feeds = [feed(0, true, (100, 100))];
         assert!(locate(&[&feeds[0]], &outputs, Some(window), (800, 600)).is_some());
         assert!(locate(&[&feeds[0]], &outputs, None, (800, 600)).is_none());
-        let feeds = [feed(Over::Output(0), false, (100, 100))];
+        let feeds = [feed(0, false, (100, 100))];
         assert!(locate(&[&feeds[0]], &outputs, Some(window), (800, 600)).is_none());
     }
 
