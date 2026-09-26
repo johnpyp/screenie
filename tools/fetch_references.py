@@ -8,11 +8,13 @@ along with those in `references/manifest.local.toml`: the same format, but gitig
 references that stay out of the repo.
 
 References are read-only material to learn from, so each one is a shallow (depth 1)
-checkout of its tracked ref, and syncing hard-resets it to the latest upstream commit.
-Checkouts with local modifications are skipped unless `--force` is given.
+checkout of its tracked ref. Syncing asks every upstream where its ref points now (one
+round trip each, all at once) and fetches only the references that moved or are
+missing, at depth 1, then hard-resets them to it. Checkouts with local modifications are
+left alone unless `--force` is given.
 
 Usage:
-    tools/fetch_references.py              # clone missing refs, update existing ones
+    tools/fetch_references.py              # clone missing refs, update stale ones
     tools/fetch_references.py screendrop   # sync only the named refs
     tools/fetch_references.py --list       # show both manifests' entries and checkout status
 """
@@ -20,6 +22,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -33,6 +37,9 @@ MANIFEST = REFERENCES_DIR / "manifest.toml"
 LOCAL_MANIFEST = REFERENCES_DIR / "manifest.local.toml"  # optional, gitignored
 # Files in references/ that aren't checkouts.
 MANIFEST_FILES = {MANIFEST.name, LOCAL_MANIFEST.name, ".gitkeep"}
+COMMIT_ID = re.compile(r"[0-9a-f]{40}")
+# Upstreams are public: fail rather than prompt for credentials on a bad URL.
+GIT_ENV = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
 
 
 @dataclass(frozen=True)
@@ -72,18 +79,43 @@ def load_manifest() -> list[Reference]:
 
 
 def git(*args: str, cwd: Path) -> str:
-    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False, env=GIT_ENV)
     if result.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
     return result.stdout.strip()
 
 
-def has_commit(path: Path) -> bool:
-    """False for a checkout whose first fetch never completed."""
+def git_remote(ref: Reference, *args: str, cwd: Path) -> str:
+    """A git command that talks to the reference's upstream, anonymously at its own URL.
+    Rewrite rules (`url.<base>.insteadOf`) are bypassed: one sending GitHub over SSH, say,
+    would authenticate every connection, which costs seconds with a hardware-backed key.
+    The longest matching rule wins, and none can be longer than the whole URL."""
+    return git("-c", f"url.{ref.url}.insteadOf={ref.url}", *args, cwd=cwd)
+
+
+def upstream_commit(ref: Reference) -> str:
+    """The commit the reference's ref points to upstream now."""
+    if ref.ref and COMMIT_ID.fullmatch(ref.ref):
+        return ref.ref
+    name = ref.ref or "HEAD"
+    # An annotated tag's commit is only listed when asked for, as `<tag>^{}`.
+    out = git_remote(ref, "ls-remote", ref.url, name, f"{name}^{{}}", cwd=ROOT)
+    listed = dict(reversed(line.split("\t")) for line in out.splitlines())
+    # A branch, else a tag (the commit an annotated one points to), else the exact name.
+    for candidate in (f"refs/heads/{name}", f"refs/tags/{name}^{{}}", f"refs/tags/{name}", name):
+        if candidate in listed:
+            return listed[candidate]
+    raise RuntimeError(f"{ref.url} has no ref {name!r}")
+
+
+def local_commit(path: Path) -> str | None:
+    """The checkout's commit: None if it's missing or its first fetch never completed."""
+    if not (path / ".git").exists():
+        return None
     result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=path, capture_output=True, check=False
+        ["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=path, capture_output=True, text=True, check=False
     )
-    return result.returncode == 0
+    return result.stdout.strip() if result.returncode == 0 else None
 
 
 def is_dirty(path: Path) -> bool:
@@ -97,32 +129,27 @@ def head_summary(path: Path) -> str:
 def sync(ref: Reference, force: bool) -> tuple[Reference, str, bool]:
     """Bring one reference up to date. Returns (ref, message, ok)."""
     try:
-        initialized = (ref.path / ".git").exists()
-        fresh = not initialized or not has_commit(ref.path)
-        if not initialized:
+        have = local_commit(ref.path)
+        if have is not None and have == upstream_commit(ref):
+            return ref, f"up to date: {head_summary(ref.path)}", True
+
+        if not (ref.path / ".git").exists():
             ref.path.mkdir(parents=True, exist_ok=True)
             git("init", "--quiet", cwd=ref.path)
             git("remote", "add", "origin", ref.url, cwd=ref.path)
-        elif fresh:
-            # A previous first fetch failed part-way; retry it.
-            git("remote", "set-url", "origin", ref.url, cwd=ref.path)
         else:
             git("remote", "set-url", "origin", ref.url, cwd=ref.path)
-            if is_dirty(ref.path) and not force:
+            if have is not None and is_dirty(ref.path) and not force:
                 return ref, "skipped: local modifications (use --force)", False
-            before = git("rev-parse", "HEAD", cwd=ref.path)
 
-        git("fetch", "--quiet", "--depth", "1", "origin", ref.ref or "HEAD", cwd=ref.path)
+        # Just the new snapshot; objects the checkout already has aren't sent again.
+        git_remote(ref, "fetch", "--quiet", "--depth", "1", "--no-tags", "origin", ref.ref or "HEAD", cwd=ref.path)
         git("reset", "--quiet", "--hard", "FETCH_HEAD", cwd=ref.path)
         git("clean", "--quiet", "-fdx", cwd=ref.path)
-
-        if fresh:
-            action = "cloned"
-        elif git("rev-parse", "HEAD", cwd=ref.path) == before:
-            action = "up to date"
-        else:
-            action = "updated"
-        return ref, f"{action}: {head_summary(ref.path)}", True
+        # No reflog, so the superseded snapshot is unreachable at once and gc can drop it.
+        git("config", "core.logAllRefUpdates", "false", cwd=ref.path)
+        git("reflog", "expire", "--expire=now", "--all", cwd=ref.path)
+        return ref, f"{'cloned' if have is None else 'updated'}: {head_summary(ref.path)}", True
     except RuntimeError as err:
         return ref, str(err), False
 
@@ -168,14 +195,15 @@ def main() -> int:
         list_references(refs)
         return 0
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(lambda r: sync(r, args.force), refs))
-
+    # Mostly waiting on the network, so all at once; results print in order as they land.
     width = max(len(r.name) for r in refs)
-    for ref, message, ok in results:
-        print(f"{'ok ' if ok else 'ERR'} {ref.name:<{width}}  {message}")
+    failed = False
+    with ThreadPoolExecutor(max_workers=min(32, len(refs))) as pool:
+        for ref, message, ok in pool.map(lambda r: sync(r, args.force), refs):
+            print(f"{'ok ' if ok else 'ERR'} {ref.name:<{width}}  {message}", flush=True)
+            failed |= not ok
     warn_unmanaged(load_manifest())
-    return 0 if all(ok for _, _, ok in results) else 1
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
