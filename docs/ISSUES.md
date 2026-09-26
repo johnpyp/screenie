@@ -80,6 +80,8 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 - The editor said "Copied" and "Saved" before the work was done and counted the
   annotations as kept even if it then failed (GNOME's missing clipboard, a full disk),
   so closing lost them without asking. It now waits, and shows failures.
+- A crop being adjusted was ignored by Copy, Save and Done (the whole image went out),
+  and dropped by clicking another tool.
 - Save As failed silently without a FileChooser portal, and started in `/tmp`.
 - Clicking the selector's Window button captured immediately: the release reached the
   canvas as a click. Releases now only count after a press on the canvas.

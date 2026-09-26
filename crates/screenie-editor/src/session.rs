@@ -204,9 +204,12 @@ impl Session {
         match tool {
             Tool::Crop => self.enter_crop(),
             _ => {
-                self.crop = None;
+                let again = tool == self.tool;
+                // Leaving crop mode for another tool keeps the crop, as Enter would; only
+                // Esc and Cancel drop it.
+                self.apply_crop();
                 // Pressing the redaction key again switches between pixelate and blur.
-                if tool == Tool::Redact && self.tool == Tool::Redact {
+                if tool == Tool::Redact && again {
                     let next = match self.redaction {
                         Redaction::Pixelate => Redaction::Blur,
                         Redaction::Blur => Redaction::Pixelate,
@@ -380,10 +383,15 @@ impl Session {
         self.saved.is_some()
     }
 
-    /// Whether closing now would lose annotations: there are some, and they were
-    /// neither copied nor saved. (Undoing back to a delivered state counts as safe.)
+    /// Whether closing now would lose work: annotations that were neither copied nor
+    /// saved (undoing back to a delivered state counts as safe), or a crop being
+    /// adjusted.
     pub fn has_unsaved_work(&self) -> bool {
-        *self.doc.state() != self.pristine && !self.is_copied() && !self.is_saved()
+        let unkept = *self.doc.state() != self.pristine && !self.is_copied() && !self.is_saved();
+        unkept
+            || self
+                .crop
+                .is_some_and(|c| c.rect.round() != self.doc.visible())
     }
 
     /// The finished image, and the state it shows: once it's copied or saved, pass that
@@ -394,8 +402,11 @@ impl Session {
         (self.doc.export(), self.doc.state().clone())
     }
 
-    /// Commit any text being typed and deselect.
+    /// Get ready to hand the image out: apply the crop being adjusted, as the image
+    /// shows it, commit any text being typed, and deselect, so one Esc afterwards
+    /// closes.
     pub fn settle(&mut self) {
+        self.apply_crop();
         self.commit_text();
         self.selected = None;
     }
@@ -769,6 +780,8 @@ impl Session {
                     self.apply_crop();
                     Outcome::Redraw
                 }
+                // Another tool's key applies the crop and switches, like its button.
+                Key::Text(t) => self.tool_key(&t),
                 _ => Outcome::Nothing,
             };
         }
@@ -817,15 +830,19 @@ impl Session {
                     self.set_size(Style::SIZES[(i + 9) % 10]);
                     Outcome::Redraw
                 }
-                other => match crate::tool::Tool::from_key(&other.to_lowercase()) {
-                    Some(tool) => {
-                        self.set_tool(tool);
-                        Outcome::Redraw
-                    }
-                    None => Outcome::Nothing,
-                },
+                other => self.tool_key(other),
             },
             Key::Home | Key::End => Outcome::Nothing,
+        }
+    }
+
+    fn tool_key(&mut self, key: &str) -> Outcome {
+        match Tool::from_key(&key.to_lowercase()) {
+            Some(tool) => {
+                self.set_tool(tool);
+                Outcome::Redraw
+            }
+            None => Outcome::Nothing,
         }
     }
 
@@ -848,12 +865,12 @@ impl Session {
         self.gesture = None;
     }
 
-    /// Keep the adjusted crop and leave crop mode.
+    /// Keep the adjusted crop and leave crop mode (if in it).
     pub fn apply_crop(&mut self) {
         if let Some(crop) = self.crop {
             self.doc.set_crop(Some(crop.rect));
+            self.exit_crop();
         }
-        self.exit_crop();
     }
 
     pub fn cancel_crop(&mut self) {
@@ -1145,6 +1162,59 @@ mod tests {
         drag(&mut s, pt(100.0, 100.0), pt(120.0, 100.0));
         s.key(Key::Escape, NONE);
         assert_eq!(s.doc().crop(), Some(Rect::new(50.0, 40.0, 350.0, 260.0)));
+    }
+
+    fn enter_crop_and_shrink(s: &mut Session) -> Rect {
+        s.set_tool(Tool::Crop);
+        drag(s, pt(0.0, 0.0), pt(50.0, 40.0));
+        let crop = Rect::new(50.0, 40.0, 350.0, 260.0);
+        assert_eq!(s.crop_edit(), Some(crop));
+        crop
+    }
+
+    #[test]
+    fn handing_the_image_out_applies_the_crop_being_adjusted() {
+        let mut s = session();
+        drag(&mut s, pt(100.0, 100.0), pt(200.0, 200.0));
+        let crop = enter_crop_and_shrink(&mut s);
+        assert!(s.has_unsaved_work());
+        let (image, _) = s.export();
+        assert_eq!((image.width(), image.height()), (350, 260));
+        assert_eq!(s.doc().crop(), Some(crop));
+        assert!(s.crop_edit().is_none());
+        assert_eq!(s.tool(), Tool::Arrow);
+    }
+
+    #[test]
+    fn switching_tools_applies_the_crop_and_only_escape_drops_it() {
+        let mut s = session();
+        let crop = enter_crop_and_shrink(&mut s);
+        // A tool's key, like its button.
+        assert_eq!(s.key(Key::Text("r".into()), NONE), Outcome::Redraw);
+        assert_eq!((s.tool(), s.doc().crop()), (Tool::Rectangle, Some(crop)));
+
+        s.set_tool(Tool::Crop);
+        drag(&mut s, pt(50.0, 40.0), pt(100.0, 100.0));
+        s.set_tool(Tool::Ellipse);
+        assert_eq!(s.doc().crop(), Some(Rect::new(100.0, 100.0, 300.0, 200.0)));
+
+        s.set_tool(Tool::Crop);
+        drag(&mut s, pt(100.0, 100.0), pt(150.0, 150.0));
+        s.key(Key::Escape, NONE);
+        assert_eq!(s.doc().crop(), Some(Rect::new(100.0, 100.0, 300.0, 200.0)));
+        assert_eq!(s.tool(), Tool::Ellipse);
+    }
+
+    #[test]
+    fn pressing_the_redaction_key_in_crop_mode_only_switches_to_it() {
+        let mut s = session();
+        s.set_tool(Tool::Redact);
+        s.set_tool(Tool::Crop);
+        s.key(Key::Text("b".into()), NONE);
+        assert_eq!(
+            (s.tool(), s.redaction()),
+            (Tool::Redact, Redaction::Pixelate)
+        );
     }
 
     #[test]

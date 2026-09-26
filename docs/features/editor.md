@@ -74,7 +74,7 @@ steps aside while the chooser is up, then comes back exactly as it was.
 | N | Numbered step | Click to place; numbers follow document order and renumber on delete |
 | B | Pixelate / blur | Press B again to switch mode |
 | S | Spotlight | Dims everything outside its rectangles |
-| C | Crop | Non-destructive; Enter applies, Esc cancels |
+| C | Crop | Non-destructive. Enter applies it, and so does another tool or handing the image out (copy, save, Done). Esc or Cancel drops it |
 
 Other keys:
 
