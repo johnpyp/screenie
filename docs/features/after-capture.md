@@ -47,7 +47,9 @@ the default) or the middle of an edge (`top-middle`, `bottom-middle`, `left-midd
 `right-middle`). It sits 18px from the edges it touches, clear of bars, and slides in
 from the nearest edge. The newest card is closest to that edge.
 It stays for `preview.timeout` seconds (default 10; 0 = until dismissed). Hovering pauses the
-timer, and leaving gives it a short fresh lease. Up to five cards stack.
+timer, and leaving gives it a short fresh lease. Up to five cards stack. With copy and
+save off, an unsaved capture exists only in its card, so it's gone when the card goes.
+That's intended: turning on copy or save is how you keep captures.
 
 Clicking a card opens the capture in its default app (from a temporary file if it
 wasn't saved). Hovering shows only what's left to do:

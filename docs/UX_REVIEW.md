@@ -21,15 +21,16 @@ Mark each one ✅ / ❌ / ✏️ however you like, and I'll work through them.
 ## The big ones
 
 1. **Errors are invisible from a keybinding.** Nothing tells you a capture or recording failed ([1.1](#11-errors-and-outcomes-are-invisible-from-a-keybinding)).
-2. **Unsaved captures vanish.** With your clean defaults (copy and save off), the card is the only copy, and it expires after 10 s ([2.1](#21-a-recent-captures-cache-and-screenie-restore)).
-3. **The card's trash button permanently deletes the file** ([2.2](#22-trash-means-trash)).
-4. **Resizable capture box in the inline editor.** Already agreed; it's next after the bug fixes ([6.1](#61-resize-the-capture-box-while-editing-agreed-queued)).
-5. **The overlay editor holds the keyboard for its whole session.** With two monitors, typing meant for the other one fires editor shortcuts, and a plain Enter means Done ([6.2](#62-the-overlay-editor-holds-the-keyboard-across-monitors)).
-6. **Per-capture copy/save/edit from inside the selector** ([3.1](#31-choose-copy-save-or-edit-per-capture-from-the-selector)).
-7. **Game names.** Captures and pills of Steam games are named `steam_app_1245620` ([4.1](#41-game-captures-are-named-steam_app_1245620)).
-8. **Save As goes through the portal.** It can park the editor behind a fullscreen game, and needs a FileChooser portal at all. The alternative is an inline save sheet ([6.3](#63-save-as-an-inline-save-sheet-instead-of-the-portal)).
-9. **Recording controls have no keys, and some layouts give no feedback at all** ([7.2](#72-keys-on-the-recording-pill), [7.3](#73-recordings-with-no-chrome-give-no-sign-they-started)).
-10. **Redaction has no solid black box**, and its strength follows the arrow size ([6.8](#68-solid-redaction-and-self-sizing-blurpixelate)).
+2. **The card's trash button permanently deletes the file** ([2.1](#21-trash-means-trash)).
+3. **Resizable capture box in the inline editor.** Already agreed; it's next after the bug fixes ([6.1](#61-resize-the-capture-box-while-editing-agreed-queued)).
+4. **The overlay editor holds the keyboard for its whole session.** With two monitors, typing meant for the other one fires editor shortcuts, and a plain Enter means Done ([6.2](#62-the-overlay-editor-holds-the-keyboard-across-monitors)).
+5. **Per-capture copy/save/edit from inside the selector** ([3.1](#31-choose-copy-save-or-edit-per-capture-from-the-selector)).
+6. **Game names.** Captures and pills of Steam games are named `steam_app_1245620` ([4.1](#41-game-captures-are-named-steam_app_1245620)).
+7. **Save As goes through the portal.** It can park the editor behind a fullscreen game, and needs a FileChooser portal at all. The alternative is an inline save sheet ([6.3](#63-save-as-an-inline-save-sheet-instead-of-the-portal)).
+8. **Recording controls have no keys, and some layouts give no feedback at all** ([7.2](#72-keys-on-the-recording-pill), [7.3](#73-recordings-with-no-chrome-give-no-sign-they-started)).
+9. **Redaction has no solid black box**, and its strength follows the arrow size ([6.8](#68-solid-redaction-and-self-sizing-blurpixelate)).
+
+With copy and save off, an unsaved capture lives only in its card, and letting it expire is intended. Nothing here tries to keep those captures around.
 
 ---
 
@@ -83,24 +84,9 @@ Mark each one ✅ / ❌ / ✏️ however you like, and I'll work through them.
 
 ---
 
-## 2. Never losing a capture
+## 2. Destructive actions
 
-### 2.1 A recent-captures cache, and `screenie restore`
-
-`preview-8`, `shot-ux-7`
-
-**Now:**
-- With copy and save off (your defaults), an unsaved capture exists only in its card, and the card expires after 10 s. Then it's gone.
-- A config with *every* action off (no copy, save, preview or edit) captures into nothing, silently.
-
-**Options:**
-- a) Keep the last ~10 captures' PNGs in `$XDG_CACHE_HOME/screenie/recent`, pruned by count and age. `screenie restore` reopens the newest as a card (`--edit` for the editor), and `query last` reports that path, flagged as not saved.
-- b) Don't expire unsaved cards; only saved or copied ones time out.
-- c) Show an expiry ring on unsaved cards.
-
-**Recommendation:** (a), like CleanShot's "restore recently closed". Also force the preview card when no action at all applies, and log it. Skip the ring once restore exists.
-
-### 2.2 Trash means trash
+### 2.1 Trash means trash
 
 `preview-12`, `input-12`
 
@@ -111,12 +97,12 @@ Mark each one ✅ / ❌ / ✏️ however you like, and I'll work through them.
 - If trashing fails (no trash on that filesystem), keep the file and say so rather than deleting it.
 - An undo toast is optional, since the trash is recoverable.
 
-### 2.3 Clicking a card opens the file and removes the card
+### 2.2 Clicking a card opens the file and removes the card
 
 `preview-13`
 
 **Now:**
-- Clicking the card opens the capture in your image viewer and dismisses the card, even for unsaved captures, where the only other copy is a temp file.
+- Clicking the card opens the capture in your image viewer and dismisses the card, so copying, saving or editing it afterwards means finding the file again.
 - "Show in folder" dismisses it too.
 
 **Options:**
@@ -126,7 +112,7 @@ Mark each one ✅ / ❌ / ✏️ however you like, and I'll work through them.
 
 **Recommendation:** (a). Also add Enter as the Open key.
 
-### 2.4 Discard on the recording pill is one click from Stop
+### 2.3 Discard on the recording pill is one click from Stop
 
 `rec-7`
 
@@ -137,15 +123,7 @@ Mark each one ✅ / ❌ / ✏️ however you like, and I'll work through them.
 - Recordings under ~5 s can stay one click, for false starts.
 - `screenie cancel` stays immediate.
 
-### 2.5 Editing from a card and closing without changes loses the card
-
-`editor-17`
-
-**Now:** the card is removed when you open the editor. Closing with Esc and no changes leaves you with nothing.
-
-**Recommendation:** when the editor closes pristine, with nothing copied or saved, put the card back with its timer restarted.
-
-### 2.6 `screenie quit` drops unsaved annotations
+### 2.4 `screenie quit` drops unsaved annotations
 
 `cli-ux-14`
 
