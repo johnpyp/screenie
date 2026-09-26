@@ -86,13 +86,12 @@ Each key acts once per press: holding it doesn't repeat on the next card.
 The hover layout is in rows (corner buttons and caption, the main buttons, then Delete),
 so nothing overlaps, whatever the card's shape.
 
-The cards never take the keyboard from the app you're in, except while the pointer is
-on one: then those keys reach the card (Esc dismisses it rather than, say, unpausing the
-game beneath, whose pointer lock would also trap the pointer on the card). Moving off
-gives the keyboard back once no key is held, so nothing pressed on the card is released
-into the app. Cards that appear under a resting pointer aren't entered when they appear,
-so typing elsewhere carries on. (On sway a pointer left resting on a card is entered on
-the next click or layout change, though; see ISSUES.)
+The cards never take the keyboard: they're used with the pointer, and typing always
+goes to the app you're in, even with the pointer on a card. (Focus moving mid-press would
+split a key between the two: a Proton game kept a Tab that was held onto a card, so
+Shift then opened Steam's overlay.) If a fullscreen game locks its pointer while the
+cursor is on a card, the card lets it through at once (sway would otherwise freeze the
+cursor there).
 
 Cards are never in a capture: they're hidden for the moment a screenshot is taken, and
 while their screen is recorded (see [recording](recording.md)).

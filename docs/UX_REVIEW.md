@@ -27,7 +27,7 @@ Mark each one ✅ / ❌ / ✏️ however you like, and I'll work through them.
 5. **Per-capture copy/save/edit from inside the selector** ([3.1](#31-choose-copy-save-or-edit-per-capture-from-the-selector)).
 6. **Game names.** Captures and pills of Steam games are named `steam_app_1245620` ([4.1](#41-game-captures-are-named-steam_app_1245620)).
 7. **Save As goes through the portal.** It can park the editor behind a fullscreen game, and needs a FileChooser portal at all. The alternative is an inline save sheet ([6.3](#63-save-as-an-inline-save-sheet-instead-of-the-portal)).
-8. **Recording controls have no keys, and some layouts give no feedback at all** ([7.2](#72-keys-on-the-recording-pill), [7.3](#73-recordings-with-no-chrome-give-no-sign-they-started)).
+8. **Some recording layouts give no sign that recording started** ([7.3](#73-recordings-with-no-chrome-give-no-sign-they-started)).
 9. **Redaction has no solid black box**, and its strength follows the arrow size ([6.8](#68-solid-redaction-and-self-sizing-blurpixelate)).
 
 With copy and save off, an unsaved capture lives only in its card, and letting it expire is intended. Nothing here tries to keep those captures around.
@@ -90,7 +90,7 @@ With copy and save off, an unsaved capture lives only in its card, and letting i
 
 `preview-12`, `input-12`
 
-**Now:** the card's trash button and its Delete key call `remove_file`: permanent, with no undo. The icon is a trash can, and you call it "Trash".
+**Now:** the card's trash button calls `remove_file`: permanent, with no undo. The icon is a trash can, and you call it "Trash".
 
 **Recommendation:**
 - Move the file to the freedesktop trash with the `trash` crate, and title the button "Move to Trash".
@@ -110,7 +110,7 @@ With copy and save off, an unsaved capture lives only in its card, and letting i
 - b) Make click open the editor, CleanShot-style, with Open as a button.
 - c) Double-click to open.
 
-**Recommendation:** (a). Also add Enter as the Open key.
+**Recommendation:** (a).
 
 ### 2.3 Discard on the recording pill is one click from Stop
 
@@ -275,45 +275,11 @@ For screenshots this is done (see [9.1](#91-screenshots)): the same shortcut aga
 
 ## 5. Preview cards
 
-### 5.1 Passing over a card steals keyboard focus
+### 5.1 Card keyboard (settled)
 
-`preview-10`
+`preview-10`, `preview-11`, `input-10`, `input-17`: settled by your call. Cards and the pill never take the keyboard, and there's no `screenie card` command. See [9.7](#97-overlays-and-the-keyboard).
 
-**Now:**
-- The card takes the keyboard the instant the pointer enters it. Flying past on the way somewhere else briefly unfocuses your app.
-- The gaps between cards hand the keyboard back and forth.
-
-**Options:**
-- a) Take the keyboard after a ~120–150 ms dwell. The game pointer-lock rescue still works, because a trapped pointer dwells.
-- b) Give it back ~150 ms after the pointer leaves every card, cancelled if it comes back, which fixes the gap churn.
-- c) Both.
-
-**Recommendation:** (b) first, then (a) once it's been tried against a fullscreen game with pointer lock on sway.
-
-### 5.2 Show when a card or the pill has the keyboard
-
-`input-10`, `input-17`
-
-**Now:**
-- While hovered, a card or the pill silently swallows every key it doesn't handle; the pill handles none at all.
-- Your terminal shows as unfocused, and nothing says why typing stopped.
-
-**Finder:** hand the keyboard back on the first key the surface doesn't handle, and draw a focus ring. **Skeptic:** the ring only; handing back on a stray key reopens the pointer-lock trap.
-
-**Recommendation:**
-- A subtle ring while `has_keyboard()`, plus an "Esc" keycap on the card.
-- Give cards Enter/Space (open) and R (show in folder).
-- Give the pill real keys (see 7.2), so holding the keyboard is worth something.
-
-### 5.3 A CLI verb for the newest card
-
-`preview-11`
-
-**Now:** card actions need the mouse.
-
-**Recommendation:** `screenie card copy|save|edit|open|reveal|dismiss|delete` acts on the newest card, plus `dismiss --all`, through the same code as the buttons. Then `bindsym Shift+Print exec screenie card save` works.
-
-### 5.4 Stack behaviour and motion
+### 5.2 Stack behaviour and motion
 
 `preview-14`, `preview-18`
 
@@ -327,9 +293,9 @@ For screenshots this is done (see [9.1](#91-screenshots)): the same shortcut aga
 - Pause every card's timer while any card is hovered, and give expired ones a short lease when the pointer leaves.
 - A ~200 ms slide/fade on removal, later.
 - The middle positions lay out as a row.
-- Shift+Esc on a card dismisses all.
+- A "dismiss all" for the stack, on the pointer (e.g. a right-click on any card).
 
-### 5.5 Tiny captures blur
+### 5.3 Tiny captures blur
 
 `preview-16`
 
@@ -493,18 +459,13 @@ What's left to decide is the shape of it.
 
 **Recommendation:** keep what's there for screen recordings, and (c) for region recordings, so the cards stay usable beside what's being recorded.
 
-### 7.2 Keys on the recording pill
+### 7.2 The countdown's stop hint
 
-`rec-10`, `input-13`
+`rec-10`
 
-**Now:**
-- Hovering the pill takes the keyboard, but the pill has no keys, so typing into the recorded app is lost.
-- The countdown's stop hint shows literal backticks: "Stop with your record shortcut or \`screenie stop\`".
+**Now:** the countdown's stop hint shows literal backticks: "Stop with your record shortcut or \`screenie stop\`". (The pill's keys are settled: it never takes the keyboard.)
 
-**Recommendation:**
-- Space pauses or resumes, Enter stops and saves, and Esc cancels during the countdown only (never Discard).
-- Put the keys in the tooltips, and show a subtle ring while the pill holds the keyboard.
-- Reword the hint as plain text: "Press your record shortcut again, or run screenie stop, to finish".
+**Recommendation:** plain text: "Press your record shortcut again, or run screenie stop, to finish".
 
 ### 7.3 Recordings with no chrome give no sign they started
 
@@ -762,4 +723,11 @@ The fix agents had to pick a behaviour in a few places. Each is live on `main` n
 ### 9.6 Not fixed
 
 - **The clipboard empties when an upgrade replaces the daemon** (ISSUES has options).
-- **A card appearing under a game's locked pointer grabs the keyboard on the next click** (`input-2`). This belongs with the overlay keyboard redesign, together with the stuck-Tab bug from Deadlock.
+
+### 9.7 Overlays and the keyboard
+
+Done after your call. Preview cards and the recording pill never take the keyboard: they're pointer-only, like notifications and bars (no Linux overlay surveyed takes the keyboard on hover). That fixes the stuck Tab in Deadlock, since focus never moves mid-press, and `input-2` (a card under a parked game cursor taking the keyboard).
+
+sway's frozen-cursor trap is handled by detecting it rather than by holding the keyboard. When a game locks its pointer while the cursor is on a card, the card still gets relative motion but no motion, which our GPUI patch reports. The card then goes click-through for 1.5 s and briefly maps a 1×1 surface, which makes sway re-pick the surface under the cursor: the game. The e2e test locks a stand-in game's pointer over the pill and a card, and the cursor gets out each time.
+
+The cost: Esc no longer dismisses a card, and there are no card shortcuts.

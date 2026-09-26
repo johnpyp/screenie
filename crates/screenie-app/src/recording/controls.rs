@@ -272,20 +272,12 @@ pub(crate) fn set_phase(handle: Option<WindowHandle<Controls>>, phase: Phase, cx
     });
 }
 
-/// Close the chrome: it shows nothing from now on, and its surface goes once the keys
-/// held on it are let go.
+/// Close the chrome.
 pub(crate) fn close(handle: Option<WindowHandle<Controls>>, cx: &mut App) {
-    let _ = handle.map(|handle| {
-        handle.update(cx, |controls, _, cx| {
-            controls.hover.update(cx, |hover, cx| {
-                hover.when_released(
-                    move |cx| _ = handle.update(cx, |_, window, _| window.remove_window()),
-                    cx,
-                );
-            });
-            cx.notify();
-        })
-    });
+    if let Some(handle) = handle {
+        // Not from inside the window's own event dispatch (its Stop button).
+        cx.defer(move |cx| _ = handle.update(cx, |_, window, _| window.remove_window()));
+    }
 }
 
 /// Elapsed time and paused state of the running recording.
@@ -467,10 +459,6 @@ impl Controls {
 
 impl Render for Controls {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Closed: nothing shows while the surface waits for the keys to be let go.
-        if self.hover.read(cx).leaving() {
-            return Hover::root(&self.hover, div().size_full(), cx);
-        }
         let k = f64::from(screenie_ui_kit::ui_scale(cx));
         let Layout {
             region,

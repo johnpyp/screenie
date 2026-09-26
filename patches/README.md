@@ -23,20 +23,21 @@ surface (screenie's overlays: the editor's Save As) that's a protocol error
 no screenshot works until the daemon restarts. The portal simply opens the dialog
 without a parent instead.
 
-`src/linux/wayland/window.rs`, `set_keyboard_interactivity`: the Wayland side of the
-`gpui-pre` patch below.
+`src/linux/wayland/client.rs` (`zwp_relative_pointer_v1`) and `window.rs`
+(`set_pointer_stuck`): the Wayland side of `Window::observe_pointer_stuck` below. It binds
+the relative pointer, and a window under the pointer that gets a few relative moves in a
+row with no motion (pushing against its edge doesn't count) is told the pointer is stuck.
 
 ## gpui-pre 0.3.6
 
-`src/platform.rs` (`PlatformWindow`) and `src/window.rs` (`Window`):
-`set_keyboard_interactivity`, to change a layer surface's keyboard interactivity after
-it's mapped, like the existing `set_exclusive_zone` and `set_input_region`.
-
-Overlays take the keyboard only while the pointer is on them
-(`screenie_ui_kit::Hover`). Layer-shell allows that
-(`zwlr_layer_surface_v1.set_keyboard_interactivity` any time), but GPUI only set it at
-creation. The examples aren't vendored (their `[[example]]` entries are removed from
-`Cargo.toml`). Upstream: Zed's `gpui`.
+`src/platform.rs` (`PlatformWindow::on_pointer_stuck`) and `src/window.rs`
+(`Window::observe_pointer_stuck`): the pointer is over the window and being moved, but
+doesn't move. sway enforces a pointer lock for the surface with the keyboard and drops
+every motion while the cursor is over another one, so a game that locks its pointer
+while the cursor is on a card (which never takes the keyboard) freezes the cursor there.
+The relative motion still reaches the card, and `screenie_ui_kit::Hover` steps aside
+when told. The examples aren't vendored (their `[[example]]` entries are removed from
+`Cargo.toml`). Upstream: none; it's screenie's policy on top of a sway quirk.
 
 `src/window.rs` (`Window::dispatch_event`, `mouse_hit_test_in`, `TooltipId::is_hovered`)
 and `src/elements/div.rs` (the tooltip's prepaint hover check): forget the hover when the

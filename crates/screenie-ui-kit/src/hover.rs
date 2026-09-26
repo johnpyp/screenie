@@ -1,28 +1,31 @@
-//! Input for overlays that float over other apps without owning the keyboard (preview
-//! cards, the recording pill): they take the pointer only on their interactive areas,
-//! and the keyboard only while the pointer is on one.
+//! Pointer input for overlays that float over other apps (preview cards, the recording
+//! pill): they take the pointer on their interactive areas only, and never the keyboard.
 //!
-//! One rule covers it: **a surface holds the keyboard exactly while the pointer is on one
-//! of its areas**, and until the keys pressed there are let go. On sway, pointer focus
-//! without keyboard focus is a trap. The app that has the keyboard gets its pointer lock
-//! back (a fullscreen game, as soon as it's focused), and while the locked surface isn't
-//! the one under the cursor, every motion is dropped. The cursor would sit frozen on the
-//! overlay. Holding the keyboard lifts the lock, and giving it back once the pointer is off
-//! returns the app everything. It also makes keys pressed with the pointer on a card mean
-//! the card: Esc dismisses it, rather than going to the app beneath.
+//! Never taking the keyboard is the point. Keyboard focus that moves while a key is held
+//! splits the press: the app beneath saw it go down, the overlay gets its release. Apps
+//! that don't catch up when focus returns keep the key held: a Proton game's Steam
+//! overlay, fed through Xwayland (which never delivers releases that happened elsewhere),
+//! later reads Shift as Shift+Tab. Notifications, bars and docks work the same way, for
+//! the same reason: what they offer, the pointer does.
+//!
+//! sway has a catch. It enforces a pointer constraint (a game's pointer lock or confine)
+//! for the surface that has the keyboard, and drops every motion while the cursor is over
+//! another surface, so a game that locks the pointer while the cursor is on a card would
+//! freeze it there. The pointer still reports relative motion to the card, which is how
+//! GPUI tells that it's stuck ([`Window::observe_pointer_stuck`]). The surface then steps
+//! aside: its input region empties and it has sway pick the surface under the cursor
+//! again, which is now the game, and its areas come back a moment later. The other compositors (Hyprland,
+//! KWin, niri, mutter) give the constrained surface the pointer themselves, and a
+//! pointer never gets stuck there.
 //!
 //! A surface starts with an empty input region and gets its areas once it's on screen.
 //! Compositors re-pick the pointer's surface when a surface maps, but not when an input
-//! region grows. So an overlay that appears under a resting pointer isn't entered (and
-//! doesn't take the typing of someone whose mouse happens to be there) when it appears.
-//! sway does re-pick it later, though, without any motion: on a button release, and after
-//! any layout change. A pointer parked on an area is entered then.
-//!
-//! Letting go of the keyboard, it goes back to a surface that owns it, if one is open
-//! (see [`crate::KeyboardGrab::for_window`]).
+//! region grows, so an overlay that appears under a resting pointer isn't entered when it
+//! appears. sway does re-pick later without any motion (on a button release, after a
+//! layout change), so a pointer parked on an area is entered then.
 //!
 //! Hover follows the raw pointer events, in the capture phase, so no element can hide a
-//! move from it, and it's exact at the edges of the areas it hands the keyboard over at.
+//! move from it, and it's exact at the areas' edges.
 //!
 //! ```ignore
 //! // Opening the surface (with no keyboard interactivity):
@@ -31,24 +34,27 @@
 //! // Rendering: mark the areas, then finish the root.
 //! let pill = div().relative().child(...).child(Hover::area(&self.hover, Part::Pill));
 //! Hover::root(&self.hover, div().size_full().child(pill), cx)
-//! // Closing:
-//! self.hover.update(cx, |h, cx| h.when_released(move |cx| close(cx), cx));
 //! ```
 
-use gpui::layer_shell::KeyboardInteractivity;
+use std::time::Duration;
+
+use gpui::layer_shell::Anchor;
 use gpui::prelude::*;
 use gpui::{
-    AnyWindowHandle, App, Bounds, Context, DispatchPhase, Entity, FocusHandle, MouseExitEvent,
-    MouseMoveEvent, Pixels, Point, Window, canvas,
+    App, Bounds, Context, DispatchPhase, Entity, MouseExitEvent, MouseMoveEvent, Pixels, Point,
+    Subscription, Window, canvas, px, size,
 };
 
-use crate::keys::{RELEASE_TIMEOUT, Release, Then, owners, run};
+use crate::layer::{LayerSpec, layer_options};
 
-/// Input for one layer surface opened without keyboard interactivity. `K` names its
-/// interactive areas. Observe it to redraw when the hovered area changes.
+/// How long a surface whose pointer got stuck takes no input.
+const STEP_ASIDE: Duration = Duration::from_millis(1500);
+/// How long [`repick_pointer`]'s pixel stays mapped.
+const REPICK: Duration = Duration::from_millis(100);
+
+/// Pointer input for one layer surface opened without keyboard interactivity. `K` names
+/// its interactive areas. Observe it to redraw when the hovered area changes.
 pub struct Hover<K: 'static> {
-    window: AnyWindowHandle,
-    focus: FocusHandle,
     /// Areas as the current frame paints them.
     painting: Vec<(K, Bounds<Pixels>)>,
     /// Areas as last painted.
@@ -57,36 +63,35 @@ pub struct Hover<K: 'static> {
     region: Vec<Bounds<Pixels>>,
     /// Whether the surface has been on screen, and its areas take input.
     shown: bool,
+    /// Whether it's stepping aside for a pointer that got stuck on it.
+    aside: bool,
+    /// Bumped each time it steps aside, so a stale timer does nothing.
+    epoch: u64,
     /// Where the pointer is on the surface, if it is.
     pointer: Option<Point<Pixels>>,
     hovered: Option<K>,
-    /// Whether the surface has asked for the keyboard.
-    taken: bool,
-    /// Bumped each time the pointer leaves the areas, so a stale timeout does nothing.
-    epoch: u64,
-    release: Release<Then>,
+    _stuck: Subscription,
 }
 
 impl<K: Clone + PartialEq + 'static> Hover<K> {
     /// For the layer surface `window`, opened with no keyboard interactivity.
     pub fn new(window: &mut Window, cx: &mut App) -> Entity<Self> {
         window.set_input_region(Some(&[]));
-        let handle = window.window_handle();
         cx.new(|cx| {
-            let focus = cx.focus_handle();
-            window.focus(&focus, cx);
+            let this = cx.weak_entity();
+            let stuck = window.observe_pointer_stuck(move |window, cx| {
+                let _ = this.update(cx, |h: &mut Self, cx| h.step_aside(window, cx));
+            });
             Self {
-                window: handle,
-                focus,
                 painting: Vec::new(),
                 areas: Vec::new(),
                 region: Vec::new(),
                 shown: false,
+                aside: false,
+                epoch: 0,
                 pointer: None,
                 hovered: None,
-                taken: false,
-                epoch: 0,
-                release: Release::default(),
+                _stuck: stuck,
             }
         })
     }
@@ -96,19 +101,8 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
         self.hovered.as_ref()
     }
 
-    /// Whether the surface has (or has asked for) the keyboard. Removing it now would
-    /// release its held keys into the app beneath; [`Hover::when_released`] waits.
-    pub fn has_keyboard(&self) -> bool {
-        self.taken
-    }
-
-    /// Whether [`Hover::when_released`] was called.
-    pub fn leaving(&self) -> bool {
-        self.release.leaving()
-    }
-
-    /// Make the element this is a child of an interactive area: it takes the pointer, and
-    /// the keyboard while the pointer is on it. Fills the parent, which must be `relative`.
+    /// Make the element this is a child of an interactive area: it takes the pointer.
+    /// Fills the parent, which must be `relative`.
     pub fn area(this: &Entity<Self>, key: K) -> impl IntoElement {
         let this = this.clone();
         canvas(
@@ -119,42 +113,9 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
         .inset_0()
     }
 
-    /// Finish the surface's root element, once its children are in: it holds the focus,
-    /// tracks the keys held on the surface and the pointer over its areas, and limits
-    /// input to those areas.
-    pub fn root<E: InteractiveElement + ParentElement>(
-        this: &Entity<Self>,
-        root: E,
-        cx: &App,
-    ) -> E {
-        let (down, up, mods) = (this.clone(), this.clone(), this.clone());
-        let root = root
-            .track_focus(&this.read(cx).focus)
-            // Capture phase, so the view's own handlers can't hide a key from it. Once
-            // leaving, the view sees no more keys.
-            .capture_key_down(move |event, _, cx| {
-                if down.update(cx, |h, _| {
-                    h.release.held.press(event);
-                    h.release.leaving()
-                }) {
-                    cx.stop_propagation();
-                }
-            })
-            .capture_key_up(move |event, _, cx| {
-                if up.update(cx, |h, cx| {
-                    h.release.held.release(event);
-                    h.settle(cx);
-                    h.release.leaving()
-                }) {
-                    cx.stop_propagation();
-                }
-            })
-            .on_modifiers_changed(move |event, _, cx| {
-                mods.update(cx, |h, cx| {
-                    h.release.held.set_modifiers(event);
-                    h.settle(cx);
-                })
-            });
+    /// Finish the surface's root element, once its children are in: it tracks the
+    /// pointer over the areas, and limits input to them.
+    pub fn root<E: ParentElement>(this: &Entity<Self>, root: E, _cx: &App) -> E {
         // Painted after every area has been prepainted.
         let this = this.clone();
         root.child(
@@ -165,22 +126,6 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
             .absolute()
             .size_0(),
         )
-    }
-
-    /// Run `then` (typically removing the surface) once no keys are held on it: now, on
-    /// the last release, or after [`RELEASE_TIMEOUT`]. It runs once, outside any event
-    /// dispatch, however many times this is called.
-    pub fn when_released(&mut self, then: impl FnOnce(&mut App) + 'static, cx: &mut Context<Self>) {
-        if self.release.leaving() {
-            return;
-        }
-        self.release.leave(Box::new(then));
-        self.settle(cx);
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(RELEASE_TIMEOUT).await;
-            let _ = this.update(cx, |h, cx| run(h.release.take(), cx));
-        })
-        .detach();
     }
 
     /// The frame's areas are all painted: update the input region, listen to the
@@ -225,8 +170,34 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
         }
     }
 
+    /// The pointer is stuck on the surface (see the module docs): take no input for a
+    /// moment, so it moves on to the surface that holds it.
+    fn step_aside(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        tracing::debug!("overlay stepping aside for a stuck pointer");
+        self.aside = true;
+        self.epoch += 1;
+        self.apply_region(window);
+        repick_pointer(cx);
+        self.pointer_at(None, cx);
+        let epoch = self.epoch;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(STEP_ASIDE).await;
+            let _ = this.update(cx, |h, cx| {
+                if h.epoch == epoch {
+                    h.aside = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     fn apply_region(&mut self, window: &mut Window) {
-        let region: Vec<_> = self.areas.iter().map(|(_, b)| *b).collect();
+        let region: Vec<_> = if self.aside {
+            Vec::new()
+        } else {
+            self.areas.iter().map(|(_, b)| *b).collect()
+        };
         if region != self.region {
             window.set_input_region(Some(&region));
             self.region = region;
@@ -244,63 +215,42 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
     fn pointer_at(&mut self, pointer: Option<Point<Pixels>>, cx: &mut Context<Self>) {
         self.pointer = pointer;
         let hovered = self.area_at(pointer);
-        if hovered == self.hovered {
-            return;
+        if hovered != self.hovered {
+            self.hovered = hovered;
+            cx.notify();
         }
-        if hovered.is_none() {
-            // A release can go missing (focus taken mid-press): don't hold on for good.
-            self.epoch += 1;
-            let epoch = self.epoch;
-            cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(RELEASE_TIMEOUT).await;
-                let _ = this.update(cx, |h, cx| {
-                    if h.epoch == epoch {
-                        h.release.held = Default::default();
-                        h.settle(cx);
-                    }
-                });
-            })
-            .detach();
-        }
-        self.hovered = hovered;
-        self.settle(cx);
-        cx.notify();
     }
+}
 
-    /// Take or give back the keyboard as the pointer and the held keys say, and close if
-    /// that's waiting on the keys.
-    fn settle(&mut self, cx: &mut Context<Self>) {
-        let held = self.release.held.any();
-        run(self.release.ready(), cx);
-        // Leaving, it keeps the keyboard only for the keys still held.
-        let take = (self.hovered.is_some() && !self.release.leaving()) || (self.taken && held);
-        if take == self.taken {
-            return;
-        }
-        self.taken = take;
-        tracing::debug!(taken = take, "hover keyboard");
-        let interactivity = if take {
-            KeyboardInteractivity::Exclusive
-        } else {
-            KeyboardInteractivity::None
-        };
-        // Letting go, the keyboard goes back to a surface that owns it (an editor) if
-        // there is one. Compositors don't do that themselves: sway only looks for another
-        // keyboard-owning surface on this surface's output, and otherwise gives the keys
-        // to the last focused window. Re-asserting the owner's claim first moves focus
-        // straight there, never through the window beneath.
-        let owners = if take { Vec::new() } else { owners(cx) };
-        // Not from inside the window's own event dispatch.
-        let window = self.window;
-        cx.defer(move |cx| {
-            for owner in owners {
-                let _ = owner.update(cx, |_, window, _| {
-                    window.set_keyboard_interactivity(KeyboardInteractivity::Exclusive)
-                });
-            }
-            let _ = window.update(cx, |_, window, _| {
-                window.set_keyboard_interactivity(interactivity)
-            });
-        });
+/// Have the compositor pick the surface under the pointer again, as it does whenever a
+/// surface maps or unmaps. Nothing else is sure to: sway (up to 1.12) doesn't for a
+/// changed input region, and under a lock no motion does it either. So this maps an empty
+/// pixel that takes no input, and takes it away again.
+fn repick_pointer(cx: &mut App) {
+    let spec = LayerSpec::floating(
+        "screenie-repick",
+        Anchor::TOP | Anchor::LEFT,
+        size(px(1.), px(1.)),
+    );
+    let opened = cx.open_window(layer_options(cx, &spec), |window, cx| {
+        window.set_input_region(Some(&[]));
+        cx.new(|_| Blank)
+    });
+    match opened {
+        Ok(handle) => cx
+            .spawn(async move |cx| {
+                cx.background_executor().timer(REPICK).await;
+                let _ = handle.update(cx, |_, window, _| window.remove_window());
+            })
+            .detach(),
+        Err(e) => tracing::warn!("can't map a surface to re-pick the pointer: {e}"),
+    }
+}
+
+struct Blank;
+
+impl Render for Blank {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        gpui::Empty
     }
 }

@@ -42,45 +42,40 @@ beneath, which then sees it pressed and gets its release (an Esc leaking into yo
 terminal). Attach the grab with `KeyboardGrab::track` (capture phase, so a view can't
 hide keys from it) and close through `when_released`: the action runs once, outside
 event dispatch, when every key and modifier is up (or after a timeout). While leaving,
-the surface should render as gone, and the grab swallows further key events. A surface
-that owns the keyboard for as long as it's open (the editor) makes its grab with
-`KeyboardGrab::for_window`, so `Hover` can hand the keyboard back to it (below).
+the surface should render as gone, and the grab swallows further key events.
 
-**Surfaces that float over other apps** (preview cards, the recording pill) open with no
-keyboard interactivity and use `Hover`:
+**Surfaces that float over other apps** (preview cards, the recording pill) never take
+the keyboard, and use `Hover` for the pointer:
 
-- `Hover::new(window, cx)` when the surface opens.
+- `Hover::new(window, cx)` when the surface opens (with no keyboard interactivity).
 - `Hover::area(&hover, key)` as the last child of each interactive element.
 - `Hover::root(&hover, root, cx)` around the finished root element.
-- `when_released` to close.
 - Observe the entity for `hovered()`.
 
-`Hover` keeps one rule: the surface holds the keyboard exactly while the pointer is on
-one of its areas, and until the keys pressed there are let go.
+What it guarantees:
 
+- **No keyboard, ever.** Keyboard focus that moves while a key is held splits the press
+  between two apps, and one that doesn't catch up keeps the key held. Xwayland never
+  delivers a release that happened while an app was unfocused, so in a Proton game a
+  Tab held onto a card stayed down, and Shift then opened Steam's overlay as Shift+Tab.
+  Notifications, bars and docks never take it for the same reason.
 - **The rest of the surface is click-through.** The input region is the areas as last
   painted.
-- **No pointer-lock trap.** Pointer focus without keyboard focus is a trap on sway. The
-  focused app's pointer lock (a fullscreen game) drops every motion while the cursor is
-  on another surface, so the cursor would freeze on the overlay. Holding the keyboard
-  lifts the lock.
-- **Keys go where the pointer is.** Esc on a card dismisses the card, rather than going
-  to the game beneath.
-- **The keyboard goes back to its owner.** Letting go, a hover surface first re-asserts
-  the claim of any surface that owns the keyboard (an open editor, even on another
-  output). sway looks for such a surface only on the output being arranged, and
-  otherwise gives the keys to the last focused window, so an editor on one screen would
-  lose its keys to a card on another.
+- **A stuck pointer gets out.** sway enforces a game's pointer lock for the surface with
+  the keyboard (the game, since overlays never take it), and drops every motion while the
+  cursor is over another surface: a game that locks with the cursor on a card freezes it
+  there. GPUI tells `Hover` when the pointer is stuck (relative motion but no motion;
+  see `patches/README.md`). It then empties its input region for a moment and maps a
+  throwaway pixel, since a surface mapping is what makes sway pick the surface under the
+  cursor again, and that's the game now. Hyprland, KWin, niri and mutter hand a locked
+  pointer to the game themselves.
 - **It doesn't grab a resting pointer, at first.** A surface gets its input region only
   once it's on screen. Compositors re-pick the pointer's surface when a surface maps,
   not when a region grows, so an overlay appearing under a resting pointer isn't entered
-  when it appears. But sway also re-picks it on a button release and after any layout
-  change (another surface mapping, a window moving), and then a parked pointer is
-  entered, and takes the keyboard, without moving. That matters for a game whose locked
-  pointer was left where a card appears: the next click hands the card the keyboard.
-  Keeping the parked position out of the input region would fix it, but needs the
-  pointer's position at capture time, which only the selector knows.
+  when it appears. sway also re-picks it on a button release and after any layout
+  change, and then a parked pointer is entered without moving. Being entered takes
+  nothing from the app beneath, though: it keeps the keyboard.
 - **Hover is tracked from the raw pointer events**, capture phase, so no element can hide
   a move from it.
 
-Nothing else in an overlay should set the input region or keyboard interactivity.
+Nothing else in an overlay should set the input region.

@@ -1212,6 +1212,8 @@ pub struct Window {
     appearance: WindowAppearance,
     pub(crate) appearance_observers: SubscriberSet<(), AnyObserver>,
     pub(crate) button_layout_observers: SubscriberSet<(), AnyObserver>,
+    // screenie patch: see `observe_pointer_stuck`.
+    pointer_stuck_observers: SubscriberSet<(), AnyObserver>,
     active: Rc<Cell<bool>>,
     visibility: WindowVisibility,
     pub(crate) visibility_observers:
@@ -1929,6 +1931,20 @@ impl Window {
                     .log_err();
             }
         }));
+        // screenie patch: see `observe_pointer_stuck`.
+        platform_window.on_pointer_stuck(Box::new({
+            let mut cx = cx.to_async();
+            move || {
+                handle
+                    .update(&mut cx, |_, window, cx| {
+                        window
+                            .pointer_stuck_observers
+                            .clone()
+                            .retain(&(), |callback| callback(window, cx));
+                    })
+                    .log_err();
+            }
+        }));
         platform_window.on_hover_status_change(Box::new({
             let mut cx = cx.to_async();
             move |active| {
@@ -2069,6 +2085,7 @@ impl Window {
             appearance,
             appearance_observers: SubscriberSet::new(),
             button_layout_observers: SubscriberSet::new(),
+            pointer_stuck_observers: SubscriberSet::new(),
             active,
             visibility,
             visibility_observers: SubscriberSet::new(),
@@ -2218,6 +2235,25 @@ impl Window {
         mut callback: impl FnMut(&mut Window, &mut App) + 'static,
     ) -> Subscription {
         let (subscription, activate) = self.appearance_observers.insert(
+            (),
+            Box::new(move |window, cx| {
+                callback(window, cx);
+                true
+            }),
+        );
+        activate();
+        subscription
+    }
+
+    /// screenie patch: registers a callback for when the pointer is stuck over this
+    /// window: it's being moved but doesn't move, because another window holds it (a
+    /// pointer constraint that sway keeps enforcing while the cursor is over another
+    /// surface). Only Wayland reports it.
+    pub fn observe_pointer_stuck(
+        &self,
+        mut callback: impl FnMut(&mut Window, &mut App) + 'static,
+    ) -> Subscription {
+        let (subscription, activate) = self.pointer_stuck_observers.insert(
             (),
             Box::new(move |window, cx| {
                 callback(window, cx);
@@ -2419,16 +2455,6 @@ impl Window {
     /// - `None` resets the region to the default, so the whole window receives input again.
     pub fn set_input_region(&self, region: Option<&[Bounds<Pixels>]>) {
         self.platform_window.set_input_region(region);
-    }
-
-    /// Change whether a layer-shell surface takes keyboard focus, after it's open: e.g. a
-    /// passive surface that takes the keyboard only while the pointer is on it. With
-    /// `Exclusive`, the compositor focuses it; with `None`, focus goes back to where it
-    /// was. (Wayland layer-shell windows only; a no-op elsewhere.)
-    // screenie patch
-    #[cfg(all(target_os = "linux", feature = "wayland"))]
-    pub fn set_keyboard_interactivity(&self, interactivity: crate::layer_shell::KeyboardInteractivity) {
-        self.platform_window.set_keyboard_interactivity(interactivity);
     }
 
     /// Return the `WindowBounds` to indicate that how a window should be opened

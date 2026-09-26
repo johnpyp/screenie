@@ -11,9 +11,8 @@
 //! or not. Show in folder and Delete appear once there's a file.
 //!
 //! The cards on an output share one transparent layer surface along the edge (a stack;
-//! each output has its own). Only the cards take
-//! input (see [`Hover`]), and the keyboard only while the pointer is on one: then its
-//! keys (Esc dismisses, Ctrl+C copies…) go to the card rather than the app beneath.
+//! each output has its own). Only the cards take input, and only the pointer's: the
+//! keyboard stays with the app you're in (see [`Hover`]).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,8 +22,7 @@ use gpui::layer_shell::Anchor;
 use gpui::prelude::*;
 use gpui::{
     Animation, AnimationExt, AnyElement, AnyWindowHandle, App, AsyncApp, Context, Entity,
-    FontWeight, Global, KeyDownEvent, Keystroke, ObjectFit, RenderImage, Window, WindowHandle, div,
-    img, px, rgba, size,
+    FontWeight, Global, ObjectFit, RenderImage, Window, WindowHandle, div, img, px, rgba, size,
 };
 use screenie_config::{Align, ScreenPosition};
 use screenie_core::Image;
@@ -48,8 +46,7 @@ const MAX_CARDS: usize = 5;
 /// The stack's layer namespace, which also names it for [`conceal`](screenie_ui_kit::conceal).
 pub(crate) const NAMESPACE: &str = "screenie-preview";
 
-/// What can be done with a card: from its buttons, or from its keys while the pointer is
-/// on it.
+/// What can be done with a card, from its buttons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CardAction {
     Copy,
@@ -92,39 +89,8 @@ impl CardAction {
         }
     }
 
-    /// Its key, as the tooltip shows it.
-    fn key(self) -> Option<&'static str> {
-        match self {
-            Self::Copy => Some("Ctrl+C"),
-            Self::Save => Some("Ctrl+S"),
-            Self::Reveal => None,
-            Self::Dismiss => Some("Esc"),
-            Self::Delete => Some("Delete"),
-            Self::Annotate => Some("E"),
-        }
-    }
-
-    fn for_key(k: &Keystroke) -> Option<Self> {
-        let m = k.modifiers;
-        if m.alt || m.shift || m.platform {
-            return None;
-        }
-        Self::ALL.into_iter().find(|a| match a {
-            Self::Copy => m.control && k.key == "c",
-            Self::Save => m.control && k.key == "s",
-            Self::Dismiss => !m.control && k.key == "escape",
-            Self::Delete => !m.control && k.key == "delete",
-            Self::Annotate => !m.control && k.key == "e",
-            Self::Reveal => false,
-        })
-    }
-
     fn tip(self) -> Tip {
-        let tip = Tip::new(self.name());
-        match self.key() {
-            Some(key) => tip.key(key),
-            None => tip,
-        }
+        Tip::new(self.name())
     }
 
     /// Whether `item` offers it now: only what's left to do.
@@ -555,8 +521,7 @@ impl PreviewStack {
                     .await;
                 let alive = this.update_in(cx, |stack, window, cx| {
                     stack.expire(window, cx);
-                    // Not while it has the keyboard: a held key would go to the app beneath.
-                    let done = stack.items.is_empty() && !stack.hover.read(cx).has_keyboard();
+                    let done = stack.items.is_empty();
                     if done {
                         window.remove_window();
                     }
@@ -727,25 +692,6 @@ impl PreviewStack {
 
     fn item(&mut self, id: u64) -> Option<&mut PreviewItem> {
         self.items.iter_mut().find(|i| i.id == id)
-    }
-
-    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        // Every card action is once per press. A held Delete would otherwise go on to the
-        // card that slides up under the pointer, and delete its file too.
-        if event.is_held {
-            return;
-        }
-        let Some(action) = CardAction::for_key(&event.keystroke) else {
-            return;
-        };
-        let Some(item) = self.items.iter().find(|i| i.hovered) else {
-            return;
-        };
-        if action.offered(item, cx) {
-            let id = item.id;
-            cx.stop_propagation();
-            action.run(self, id, cx);
-        }
     }
 
     /// The pointer is on this card (or none).
@@ -1200,8 +1146,7 @@ impl Render for PreviewStack {
             .size_full()
             .font_family(screenie_ui_kit::FONT)
             .flex()
-            .flex_col()
-            .on_key_down(cx.listener(Self::on_key_down));
+            .flex_col();
         let stack = match vertical {
             Align::Start => stack.justify_start(),
             Align::Middle => stack.justify_center(),

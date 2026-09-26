@@ -32,9 +32,8 @@ recording, for status bars (see the README for the formats).
    the timer, pause and stop.
 2. While recording, a red ring sits just **outside** the region. A pill shows the
    elapsed time with pause, stop and discard buttons. Both are click-through except
-   the pill, which also has the keyboard while the pointer is on it. The recorded app
-   keeps its typing otherwise, and a fullscreen game's pointer lock can't trap the
-   pointer on the pill.
+   the pill, which takes clicks but never the keyboard: the recorded app keeps its
+   typing, and a fullscreen game's pointer lock can't trap the pointer on the pill.
 3. The pill goes below the region, else above, else beside it, on the recorded output.
    Without room for it (a whole screen) there's no pill, and the countdown says to stop
    with the record shortcut or `screenie stop`. Tooltips open below and right of the

@@ -170,7 +170,7 @@ impl Editor {
             tracing::debug!(active = window.is_window_active(), "editor keyboard focus");
         })
         .detach();
-        let grab = KeyboardGrab::for_window(window, cx);
+        let grab = KeyboardGrab::new(cx);
         cx.observe(&grab, |_, _, cx| cx.notify()).detach();
         let this = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {

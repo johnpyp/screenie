@@ -1,11 +1,10 @@
-"""The preview cards take the keyboard only while the pointer is on one.
+"""The preview cards never take the keyboard.
 
-A card floats over whatever you were doing (a game, a terminal). Its keys must reach it
-while the pointer is on it (Esc dismissing the card, not unpausing the game), and never
-otherwise.
+A card floats over whatever you were doing (a game, a terminal). The pointer can use it,
+but typing always stays with the app: keyboard focus that moved to a card mid-press
+would split the press, and a game that missed the release keeps the key held (Tab stuck
+down, so Shift opened Steam's overlay as Shift+Tab).
 """
-
-import time
 
 from harness import wait_for
 
@@ -33,48 +32,35 @@ class Card:
         wait_for(lambda: self.pixel() == self.empty, "the card to go")
 
 
-def test_escape_on_a_card_dismisses_it_not_the_app_beneath(session, daemon, input, keylog, home):
+def test_a_key_held_onto_a_card_is_released_to_the_app(session, daemon, input, keylog, home):
     keylog.focus()
-    mark = keylog.mark()
     card = Card(session, home)
     assert daemon.cli(*SHOT).returncode == 0
     card.wait_shown()
 
-    log = daemon.mark()
+    mark = keylog.mark()
+    input.do("hold tab")
     input.move(*CARD)
-    daemon.wait_log(r"hover keyboard taken=true", after=log)
-    mark = keylog.wait(r"leave", after=mark)  # the card has the keyboard
-    input.keys("escape")
+    input.keys("x")
+    input.do("release tab")
+    keylog.wait(r"sym: x", after=mark)  # typing on the card goes to the app
+    wait_for(lambda: sum("sym: Tab" in line for line in keylog.since(mark)) >= 2, "Tab's release")
+    tab = [line for line in keylog.since(mark) if "sym: Tab" in line]
+    assert len(tab) == 2, f"the app should see Tab go down and up: {keylog.since(mark)}"
+    assert not any("leave" in line for line in keylog.since(mark)), "the card took the keyboard"
+
+
+def test_a_card_is_used_with_the_pointer(session, daemon, input, keylog, home):
+    keylog.focus()
+    card = Card(session, home)
+    assert daemon.cli(*SHOT).returncode == 0
+    card.wait_shown()
+    mark = keylog.mark()
+    input.move(*CARD)
+    input.keys("escape")  # the app's, not the card's
+    keylog.wait(r"sym: Escape", after=mark)
+    # Dismiss: the × in the card's top-left corner shows on hover.
+    input.click(CARD[0] - 118 + 20, CARD[1] - 88 + 20)
     card.wait_gone()
-    mark = keylog.wait(r"enter", after=mark)  # and gave it back
-    time.sleep(0.05)  # a leaked release arrives right behind the enter
-    leaked = [line for line in keylog.since(mark - 1) if "key:" in line or line.startswith(" ") and "sym:" in line]
-    assert leaked == []
-    daemon.assert_healthy()
-
-
-def test_moving_off_a_card_gives_the_keyboard_back(session, daemon, input, keylog, home):
-    keylog.focus()
-    mark = keylog.mark()
-    card = Card(session, home)
-    assert daemon.cli(*SHOT).returncode == 0
-    card.wait_shown()
-    input.move(*CARD)
-    mark = keylog.wait(r"leave", after=mark)
-    input.move(900, 500)
-    mark = keylog.wait(r"enter", after=mark)
-    input.keys("x")
-    keylog.wait(r"sym: x", after=mark)  # typing reaches the app again
-
-
-def test_a_card_under_a_still_pointer_leaves_the_keyboard_alone(session, daemon, input, keylog, home):
-    input.move(*CARD)
-    keylog.focus()
-    mark = keylog.mark()
-    card = Card(session, home)
-    assert daemon.cli(*SHOT).returncode == 0
-    card.wait_shown()
-    input.keys("x")
-    keylog.wait(r"sym: x", after=mark)  # typing still goes to the app
     assert not any("leave" in line for line in keylog.since(mark))
-    assert "hover keyboard" not in daemon.log()
+    daemon.assert_healthy()

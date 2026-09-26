@@ -8,17 +8,12 @@
 //! [`KeyboardGrab`] does that for every surface that takes the keyboard: attach it to the
 //! surface's root with [`KeyboardGrab::track`], and close through
 //! [`KeyboardGrab::when_released`].
-//!
-//! [`crate::Hover`] takes the same care for a surface that has the keyboard only while
-//! the pointer is on it. A grab made [`KeyboardGrab::for_window`] also marks its surface
-//! as the keyboard's owner: when a hover surface lets go of the keyboard, it goes back
-//! there.
 
 use std::time::Duration;
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Context, Entity, Global, InteractiveElement,
-    KeyDownEvent, KeyUpEvent, Modifiers, ModifiersChangedEvent, WeakEntity, Window,
+    App, AppContext as _, Context, Entity, InteractiveElement, KeyDownEvent, KeyUpEvent, Modifiers,
+    ModifiersChangedEvent,
 };
 use smallvec::SmallVec;
 
@@ -38,17 +33,6 @@ pub struct KeyboardGrab {
 impl KeyboardGrab {
     pub fn new(cx: &mut App) -> Entity<Self> {
         cx.new(|_| Self::default())
-    }
-
-    /// A grab for `window`, a surface that owns the keyboard while it's open (an
-    /// editor): a hover surface that took the keyboard gives it back to it (see
-    /// [`owners`]).
-    pub fn for_window(window: &Window, cx: &mut App) -> Entity<Self> {
-        let grab = Self::new(cx);
-        let owners = &mut cx.default_global::<Owners>().0;
-        owners.retain(|(owner, _)| owner.upgrade().is_some());
-        owners.push((grab.downgrade(), window.window_handle()));
-        grab
     }
 
     /// Track the keys on the surface rooted at `root`. Listens in the capture phase, so
@@ -107,26 +91,6 @@ impl KeyboardGrab {
     fn settle(&mut self, cx: &mut Context<Self>) {
         run(self.release.ready(), cx);
     }
-}
-
-/// Surfaces that own the keyboard, by their grabs.
-#[derive(Default)]
-struct Owners(Vec<(WeakEntity<KeyboardGrab>, AnyWindowHandle)>);
-
-impl Global for Owners {}
-
-/// The surfaces that own the keyboard now (made with [`KeyboardGrab::for_window`], still
-/// open and not closing).
-pub(crate) fn owners(cx: &App) -> Vec<AnyWindowHandle> {
-    let Some(owners) = cx.try_global::<Owners>() else {
-        return Vec::new();
-    };
-    owners
-        .0
-        .iter()
-        .filter(|(grab, _)| grab.upgrade().is_some_and(|grab| !grab.read(cx).leaving()))
-        .map(|(_, window)| *window)
-        .collect()
 }
 
 /// Run a closing action once the current event is done with.

@@ -40,6 +40,10 @@ use wayland_client::{
 use wayland_protocols::wp::pointer_gestures::zv1::client::{
     zwp_pointer_gesture_pinch_v1, zwp_pointer_gestures_v1,
 };
+// screenie patch: relative motion, to see a pointer held by another surface.
+use wayland_protocols::wp::relative_pointer::zv1::client::{
+    zwp_relative_pointer_manager_v1, zwp_relative_pointer_v1,
+};
 use wayland_protocols::wp::primary_selection::zv1::client::zwp_primary_selection_offer_v1::{
     self, ZwpPrimarySelectionOfferV1,
 };
@@ -224,6 +228,8 @@ pub struct Globals {
     pub blur_manager: Option<org_kde_kwin_blur_manager::OrgKdeKwinBlurManager>,
     pub text_input_manager: Option<zwp_text_input_manager_v3::ZwpTextInputManagerV3>,
     pub gesture_manager: Option<zwp_pointer_gestures_v1::ZwpPointerGesturesV1>,
+    pub relative_pointer_manager:
+        Option<zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1>,
     pub dialog: Option<xdg_wm_dialog_v1::XdgWmDialogV1>,
     pub system_bell: Option<xdg_system_bell_v1::XdgSystemBellV1>,
     pub executor: ForegroundExecutor,
@@ -270,6 +276,7 @@ impl Globals {
             blur_manager: globals.bind(&qh, 1..=1, ()).ok(),
             text_input_manager: globals.bind(&qh, 1..=1, ()).ok(),
             gesture_manager: globals.bind(&qh, 1..=3, ()).ok(),
+            relative_pointer_manager: globals.bind(&qh, 1..=1, ()).ok(),
             dialog: globals.bind(&qh, dialog_v..=dialog_v, ()).ok(),
             system_bell: globals.bind(&qh, 1..=1, ()).ok(),
             executor,
@@ -321,6 +328,9 @@ pub(crate) struct WaylandClientState {
     wl_pointer: Option<wl_pointer::WlPointer>,
     pinch_gesture: Option<zwp_pointer_gesture_pinch_v1::ZwpPointerGesturePinchV1>,
     pinch_scale: f32,
+    relative_pointer: Option<zwp_relative_pointer_v1::ZwpRelativePointerV1>,
+    /// Relative moves in a row that didn't move the pointer over the window under it.
+    stuck_moves: u32,
     wl_keyboard: Option<wl_keyboard::WlKeyboard>,
     cursor_shape_device: Option<wp_cursor_shape_device_v1::WpCursorShapeDeviceV1>,
     data_device: Option<wl_data_device::WlDataDevice>,
@@ -994,6 +1004,8 @@ impl WaylandClient {
             wl_keyboard: None,
             pinch_gesture: None,
             pinch_scale: 1.0,
+            relative_pointer: None,
+            stuck_moves: 0,
             cursor_shape_device: None,
             data_device,
             primary_selection,
@@ -1824,6 +1836,15 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
                     },
                 );
 
+                if let Some(relative_pointer) = state.relative_pointer.take() {
+                    relative_pointer.destroy();
+                }
+                state.relative_pointer = state
+                    .globals
+                    .relative_pointer_manager
+                    .as_ref()
+                    .map(|manager| manager.get_relative_pointer(&pointer, qh, ()));
+
                 if let Some(wl_pointer) = &state.wl_pointer {
                     wl_pointer.release();
                 }
@@ -2194,6 +2215,7 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                 let position = point(px(surface_x as f32), px(surface_y as f32));
                 state.serial_tracker.update(SerialKind::MouseEnter, serial);
                 state.mouse_location = Some(position);
+                state.stuck_moves = 0;
                 state.button_pressed = None;
 
                 if let Some(window) = get_window(&mut state, &surface.id()) {
@@ -2229,6 +2251,7 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                 }
             }
             wl_pointer::Event::Leave { .. } => {
+                state.stuck_moves = 0;
                 if let Some(focused_window) = state.mouse_focused_window.clone() {
                     let input = PlatformInput::MouseExited(MouseExitEvent {
                         position: state.mouse_location.unwrap(),
@@ -2253,6 +2276,7 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                 if state.mouse_focused_window.is_none() {
                     return;
                 }
+                state.stuck_moves = 0;
                 state.mouse_location = Some(point(px(surface_x as f32), px(surface_y as f32)));
                 state.restore_cursor_after_hide();
 
@@ -2511,6 +2535,55 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+delegate_noop!(WaylandClientStatePtr: ignore zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1);
+
+/// screenie patch: how many relative moves over a window, with none of them moving the
+/// pointer, make it stuck. Compositors send the relative move first and the motion right
+/// after, so one alone is normal; a few in a row mean the motion is being dropped.
+const STUCK_AFTER: u32 = 3;
+
+impl Dispatch<zwp_relative_pointer_v1::ZwpRelativePointerV1, ()> for WaylandClientStatePtr {
+    fn event(
+        this: &mut Self,
+        _: &zwp_relative_pointer_v1::ZwpRelativePointerV1,
+        event: zwp_relative_pointer_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let zwp_relative_pointer_v1::Event::RelativeMotion {
+            dx_unaccel,
+            dy_unaccel,
+            ..
+        } = event
+        else {
+            return;
+        };
+        let client = this.get_client();
+        let mut state = client.borrow_mut();
+        let (Some(window), Some(at)) = (state.mouse_focused_window.clone(), state.mouse_location)
+        else {
+            return;
+        };
+        // Pushing against the window's edge doesn't move the pointer either (the edge of
+        // the screen, for a surface that reaches it).
+        let size = window.size();
+        let (x, y) = (f64::from(at.x), f64::from(at.y));
+        let (w, h) = (f64::from(size.width), f64::from(size.height));
+        let blocked = |p: f64, d: f64, end: f64| (p <= 0.5 && d < 0.) || (p >= end - 1.5 && d > 0.);
+        let dx = if blocked(x, dx_unaccel, w) { 0. } else { dx_unaccel };
+        let dy = if blocked(y, dy_unaccel, h) { 0. } else { dy_unaccel };
+        if dx == 0. && dy == 0. {
+            return;
+        }
+        state.stuck_moves += 1;
+        if state.stuck_moves == STUCK_AFTER {
+            drop(state);
+            window.set_pointer_stuck();
         }
     }
 }

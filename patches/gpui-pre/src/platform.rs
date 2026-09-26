@@ -956,6 +956,10 @@ pub trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn on_close(&self, callback: Box<dyn FnOnce()>);
     fn on_appearance_changed(&self, callback: Box<dyn FnMut()>);
     fn on_button_layout_changed(&self, _callback: Box<dyn FnMut()>) {}
+    /// screenie patch: the pointer is over this window and being moved, but doesn't move:
+    /// another window holds it (a pointer constraint the compositor keeps enforcing while
+    /// the cursor is over this one, as sway does).
+    fn on_pointer_stuck(&self, _callback: Box<dyn FnMut()>) {}
     fn draw(&self, scene: &Scene);
     fn schedule_frame(&self) {}
     fn sprite_atlas(&self) -> Arc<dyn PlatformAtlas>;
@@ -1017,9 +1021,6 @@ pub trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     #[cfg(all(target_os = "linux", feature = "wayland"))]
     fn set_exclusive_edge(&self, _edge: layer_shell::Anchor) {}
     fn set_input_region(&self, _region: Option<&[Bounds<Pixels>]>) {}
-    // screenie patch: change a layer surface's keyboard interactivity after it's mapped.
-    #[cfg(all(target_os = "linux", feature = "wayland"))]
-    fn set_keyboard_interactivity(&self, _interactivity: layer_shell::KeyboardInteractivity) {}
     fn window_decorations(&self) -> Decorations {
         Decorations::Server
     }

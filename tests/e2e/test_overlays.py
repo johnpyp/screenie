@@ -1,8 +1,9 @@
 """Overlays over a game can't trap its locked pointer.
 
-On sway, the app with the keyboard gets its pointer lock back (a game, as soon as it's
-focused), and while the cursor is on another surface every motion is dropped. An overlay that had the pointer but not the keyboard would hold the cursor
-for good. So an overlay holds the keyboard while the pointer is on it.
+Overlays never take the keyboard, so a game keeps it, and its pointer lock, while the
+cursor is on a card or the pill. sway enforces a lock for the surface with the keyboard
+and drops every motion while the cursor is over another surface: the cursor would freeze
+on the overlay. The overlay sees that the pointer is stuck and steps aside.
 """
 
 import itertools
@@ -20,8 +21,8 @@ GAME = (700, 400)
 
 
 def escapes(game, input, overlay):
-    """Move onto `overlay`, have the game lock the pointer, and move off: the game gets
-    the pointer back, and its lock."""
+    """Move onto `overlay` and have the game lock the pointer there: moving on, the
+    cursor gets back to the game, which keeps the keyboard throughout."""
     game.unlock()
     input.move(*GAME)
     mark = game.mark()
@@ -33,14 +34,21 @@ def escapes(game, input, overlay):
         return game.seen("pointer leave", mark)
 
     wait_for(onto, "the pointer to get onto the overlay")
-    game.wait("keyboard leave", mark)
     game.lock()
-    mark = game.mark()
-    input.move(*GAME)
-    game.wait("pointer enter", mark)
     game.wait("locked", mark)
+
+    def off():
+        input.move(*GAME)
+        return game.seen("pointer enter", mark)
+
+    try:
+        wait_for(off, "the pointer to get back to the game")
+    except TimeoutError as e:
+        raise TimeoutError(f"{e}; the game got {game.since(mark)}") from None
+    after = game.mark()
     input.move(GAME[0] + 40, GAME[1] + 30)
-    game.wait("motion", mark)
+    game.wait("motion", after)
+    assert game.seen("keyboard leave", mark) is None, "an overlay took the keyboard"
 
 
 @pytest.mark.config("recording:\n  countdown: 0\n")

@@ -38,7 +38,7 @@ use gpui::{
     PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions, ResizeEdge, Scene, Size,
     Tiling, WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
     WindowControls, WindowDecorations, WindowKind, WindowParams, WindowVisibility,
-    layer_shell::{Anchor, KeyboardInteractivity, LayerShellNotSupportedError},
+    layer_shell::{Anchor, LayerShellNotSupportedError},
     popup::PopupOptions,
     px, size,
 };
@@ -57,6 +57,8 @@ pub(crate) struct Callbacks {
     close: Option<Box<dyn FnOnce()>>,
     appearance_changed: Option<Box<dyn FnMut()>>,
     button_layout_changed: Option<Box<dyn FnMut()>>,
+    // screenie patch: see `set_pointer_stuck`.
+    pointer_stuck: Option<Box<dyn FnMut()>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -465,20 +467,6 @@ impl WaylandSurfaceState {
             self
         {
             layer_surface.set_exclusive_zone(zone);
-            true
-        } else {
-            false
-        }
-    }
-
-    // screenie patch
-    fn set_keyboard_interactivity(&self, interactivity: KeyboardInteractivity) -> bool {
-        if let WaylandSurfaceState::LayerShell(WaylandLayerSurfaceState { layer_surface, .. }) =
-            self
-        {
-            layer_surface.set_keyboard_interactivity(
-                super::layer_shell::wayland_keyboard_interactivity(interactivity),
-            );
             true
         } else {
             false
@@ -1588,6 +1576,22 @@ impl WaylandWindowStatePtr {
         }
     }
 
+    /// screenie patch: the pointer is over this window and being moved, but it isn't
+    /// moving: another window holds it (a pointer constraint the compositor enforces while
+    /// the cursor is over this one, as sway does).
+    pub fn set_pointer_stuck(&self) {
+        let callback = self.callbacks.borrow_mut().pointer_stuck.take();
+        if let Some(mut fun) = callback {
+            fun();
+            self.callbacks.borrow_mut().pointer_stuck = Some(fun);
+        }
+    }
+
+    /// screenie patch: the window's size, in logical pixels.
+    pub fn size(&self) -> Size<Pixels> {
+        self.state.borrow().bounds.size
+    }
+
     pub fn set_hovered(&self, focus: bool) {
         let callback = self.callbacks.borrow_mut().hover_status_change.take();
         if let Some(mut fun) = callback {
@@ -1950,6 +1954,10 @@ impl PlatformWindow for WaylandWindow {
         self.0.callbacks.borrow_mut().appearance_changed = Some(callback);
     }
 
+    fn on_pointer_stuck(&self, callback: Box<dyn FnMut()>) {
+        self.0.callbacks.borrow_mut().pointer_stuck = Some(callback);
+    }
+
     fn on_button_layout_changed(&self, callback: Box<dyn FnMut()>) {
         self.0.callbacks.borrow_mut().button_layout_changed = Some(callback);
     }
@@ -2056,15 +2064,6 @@ impl PlatformWindow for WaylandWindow {
         {
             // Commit to apply it immediately, otherwise it only takes effect
             // on the next frame.
-            state.surface.commit();
-        }
-    }
-
-    // screenie patch
-    fn set_keyboard_interactivity(&self, interactivity: KeyboardInteractivity) {
-        let state = self.borrow();
-        if state.surface_state.set_keyboard_interactivity(interactivity) {
-            // Commit to apply it now rather than with the next frame.
             state.surface.commit();
         }
     }
