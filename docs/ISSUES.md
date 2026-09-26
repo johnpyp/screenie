@@ -8,6 +8,12 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
   default overlay doesn't). Wayland has no "please float" hint for toplevels. The README
   documents a float rule for the app id.
 
+- **An upgrade empties the clipboard.** The daemon serves what it copied (Wayland
+  clipboards die with their owner), so when a new build replaces it, a copy that
+  hasn't been pasted yet is gone. Waiting isn't an answer: the daemon owns the clipboard
+  until something else copies, so upgrades would stall. Options: hand the offer to the
+  new daemon on quit, or serve copies from a small child process, as `wl-copy` does.
+
 - **A killed daemon loses its running recording.** On SIGTERM/SIGKILL (logout, OOM)
   the faststart MP4 is never finalized: the media data is in the hidden scratch file
   (`.NAME.mp4.part`), without an index. `screenie quit` saves properly. Options: handle
