@@ -47,8 +47,9 @@ recording, for status bars (see the README for the formats).
    recordings). Capture stops first, so the card is never in the video. It doesn't time
    out while saving, and gets its file actions once the file is written. On hover it
    offers **Copy** (the file) until it's copied, **Show in folder**, and delete.
-   Clicking the card opens the video. `recording.after_capture` works like the
-   screenshot one (default: no copy, preview on).
+   Clicking the card opens the video. `recording.after_capture` has the screenshot
+   one's `copy` and `preview` (default: no copy, preview on); a recording is always
+   saved.
 
 Nothing screenie draws ever lands inside the region, so it never appears in the video.
 Preview cards on the recorded screen are hidden once capture starts (a window recorded

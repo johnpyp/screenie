@@ -60,7 +60,7 @@ impl From<UiScale> for UiScaleRepr {
     }
 }
 
-/// What happens automatically once a capture is taken.
+/// What happens automatically once a screenshot is taken.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AfterCapture {
@@ -261,7 +261,38 @@ pub struct RecordingConfig {
     pub microphone: bool,
     /// Seconds of countdown before recording starts; 0 disables it.
     pub countdown: u32,
-    pub after_capture: AfterCapture,
+    pub after_capture: RecordingAfterCapture,
+}
+
+/// What happens automatically once a recording is finished. It's always saved (it's
+/// written as it's recorded), and there's no video editor, so only these two apply.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecordingAfterCapture {
+    /// Put the file on the clipboard.
+    pub copy: bool,
+    /// Show the floating preview card.
+    pub preview: bool,
+}
+
+impl Default for RecordingAfterCapture {
+    fn default() -> Self {
+        Self {
+            copy: false,
+            preview: true,
+        }
+    }
+}
+
+impl From<&RecordingAfterCapture> for AfterCapture {
+    fn from(recording: &RecordingAfterCapture) -> Self {
+        Self {
+            copy: recording.copy,
+            save: true,
+            preview: recording.preview,
+            edit: false,
+        }
+    }
 }
 
 impl Default for RecordingConfig {
@@ -277,12 +308,7 @@ impl Default for RecordingConfig {
             system_audio: false,
             microphone: false,
             countdown: 3,
-            after_capture: AfterCapture {
-                copy: false,
-                save: true,
-                preview: true,
-                edit: false,
-            },
+            after_capture: RecordingAfterCapture::default(),
         }
     }
 }
@@ -348,8 +374,6 @@ impl Default for PreviewConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SelectorConfig {
-    /// Freeze the screen while selecting a screenshot region.
-    pub freeze: bool,
     /// Show the pixel magnifier next to the cursor.
     pub magnifier: bool,
     /// Take the screenshot as soon as the drag ends. When off, the selection stays
@@ -367,7 +391,6 @@ pub struct SelectorConfig {
 impl Default for SelectorConfig {
     fn default() -> Self {
         Self {
-            freeze: true,
             magnifier: true,
             capture_on_release: true,
             window_snapping: true,
@@ -441,15 +464,12 @@ pub enum CaptureBackend {
 #[serde(default)]
 pub struct AdvancedConfig {
     pub capture_backend: CaptureBackend,
-    /// Seconds without requests after which the daemon exits; 0 keeps it resident.
-    pub daemon_idle_exit: u32,
 }
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
             capture_backend: CaptureBackend::Auto,
-            daemon_idle_exit: 0,
         }
     }
 }

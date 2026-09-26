@@ -350,7 +350,12 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         .output
         .clone()
         .unwrap_or_else(|| recording_path(&config, &subject));
-    let actions = Actions::resolve(&config.recording.after_capture, &req.actions, None, false);
+    let actions = Actions::resolve(
+        &(&config.recording.after_capture).into(),
+        &req.actions,
+        None,
+        false,
+    );
     let countdown = config.recording.countdown;
     let cancelled = Arc::new(AtomicBool::new(false));
 

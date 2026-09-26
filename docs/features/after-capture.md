@@ -14,7 +14,8 @@ Recordings get the same card; see [recording](recording.md).
 | `preview` | true | Show the floating preview card. |
 | `edit` | false | Open the editor straight away. Nothing is copied or saved until it's done; then `copy` and `save` apply, and no card is shown. If an overlay editor is already open, the capture goes to a card instead (as if `edit` were off, with `preview` on). |
 
-Recordings are always saved (`recording.after_capture` defaults to save + preview).
+Recordings are always saved, and there's no video editor, so `recording.after_capture`
+has only `copy` (the file, default false) and `preview` (default true).
 
 The CLI overrides them per call with `--copy/--no-copy`, `--save/--no-save`,
 `--no-preview`, `--edit` and `-o PATH` (which implies saving). `-o` takes a file (`.png`

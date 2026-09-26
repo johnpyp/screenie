@@ -183,7 +183,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("screenie-config-test-{}", std::process::id()));
         let path = dir.join("config.yaml");
         let mut cfg = Config::default();
-        cfg.selector.freeze = false;
+        cfg.selector.magnifier = false;
+        cfg.recording.after_capture.copy = true;
         cfg.recording.quality = Quality::Lossless;
         cfg.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path).unwrap(), cfg);
@@ -268,6 +269,19 @@ mod tests {
             Some((1080, 1920))
         );
         assert_eq!(Resolution::Native.bounds(3840, 2160), None);
+    }
+
+    /// Keys that were dropped keep old files loading: they're just ignored.
+    #[test]
+    fn removed_keys_still_load() {
+        let cfg = parse(
+            "selector: { freeze: false }\nadvanced: { daemon_idle_exit: 300 }\n\
+             recording: { after_capture: { save: false, edit: true, copy: true } }\n",
+        )
+        .unwrap();
+        assert!(cfg.recording.after_capture.copy);
+        assert_eq!(cfg.selector, SelectorConfig::default());
+        assert_eq!(cfg.advanced, AdvancedConfig::default());
     }
 
     #[test]
