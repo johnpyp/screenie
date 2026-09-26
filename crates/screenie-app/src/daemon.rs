@@ -30,6 +30,8 @@ pub(crate) struct Daemon {
     pub state: screenie_state::StateFile,
     commit: &'static str,
     watchers: Vec<async_channel::Sender<Status>>,
+    /// What watchers were last told.
+    told: Option<Status>,
 }
 
 impl Global for Daemon {}
@@ -49,6 +51,7 @@ impl Daemon {
             state: screenie_state::StateFile::open(),
             commit,
             watchers: Vec::new(),
+            told: None,
         }
     }
 
@@ -56,8 +59,13 @@ impl Daemon {
         cx.global::<Daemon>()
     }
 
+    /// Change the daemon's state. Status watchers hear of whatever that changes.
     pub fn update<R>(cx: &mut App, f: impl FnOnce(&mut Daemon, &mut App) -> R) -> R {
-        cx.update_global(f)
+        cx.update_global(|d: &mut Daemon, cx| {
+            let result = f(d, cx);
+            d.broadcast();
+            result
+        })
     }
 
     pub fn status(&self) -> Status {
@@ -103,12 +111,47 @@ impl Daemon {
         self.broadcast();
     }
 
-    /// Tell status watchers something changed.
+    /// Tell status watchers the status, if it changed since they were last told.
+    /// [`Daemon::update`] does after every change; state kept elsewhere (a recording's
+    /// clock or pause) needs a call when it changes.
     pub fn broadcast(&mut self) {
+        self.watchers.retain(|w| !w.is_closed());
+        if self.watchers.is_empty() {
+            self.told = None;
+            return;
+        }
         let status = self.status();
+        if self.told.as_ref().is_some_and(|told| same(told, &status)) {
+            return;
+        }
         self.watchers
             .retain(|w| w.try_send(status.clone()).is_ok() || !w.is_closed());
+        self.told = Some(status);
     }
+
+    /// Start telling `watcher` the status: now, and whenever it changes.
+    fn watch(&mut self, watcher: async_channel::Sender<Status>) {
+        // Anyone already watching hears of a change first, so all agree from here on.
+        self.broadcast();
+        let status = self.status();
+        if watcher.try_send(status.clone()).is_ok() {
+            self.watchers.push(watcher);
+            self.told = Some(status);
+        }
+    }
+}
+
+/// Whether watchers would see nothing new going from `a` to `b`. A recording's clock
+/// counts in whole seconds, as they show it.
+fn same(a: &Status, b: &Status) -> bool {
+    let seconds = |s: &Status| {
+        let mut s = s.clone();
+        if let Some(r) = &mut s.recording {
+            r.elapsed_secs = r.elapsed_secs.floor();
+        }
+        s
+    };
+    seconds(a) == seconds(b)
 }
 
 /// Route requests from the socket to their handlers. Each runs as its own task so a
@@ -117,12 +160,7 @@ pub(crate) async fn serve(incoming: async_channel::Receiver<Incoming>, cx: &mut 
     while let Ok(message) = incoming.recv().await {
         match message {
             Incoming::Watch { updates } => {
-                cx.update(|cx| {
-                    Daemon::update(cx, |d, _| {
-                        let _ = updates.try_send(d.status());
-                        d.watchers.push(updates);
-                    })
-                });
+                cx.update(|cx| Daemon::update(cx, |d, _| d.watch(updates)));
             }
             Incoming::Request { request, reply } => {
                 cx.spawn(async move |cx| {
@@ -184,5 +222,32 @@ pub(crate) async fn watch_config(cx: &mut AsyncApp) {
             }
             Err(e) => tracing::warn!("{e}; keeping the previous settings"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use screenie_ipc::RecordingStatus;
+
+    #[test]
+    fn watchers_hear_of_changes_they_can_see() {
+        let recording = |elapsed_secs| Status {
+            state: State::Recording,
+            recording: Some(RecordingStatus {
+                path: "a.mp4".into(),
+                elapsed_secs,
+                paused: false,
+            }),
+            ..Default::default()
+        };
+        assert!(same(&recording(1.2), &recording(1.8)));
+        assert!(!same(&recording(1.9), &recording(2.0)));
+        let selecting = Status {
+            state: State::Selecting,
+            capturing: true,
+            ..Default::default()
+        };
+        assert!(!same(&Status::default(), &selecting));
     }
 }
