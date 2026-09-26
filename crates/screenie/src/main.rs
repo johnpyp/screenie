@@ -46,14 +46,8 @@ enum Command {
     /// Take a screenshot.
     #[command(visible_alias = "screenshot")]
     Shot(ShotArgs),
-    /// Start a screen recording, or stop the running one.
+    /// Record the screen, or control the running recording.
     Record(RecordArgs),
-    /// Stop the running recording and save it.
-    Stop,
-    /// Pause or resume the running recording.
-    Pause,
-    /// Stop the running recording and discard it.
-    Cancel,
     /// Open an image in the annotation editor.
     Edit { file: PathBuf },
     /// Ask what screenie is doing or has done, for scripts and status bars. Never
@@ -69,36 +63,94 @@ enum Command {
     Quit,
 }
 
+// A target carries its own options, which follow it: `screenie shot window --copy`.
+// Without a target, the options go straight after the command: `screenie shot --copy`.
+
 /// What to capture. With none, `pick`.
 #[derive(Subcommand)]
 enum ShotTarget {
     /// Drag an area, click a window, or press Enter to capture the whole screen.
-    Pick,
+    Pick(ShotOptions),
     /// The focused window.
-    Window(WindowTarget),
+    Window {
+        #[command(flatten)]
+        window: WindowTarget,
+        #[command(flatten)]
+        options: ShotOptions,
+    },
     /// The focused screen, or the one named.
-    Screen(ScreenTarget),
+    Screen {
+        #[command(flatten)]
+        screen: ScreenTarget,
+        #[command(flatten)]
+        options: ShotOptions,
+    },
     /// All screens as one image.
-    All,
+    All(ShotOptions),
     /// The same region as last time.
-    Last,
+    Last(ShotOptions),
     /// A region of the desktop.
-    Region(RegionTarget),
+    Region {
+        #[command(flatten)]
+        region: RegionTarget,
+        #[command(flatten)]
+        options: ShotOptions,
+    },
 }
 
-/// What to record. With none, `pick`.
+impl ShotTarget {
+    fn resolve(self) -> (Target, ShotOptions) {
+        match self {
+            ShotTarget::Pick(options) => (pick(), options),
+            ShotTarget::Window { window, options } => (window.target(), options),
+            ShotTarget::Screen { screen, options } => (screen.target(), options),
+            ShotTarget::All(options) => (Target::AllScreens, options),
+            ShotTarget::Last(options) => (Target::LastRegion, options),
+            ShotTarget::Region { region, options } => (region.target(), options),
+        }
+    }
+}
+
+/// What to record, or what to do with the running recording. With none, `pick`.
 #[derive(Subcommand)]
-enum RecordTarget {
+enum RecordCommand {
     /// Pick an area, window or screen, then press Record.
-    Pick,
+    Pick(RecordOptions),
     /// The focused window.
-    Window(WindowTarget),
+    Window {
+        #[command(flatten)]
+        window: WindowTarget,
+        #[command(flatten)]
+        options: RecordOptions,
+    },
     /// The focused screen, or the one named.
-    Screen(ScreenTarget),
+    Screen {
+        #[command(flatten)]
+        screen: ScreenTarget,
+        #[command(flatten)]
+        options: RecordOptions,
+    },
     /// The same region as last time.
-    Last,
+    Last(RecordOptions),
     /// A region of the desktop.
-    Region(RegionTarget),
+    Region {
+        #[command(flatten)]
+        region: RegionTarget,
+        #[command(flatten)]
+        options: RecordOptions,
+    },
+    /// Stop the running recording and save it.
+    Stop,
+    /// Pause or resume the running recording.
+    Pause,
+    /// Stop the running recording and discard it.
+    Cancel,
+}
+
+fn pick() -> Target {
+    Target::Select {
+        mode: SelectMode::Area,
+    }
 }
 
 #[derive(Args)]
@@ -149,28 +201,34 @@ struct RegionTarget {
     rect: Rect,
 }
 
+impl RegionTarget {
+    fn target(self) -> Target {
+        Target::Region { rect: self.rect }
+    }
+}
+
 /// What happens to a screenshot, overriding `screenshot.after_capture`.
 #[derive(Args)]
 struct Delivery {
     /// Copy to the clipboard.
-    #[arg(long, global = true, overrides_with = "no_copy")]
+    #[arg(long, overrides_with = "no_copy")]
     copy: bool,
-    #[arg(long, global = true, hide = true)]
+    #[arg(long, hide = true)]
     no_copy: bool,
     /// Save to the screenshots folder.
-    #[arg(long, global = true, overrides_with = "no_save")]
+    #[arg(long, overrides_with = "no_save")]
     save: bool,
     /// Don't save a file.
-    #[arg(long, global = true)]
+    #[arg(long)]
     no_save: bool,
     /// Don't show the preview card.
-    #[arg(long, global = true)]
+    #[arg(long)]
     no_preview: bool,
     /// Open the capture in the editor.
-    #[arg(long, global = true)]
+    #[arg(long)]
     edit: bool,
     /// Save to this file, or into this directory.
-    #[arg(short, long, global = true)]
+    #[arg(short, long)]
     output: Option<PathBuf>,
 }
 
@@ -194,9 +252,9 @@ impl Delivery {
     }
 }
 
-// The options are global so they can follow the target: `screenie shot window --copy`.
 #[derive(Args)]
 #[command(
+    args_conflicts_with_subcommands = true,
     disable_help_subcommand = true,
     subcommand_value_name = "TARGET",
     subcommand_help_heading = "Targets"
@@ -204,39 +262,47 @@ impl Delivery {
 struct ShotArgs {
     #[command(subcommand)]
     target: Option<ShotTarget>,
+    #[command(flatten)]
+    options: ShotOptions,
+}
+
+#[derive(Args)]
+struct ShotOptions {
     /// Wait this many seconds first.
-    #[arg(short, long, global = true, default_value_t = 0)]
+    #[arg(short, long, default_value_t = 0)]
     delay: u32,
     /// Include the mouse cursor.
-    #[arg(long, global = true)]
+    #[arg(long)]
     cursor: bool,
     /// Write the PNG to stdout.
-    #[arg(long, global = true)]
+    #[arg(long)]
     stdout: bool,
     #[command(flatten)]
     delivery: Delivery,
 }
 
 #[derive(Args)]
-#[command(
-    disable_help_subcommand = true,
-    subcommand_value_name = "TARGET",
-    subcommand_help_heading = "Targets"
-)]
+#[command(args_conflicts_with_subcommands = true, disable_help_subcommand = true)]
 struct RecordArgs {
     #[command(subcommand)]
-    target: Option<RecordTarget>,
+    command: Option<RecordCommand>,
+    #[command(flatten)]
+    options: RecordOptions,
+}
+
+#[derive(Args)]
+struct RecordOptions {
     /// Record system audio.
-    #[arg(long, global = true)]
+    #[arg(long)]
     audio: bool,
     /// Record the microphone.
-    #[arg(long, global = true)]
+    #[arg(long)]
     mic: bool,
     /// Save to this file.
-    #[arg(short, long, global = true)]
+    #[arg(short, long)]
     output: Option<PathBuf>,
     /// Fail instead of stopping a running recording.
-    #[arg(long, global = true)]
+    #[arg(long)]
     no_toggle: bool,
 }
 
@@ -346,28 +412,7 @@ fn request_running(req: &Request, otherwise: Response) -> anyhow::Result<Respons
 fn run(command: Command) -> anyhow::Result<ExitCode> {
     let response = match command {
         Command::Shot(args) => return shot(args),
-        Command::Record(args) => {
-            let target = match args.target.unwrap_or(RecordTarget::Pick) {
-                RecordTarget::Pick => Target::Select {
-                    mode: SelectMode::Area,
-                },
-                RecordTarget::Window(window) => window.target(),
-                RecordTarget::Screen(screen) => screen.target(),
-                RecordTarget::Last => Target::LastRegion,
-                RecordTarget::Region(region) => Target::Region { rect: region.rect },
-            };
-            request(&Request::Record(RecordRequest {
-                target,
-                system_audio: args.audio.then_some(true),
-                microphone: args.mic.then_some(true),
-                output: args.output.map(absolute),
-                actions: ActionOverrides::default(),
-                toggle: !args.no_toggle,
-            }))?
-        }
-        Command::Stop => request_running(&Request::RecordStop, not_recording())?,
-        Command::Pause => request_running(&Request::RecordPause, not_recording())?,
-        Command::Cancel => request_running(&Request::RecordCancel, not_recording())?,
+        Command::Record(args) => record(args)?,
         Command::Edit { file } => request(&Request::Edit {
             path: existing(&file)?,
         })?,
@@ -418,16 +463,37 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
     report(response, false)
 }
 
+/// Start a recording, or act on the running one.
+fn record(args: RecordArgs) -> anyhow::Result<Response> {
+    let (target, options) = match args.command {
+        None => (pick(), args.options),
+        Some(RecordCommand::Pick(options)) => (pick(), options),
+        Some(RecordCommand::Window { window, options }) => (window.target(), options),
+        Some(RecordCommand::Screen { screen, options }) => (screen.target(), options),
+        Some(RecordCommand::Last(options)) => (Target::LastRegion, options),
+        Some(RecordCommand::Region { region, options }) => (region.target(), options),
+        Some(RecordCommand::Stop) => return request_running(&Request::RecordStop, not_recording()),
+        Some(RecordCommand::Pause) => {
+            return request_running(&Request::RecordPause, not_recording());
+        }
+        Some(RecordCommand::Cancel) => {
+            return request_running(&Request::RecordCancel, not_recording());
+        }
+    };
+    request(&Request::Record(RecordRequest {
+        target,
+        system_audio: options.audio.then_some(true),
+        microphone: options.mic.then_some(true),
+        output: options.output.map(absolute),
+        actions: ActionOverrides::default(),
+        toggle: !options.no_toggle,
+    }))
+}
+
 fn shot(args: ShotArgs) -> anyhow::Result<ExitCode> {
-    let target = match args.target.unwrap_or(ShotTarget::Pick) {
-        ShotTarget::Pick => Target::Select {
-            mode: SelectMode::Area,
-        },
-        ShotTarget::Window(window) => window.target(),
-        ShotTarget::Screen(screen) => screen.target(),
-        ShotTarget::All => Target::AllScreens,
-        ShotTarget::Last => Target::LastRegion,
-        ShotTarget::Region(region) => Target::Region { rect: region.rect },
+    let (target, args) = match args.target {
+        Some(target) => target.resolve(),
+        None => (pick(), args.options),
     };
     let response = request(&Request::Screenshot(ScreenshotRequest {
         target,

@@ -13,7 +13,7 @@
 //! border nor pill, from the start or as soon as a window comes to fill it
 //! ([`set_covered`]), until none does. Neither does a region filling its output, nor one
 //! without room for the pill next to it. The recording is then stopped with the same
-//! shortcut (or `screenie stop`), which the countdown says.
+//! shortcut (or `screenie record stop`), which the countdown says.
 //!
 //! Only the pill takes input, and the keyboard only while the pointer is on it (see
 //! [`Hover`]): the recorded app keeps its typing, and a game's pointer lock can't trap
@@ -354,7 +354,7 @@ impl Controls {
             )
             .when(self.layout.stop_hint, |el| {
                 el.child(hud::pill(
-                    "Stop with your record shortcut or `screenie stop`",
+                    "Stop with your record shortcut or `screenie record stop`",
                 ))
             })
     }

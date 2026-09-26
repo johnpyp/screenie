@@ -193,7 +193,7 @@ def test_record_window_records_the_focused_one(daemon, home, solid):
     mark = daemon.mark()
     daemon.spawn("record", "window", "-o", str(out))
     daemon.wait_status("recording", timeout=10)
-    assert daemon.cli("stop").returncode == 0
+    assert daemon.cli("record", "stop").returncode == 0
     daemon.wait_log(r"recording saved", after=mark, timeout=15)
     video = frames(out, home / "frames")
     width, height = video[0].size

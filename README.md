@@ -193,10 +193,12 @@ screenie record window           # the focused window
 screenie record window -i        # click a window
 screenie record screen           # the focused screen
 screenie record --audio --mic    # with system audio and the microphone
-screenie pause                   # pause, or resume
-screenie stop                    # stop and save (or run `screenie record` again)
-screenie cancel                  # stop and throw it away
+screenie record pause            # pause, or resume
+screenie record stop             # stop and save
+screenie record cancel           # stop and throw it away
 ```
+
+Running `screenie record` again stops the recording, so one key starts and stops it.
 
 After a countdown, a ring marks what's being recorded and a pill shows the time, with
 pause, stop and discard buttons. Neither shows up in the video.
@@ -240,7 +242,7 @@ A waybar module:
 "custom/screenie": {
   "exec": "screenie status --format waybar --watch",
   "return-type": "json",
-  "on-click": "screenie stop"
+  "on-click": "screenie record stop"
 }
 ```
 
@@ -391,7 +393,7 @@ detail is in [the compositor matrix](crates/screenie-compositor/README.md#compos
 - A recording is only saved when it's stopped. If the daemon is killed mid-recording, the
   video is lost.
 - Recording a whole screen leaves no room for the pill. Stop with your record key or
-  `screenie stop`.
+  `screenie record stop`.
 - Preview cards can't be dragged into other apps yet.
 
 ## Troubleshooting

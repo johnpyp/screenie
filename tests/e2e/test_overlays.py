@@ -60,6 +60,6 @@ def test_a_locked_pointer_cant_be_trapped_on_the_pill_or_a_card(session, daemon,
 
     game.unlock()
     input.move(*GAME)
-    assert daemon.cli("stop").returncode == 0
+    assert daemon.cli("record", "stop").returncode == 0
     escapes(game, input, CARD)
     daemon.assert_healthy()

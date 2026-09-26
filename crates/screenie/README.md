@@ -10,7 +10,7 @@ file print its path on stdout (`screenie record` prints the path it's recording 
 ## Screenshots
 
 `screenie shot [TARGET] [OPTIONS]`. Each target takes only the arguments that fit it,
-and the options can go before or after it.
+and its options follow it. Without a target, they follow `shot`.
 
 | Target | What happens |
 | --- | --- |
@@ -73,11 +73,11 @@ recording covers one output. While one is running, `screenie record` stops it.
 
 | Command | What happens |
 | --- | --- |
-| `screenie stop` | Stop and save. Cancels a countdown. |
-| `screenie pause` | Pause or resume. |
-| `screenie cancel` | Stop and delete. |
+| `screenie record stop` | Stop and save. Cancels a countdown. |
+| `screenie record pause` | Pause or resume. |
+| `screenie record cancel` | Stop and delete. |
 
-`stop`, `pause` and `cancel` never start the daemon. They exit 0 when they did what they
+`stop`, `pause` and `cancel` take no options and never start the daemon. They exit 0 when they did what they
 say, and 2 with nothing recording. `stop` during the countdown exits 1, as nothing was
 recorded.
 

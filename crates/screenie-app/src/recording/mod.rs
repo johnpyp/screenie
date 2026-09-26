@@ -1,7 +1,7 @@
 //! The recording flow: pick → countdown → record → stop → deliver.
 //!
 //! The daemon holds at most one [`Active`] recording. It exists from the end of the
-//! countdown's first tick (so `screenie stop` can cancel a countdown) until it's stopped.
+//! countdown's first tick (so `screenie record stop` can cancel a countdown) until it's stopped.
 
 mod controls;
 
