@@ -82,12 +82,12 @@ screenie edit shot.png           # annotate an existing PNG
 ```
 
 Or hover a preview card and click the pencil. With `--edit`, nothing is copied or saved
-until you're done: Enter (Done) applies the after-capture settings (copy, and save if
-it's on), and Ctrl+S saves explicitly. Each tool has one key: **A**rrow,
+until you're done. Enter (Done) applies the after-capture settings, which by default
+means copy, not save. Ctrl+C and Ctrl+S copy and save explicitly. Each tool has one key: **A**rrow,
 **L**ine, **R**ectangle, **O** ellipse, **P**en, **H**ighlighter, **T**ext,
 **N**umbered step, **B** pixelate/blur, **S**potlight, **C**rop, **V** select.
 Ctrl+scroll (or `[` `]`) changes the size, of the selected shape too, and **F** toggles
-fill. Enter saves, copies and closes, and Esc backs out. See
+fill. Esc backs out. See
 [the editor doc](docs/features/editor.md) for the rest.
 
 The editor opens as an overlay on the capture's screen, with the capture right where

@@ -327,6 +327,11 @@ impl Session {
         self.saved.as_ref() == Some(self.doc.state())
     }
 
+    /// Whether the image was ever saved (opened from a file, or saved since).
+    pub fn has_file(&self) -> bool {
+        self.saved.is_some()
+    }
+
     /// Whether closing now would lose annotations: there are some, and they were
     /// neither copied nor saved. (Undoing back to a delivered state counts as safe.)
     pub fn has_unsaved_work(&self) -> bool {

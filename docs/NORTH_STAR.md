@@ -45,7 +45,8 @@ paint program. The bar is Screendrop's and CleanShot's editors, with Flameshot's
 - **Fast.** Only the shape under your hands is re-rendered while it changes.
 - **In place.** The editor is an overlay over the screen, with the capture right where
   it was taken, so annotating continues the selection instead of opening a new window.
-- **Finishing is one key.** Enter saves, copies and closes. Esc backs out one level at
+- **Finishing is one key.** Enter does what the after-capture settings say (copy, by
+  default) and closes. Esc backs out one level at
   a time and never throws work away without asking.
 
 ## Non-goals

@@ -54,9 +54,20 @@ pub struct EditorOptions {
     pub placement: Option<Rect>,
     /// `path` holds exactly this image already, so Done needn't save it again.
     pub on_disk: bool,
+    /// What Done does besides closing, to say so on the button.
+    pub on_done: OnDone,
     /// Close as soon as the image is copied / saved.
     pub exit_on_copy: bool,
     pub exit_on_save: bool,
+}
+
+/// What the owner does with the image on Done (see [`Output::Done`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OnDone {
+    pub copy: bool,
+    /// Save even if the image has no file yet. One that has (opened from a file,
+    /// given `-o`, or saved in the editor) is always saved back.
+    pub save: bool,
 }
 
 /// What an editor needs besides its session; kept to reopen the overlay after stepping
@@ -67,6 +78,7 @@ pub(crate) struct Setup {
     pub mode: Mode,
     pub output: Option<OutputInfo>,
     pub placement: Option<Rect>,
+    pub on_done: OnDone,
     pub exit_on_copy: bool,
     pub exit_on_save: bool,
     pub on_output: OutputHandler,
@@ -112,6 +124,7 @@ pub fn open(
         mode: options.mode,
         output: options.output,
         placement: options.placement,
+        on_done: options.on_done,
         exit_on_copy: options.exit_on_copy,
         exit_on_save: options.exit_on_save,
         on_output: Rc::new(on_output),

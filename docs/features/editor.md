@@ -78,8 +78,7 @@ Other keys:
   sizes directly.
 - Arrow keys nudge the selection (Shift ×10). Delete removes it, and Ctrl+D duplicates it.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo.
-- Ctrl+C copies, Ctrl+S saves and Ctrl+Shift+S is Save As. Enter is Done: save, copy
-  and close.
+- Ctrl+C copies, Ctrl+S saves and Ctrl+Shift+S is Save As. Enter is Done (below).
 - Esc backs out one level at a time: stop typing, then deselect, then close. Closing
   with unsaved changes asks first, and so does a window's close button.
 
@@ -118,13 +117,15 @@ Bold, with system fonts as fallback for emoji and CJK.
 - **Save** overwrites the capture's file, or picks a new screenshot name if the
   capture was never saved.
 - **Save As** uses the portal file chooser. An overlay steps aside for it.
-- **Done** applies the after-capture settings (copy, and save if it's on or the
-  capture already has a file), closes, and shows a preview card. Anything already
-  copied or saved exactly as it is now isn't done again.
+- **Done** applies the after-capture settings and closes. With the defaults it copies,
+  doesn't save, and shows a preview card. It saves only if `save` is on or the capture
+  already has a file: opened from one, given `-o`, or saved in the editor. Anything
+  already copied or saved exactly as it is now isn't done again. Done's tooltip says
+  what it will do, e.g. "Copy and close" or "Save, copy and close".
 - `editor.exit_on_copy` / `editor.exit_on_save` close the editor right after a copy
   or save.
-- Closing asks "Save your changes?" only if the current annotations were neither
-  copied nor saved.
+- Closing asks "Keep your annotations?" only if the current annotations were neither
+  copied nor saved. Its main button does what Done would (Copy, Save, or Save & copy).
 
 The last colour and size are remembered for the next editor while the daemon runs.
 

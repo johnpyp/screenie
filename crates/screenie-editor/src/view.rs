@@ -253,6 +253,21 @@ impl Editor {
         }
     }
 
+    /// What Done will do, as a sentence and as a button label: only what's configured
+    /// and not already done for the image as it is.
+    fn done_says(&self) -> (&'static str, &'static str) {
+        let on_done = self.setup.on_done;
+        let has_file = on_done.save || self.path.is_some() || self.session.has_file();
+        let save = has_file && !self.session.is_saved();
+        let copy = on_done.copy && !self.session.is_copied();
+        match (save, copy) {
+            (true, true) => ("Save, copy and close", "Save & copy"),
+            (true, false) => ("Save and close", "Save"),
+            (false, true) => ("Copy and close", "Copy"),
+            (false, false) => ("Close", "Done"),
+        }
+    }
+
     /// Close, asking first if annotations would be lost.
     fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.session.commit_text();
@@ -541,7 +556,7 @@ impl Editor {
                     self.button_for("done", cx, |e, window, cx| e.done(window, cx))
                         .icon(Icon::Check)
                         .label("Done")
-                        .tooltip("Save, copy and close  Enter")
+                        .tooltip(format!("{}  Enter", self.done_says().0))
                         .style(ButtonStyle::Accent),
                 ),
             )
@@ -727,12 +742,12 @@ impl Editor {
             .border_color(color::hairline())
             .shadow(hud::panel_shadow())
             .text_color(color::text())
-            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child("Save your changes?"))
+            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child("Keep your annotations?"))
             .child(
                 div()
                     .text_size(px(13.))
                     .text_color(color::text_dim())
-                    .child("Your annotations will be lost if you close without saving."),
+                    .child("They'll be lost if you close without copying or saving them."),
             )
             .child(
                 div()
@@ -743,8 +758,8 @@ impl Editor {
                     .child(self.button_for("discard", cx, |e, window, cx| e.close(window, cx)).label("Discard"))
                     .child(self.button_for("keep-editing", cx, |e, _, _| e.confirm_close = false).label("Cancel"))
                     .child(
-                        self.button_for("save-close", cx, |e, window, cx| e.done(window, cx))
-                            .label("Save")
+                        self.button_for("finish", cx, |e, window, cx| e.done(window, cx))
+                            .label(self.done_says().1)
                             .style(ButtonStyle::Accent),
                     ),
             );

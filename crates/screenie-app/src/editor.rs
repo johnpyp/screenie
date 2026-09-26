@@ -10,7 +10,7 @@ use gpui::{App, AsyncApp};
 use screenie_annotate::Color;
 use screenie_config::{EditorMode, Subject};
 use screenie_core::Image;
-use screenie_editor::{EditorOptions, Mode, Output};
+use screenie_editor::{EditorOptions, Mode, OnDone, Output};
 use screenie_ipc::CaptureKind;
 
 use crate::clipboard;
@@ -66,6 +66,7 @@ pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx
             .and_then(|name| d.capture.outputs().ok()?.into_iter().find(|o| o.name == name)),
         placement: capture.placement,
         on_disk,
+        on_done: OnDone { copy: actions.copy, save: actions.save },
         exit_on_copy: config.exit_on_copy,
         exit_on_save: config.exit_on_save,
     };
