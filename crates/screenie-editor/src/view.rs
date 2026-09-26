@@ -275,7 +275,7 @@ impl Editor {
             (true, true) => ("Save, copy and close", "Save & copy"),
             (true, false) => ("Save and close", "Save"),
             (false, true) => ("Copy and close", "Copy"),
-            (false, false) if on_done.preview => ("Close to a preview card", "Keep"),
+            (false, false) if on_done.preview => ("Close", "Keep"),
             (false, false) => ("Close", "Done"),
         }
     }

@@ -130,7 +130,7 @@ Bold, with system fonts as fallback for emoji and CJK.
   saves only if `save` is on or the capture already has a file (opened from one, given
   `-o`, or saved in the editor), and copies only if `copy` is on. Anything already
   copied or saved exactly as it is now isn't done again. Done's tooltip says what it
-  will do, e.g. "Close to a preview card", "Copy and close" or "Save, copy and close".
+  will do: "Close", "Copy and close" or "Save, copy and close".
 - `editor.exit_on_copy` / `editor.exit_on_save` close the editor right after a copy
   or save.
 - Closing asks "Keep your annotations?" only if the current annotations were neither
