@@ -34,8 +34,10 @@ def session() -> Session:
 
 @pytest.fixture(autouse=True)
 def clean_desktop(session: Session) -> None:
-    """Each test starts with no windows open (a failed one may leave a dialog behind)."""
+    """Each test starts with no windows open (a failed one may leave a dialog behind), and
+    HEADLESS-1 focused, so new windows open there."""
     session.close_windows()
+    session.swaymsg("focus output HEADLESS-1")
 
 
 @pytest.fixture
