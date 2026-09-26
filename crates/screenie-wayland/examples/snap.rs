@@ -4,7 +4,7 @@ use screenie_wayland::{Backend, Capturer};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let dir = std::path::PathBuf::from(args.first().map(String::as_str).unwrap_or("target/snap"));
+    let dir = std::path::PathBuf::from(args.first().map(String::as_str).unwrap_or(".cache/snap"));
     let backend = match args.get(1).map(String::as_str) {
         Some("ext") => Some(Backend::ExtImageCopyCapture),
         Some("wlr") => Some(Backend::WlrScreencopy),

@@ -245,7 +245,7 @@ mixed-DPI outputs, a virtual pointer and keyboard, and an image diff:
 tools/session.sh start && source $XDG_RUNTIME_DIR/screenie-session.env
 cargo run -p screenie -- shot
 cargo run -p wlinput -- drag 100 100 800 600 15
-tools/session.sh shot target/session.png
+tools/session.sh shot .cache/session.png
 python3 tools/imgdiff.py a.png b.png
 ```
 

@@ -12,7 +12,7 @@ fn main() {
         Some(path) => Image::load_png(path.as_ref()).expect("background png"),
         None => stripes((900.0 * scale) as u32, (560.0 * scale) as u32),
     };
-    let out = args.get(1).cloned().unwrap_or_else(|| "target/annotate-sample.png".into());
+    let out = args.get(1).cloned().unwrap_or_else(|| ".cache/annotate-sample.png".into());
 
     let mut doc = Document::new(&base, scale);
     let s = |v: f64| v * scale as f64;
@@ -47,6 +47,9 @@ fn main() {
     let started = std::time::Instant::now();
     let image = doc.export();
     eprintln!("exported {}x{} in {:?}", image.width(), image.height(), started.elapsed());
+    if let Some(dir) = std::path::Path::new(&out).parent() {
+        std::fs::create_dir_all(dir).expect("output directory");
+    }
     image.save_png(out.as_ref()).expect("write png");
     println!("{out}");
 }

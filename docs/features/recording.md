@@ -67,5 +67,5 @@ Try it without the daemon:
 
 ```sh
 cargo run -p screenie-record --example rec -- encoders
-cargo run -p screenie-record --example rec -- HEADLESS-1 3 target/rec.mp4 "100,100 800x600" audio pause
+cargo run -p screenie-record --example rec -- HEADLESS-1 3 .cache/rec.mp4 "100,100 800x600" audio pause
 ```

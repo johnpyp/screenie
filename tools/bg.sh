@@ -2,7 +2,7 @@
 # Run and stop background processes by name, tracked with PID files (so killing one never
 # pattern-matches the shell that asked for it).
 #
-#   tools/bg.sh start <name> <cmd...>   # stdout/stderr -> target/bg/<name>.log
+#   tools/bg.sh start <name> <cmd...>   # stdout/stderr -> .cache/bg/<name>.log
 #   tools/bg.sh stop <name>
 #   tools/bg.sh log <name> [lines]
 #   tools/bg.sh status <name>
@@ -20,7 +20,7 @@ terminate() {
 }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIR="$ROOT/target/bg"
+DIR="$ROOT/.cache/bg"
 mkdir -p "$DIR"
 name="${2:-}"
 pidfile="$DIR/$name.pid"

@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let output = args.first().ok_or("usage: rec OUTPUT SECONDS FILE [region] [audio] [pause]")?;
     let seconds: f64 = args.get(1).map(|s| s.parse()).transpose()?.unwrap_or(3.0);
-    let path = args.get(2).cloned().unwrap_or_else(|| "target/rec.mp4".into());
+    let path = args.get(2).cloned().unwrap_or_else(|| ".cache/rec.mp4".into());
+    if let Some(dir) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(dir)?;
+    }
     let region = args.get(3).filter(|a| a.contains('x')).map(|r| r.parse()).transpose()?;
     let flag = |f: &str| args.iter().any(|a| a == f);
 

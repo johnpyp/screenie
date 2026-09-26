@@ -15,6 +15,7 @@ Workflow:
 - Always be refactoring to make things better. don't focus on making the "minimal change", make the best change.
 - Feel free to add reference repos and things to `references/`.
 - Add tools that are helpful for you to verify or troubleshoot stuff to `tools/`. python is fine.
+- Non-cargo output (logs, screenshots, samples, scratch files) goes in `.cache/`, never `target/`.
 - Feel free to install any dep, system or otherwise, you need.
 - Mise for project tooling
 - Commit directly to `main` (no feature branches). Intermediate commits don't need to build.

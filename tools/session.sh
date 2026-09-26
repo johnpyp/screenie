@@ -106,7 +106,7 @@ stop) stop ;;
 env) need_session && cat "$ENV_FILE" ;;
 shot)
   need_session
-  out="${2:-$ROOT/target/session.png}"
+  out="${2:-$ROOT/.cache/session.png}"
   mkdir -p "$(dirname "$out")"
   grim "$out" && echo "$out"
   ;;

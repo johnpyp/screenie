@@ -29,4 +29,4 @@ let png_ready: Image = doc.export(); // shapes drawn, crop applied
   fonts takes a moment.
 
 `cargo run -p screenie-annotate --example sample` renders every shape kind to
-`target/annotate-sample.png`, for eyeballing changes.
+`.cache/annotate-sample.png`, for eyeballing changes.
