@@ -161,10 +161,25 @@ fn parse(text: &str) -> Result<State, LoadError> {
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("screenie-state-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        dir.join("state.yaml")
+    /// A fresh directory for one test, removed when it's dropped.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("screenie-state-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            Self(dir)
+        }
+
+        fn state_file(&self) -> PathBuf {
+            self.0.join("state.yaml")
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 
     fn remembered() -> EditorState {
@@ -173,7 +188,8 @@ mod tests {
 
     #[test]
     fn missing_file_is_empty_and_updates_are_written_back() {
-        let path = scratch("roundtrip");
+        let scratch = Scratch::new("roundtrip");
+        let path = scratch.state_file();
         let mut file = StateFile::open_at(&path);
         assert_eq!(file.state(), &State::default());
         file.update(|s| s.editor = remembered()).unwrap();
@@ -184,7 +200,8 @@ mod tests {
 
     #[test]
     fn broken_file_is_set_aside() {
-        let path = scratch("broken");
+        let scratch = Scratch::new("broken");
+        let path = scratch.state_file();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "editor: [not, a, map").unwrap();
         let file = StateFile::open_at(&path);
@@ -195,7 +212,8 @@ mod tests {
 
     #[test]
     fn unversioned_file_is_set_aside() {
-        let path = scratch("unversioned");
+        let scratch = Scratch::new("unversioned");
+        let path = scratch.state_file();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "editor: { size: 8 }\n").unwrap();
         assert_eq!(StateFile::open_at(&path).state(), &State::default());
@@ -204,7 +222,8 @@ mod tests {
 
     #[test]
     fn newer_file_is_left_alone() {
-        let path = scratch("newer");
+        let scratch = Scratch::new("newer");
+        let path = scratch.state_file();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let newer = format!("version: {}\neditor: {{ size: 8 }}\n", VERSION + 1);
         std::fs::write(&path, &newer).unwrap();
@@ -236,14 +255,16 @@ mod tests {
     fn current_fixture_is_what_we_write() {
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/v{VERSION}.yaml"));
         let fixture = parse(&std::fs::read_to_string(fixture).unwrap()).unwrap();
-        let path = scratch("fixture");
+        let scratch = Scratch::new("fixture");
+        let path = scratch.state_file();
         StateFile::open_at(&path).update(|s| *s = fixture.clone()).unwrap();
         assert_eq!(StateFile::open_at(&path).state(), &fixture);
     }
 
     #[test]
     fn unchanged_state_isnt_written() {
-        let path = scratch("unchanged");
+        let scratch = Scratch::new("unchanged");
+        let path = scratch.state_file();
         let mut file = StateFile::open_at(&path);
         file.update(|_| {}).unwrap();
         assert!(!path.exists());

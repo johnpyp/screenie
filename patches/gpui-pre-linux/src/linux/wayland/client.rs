@@ -1382,7 +1382,10 @@ impl LinuxClient for WaylandClient {
         }
 
         let client_state = self.0.borrow();
-        let active_window = client_state.keyboard_focused_window.as_ref();
+        // screenie patch: only an xdg_toplevel can be exported (xdg-foreign). Exporting a
+        // layer surface or a popup is a protocol error that kills the Wayland connection;
+        // the portal copes fine without a parent.
+        let active_window = client_state.keyboard_focused_window.as_ref().filter(|aw| aw.toplevel().is_some());
         inner(active_window.map(|aw| aw.surface()))
     }
 }
