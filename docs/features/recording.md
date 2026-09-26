@@ -111,6 +111,12 @@ Settings:
   double-buffered so the compositor copies the next frame while this one is read: on
   rotated or flipped outputs, once a recorded window is resized, on compositors without
   GPU buffers, and with GStreamer before 1.24.
+- **Regions** are captured with wlr-screencopy where the compositor offers it (sway,
+  Hyprland, niri), which copies just the region into region-sized buffers.
+  ext-image-copy-capture always copies the whole output, so its GPU frames carry the
+  region as a crop (`GstVideoCropMeta`). `vapostproc` applies it; GL's elements ignore
+  it and would squeeze the whole screen into the region's video, so for an encoder fed
+  by GL (NVENC) those frames come through memory instead, cropped by the capture.
 - **Encoders** are found in the GStreamer registry, whatever the vendor: VA-API (AMD,
   Intel, and any GPU with a VA driver, one element set per GPU), NVENC (NVIDIA),
   gstreamer-vaapi, V4L2 (SoCs), then x264 and OpenH264. Hardware on the GPU the
@@ -130,7 +136,8 @@ Settings:
   example below lists them.
 - **Scaling and conversion** to the encoder's 4:2:0 input happen on the encoder's GPU:
   `vapostproc` for VA-API, GL (`glupload ! glcolorscale ! glcolorconvert`) for NVENC,
-  which takes GL memory as is. Both take GPU buffers and memory alike. Software encoders
+  which takes GL memory as is. Both take GPU buffers and memory alike (GL only whole
+  buffers, see Regions). Software encoders
   get `videoscale ! videoconvert`, scaling first (4K to 1080p on the CPU takes a core).
 - **Frames** are damage-driven and paced, and identical frames in memory are skipped. A
   static screen costs almost nothing, and the output is variable frame rate. Each frame

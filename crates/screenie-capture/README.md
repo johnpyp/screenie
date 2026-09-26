@@ -9,7 +9,9 @@ layer-shell probe in `screenie-wayland`.
 
 `stream(...)` starts a live stream of an output or a region of it, and `stream_window`
 one of a window by itself where `can_stream_window` says the compositor allows it. Both
-block until the first frame arrives.
+block until the first frame arrives. In `auto` mode a region goes to wlr-screencopy
+first where it's offered: it copies just the region, where ext-image-copy-capture copies
+the whole output and leaves the crop to the consumer.
 
 Backend selection follows `advanced.capture_backend` (`auto`, `ext`, `wlr`,
 `portal`). The xdg-desktop-portal backend for GNOME and KDE is not implemented yet.

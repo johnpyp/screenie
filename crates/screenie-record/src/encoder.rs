@@ -14,7 +14,10 @@
 //!
 //! How frames get into an encoder is its [`Chain`]: VA-API's own converter, GL, or
 //! scaling and conversion on the CPU. The first two take GPU buffers as well as memory,
-//! and do the scaling and colour conversion on the GPU.
+//! and do the scaling and colour conversion on the GPU. Only VA-API's also crops them:
+//! a region of an output captured whole (ext-image-copy-capture) comes as whole GPU
+//! buffers that say which part to take (a `GstVideoCropMeta`), which GL ignores, so
+//! for GL such frames come through memory, cropped by the capture.
 //!
 //! An installed element is no proof: VA-API encoders exist whenever the plugin is
 //! installed, even without a capable driver. So each candidate encodes a few test frames
@@ -62,9 +65,10 @@ enum Family {
 /// converted to 4:2:0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Chain {
-    /// VA-API's converter, on the encoder's GPU. Takes memory and GPU buffers.
+    /// VA-API's converter, on the encoder's GPU. Takes memory and GPU buffers, and crops.
     Va,
-    /// GL, on the GPU GStreamer's GL runs on. Takes memory and GPU buffers.
+    /// GL, on the GPU GStreamer's GL runs on. Takes memory and GPU buffers, but not a
+    /// part of one: `glupload`, `glcolorscale` and `glcolorconvert` ignore crop metas.
     Gl,
     /// On the CPU.
     Cpu,
@@ -159,10 +163,18 @@ impl Encoder {
     }
 
     /// The GPU buffer format to take frames in from `offer`, if this encoder can: it runs
-    /// on the offer's GPU, and its chain imports one of the formats offered. Only the
-    /// layouts (modifiers) both sides take are kept.
+    /// on the offer's GPU, its chain imports one of the formats offered, and crops them
+    /// if they're a part of their buffers. Only the layouts (modifiers) both sides take
+    /// are kept.
     pub fn gpu_format(&self, offer: &GpuOffer) -> Option<DmabufFormat> {
         if !self.runs_on(&offer.device) || gst::version() < (1, 24, 0, 0) {
+            return None;
+        }
+        if offer.cropped && !self.chain.crops() {
+            tracing::info!(
+                "{} can't crop GPU frames; taking the region's through memory",
+                self.name()
+            );
             return None;
         }
         let importer = self.importer()?;
@@ -413,6 +425,15 @@ impl Chain {
             Chain::Cpu => "cpu",
         }
     }
+
+    /// Whether it takes only the part of a GPU frame its crop meta names. A chain that
+    /// doesn't would scale the whole buffer into the video.
+    pub fn crops(self) -> bool {
+        match self {
+            Chain::Va => true,
+            Chain::Gl | Chain::Cpu => false,
+        }
+    }
 }
 
 /// A bitrate for encoders without constant quality: a bits-per-pixel budget.
@@ -618,6 +639,8 @@ pub(crate) fn audio_encoder() -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use gst_video::prelude::*;
+
     use super::*;
 
     fn names(list: &[&str]) -> HashSet<String> {
@@ -716,6 +739,88 @@ mod tests {
         assert_eq!(list, [nvenc.clone(), va.clone(), x264.clone()]);
         list.sort_by_key(|e| e.tier(Some(&amd)));
         assert_eq!(list, [va, nvenc, x264]);
+    }
+
+    /// Whether `encoder`'s chain shows only the part of a frame its crop meta names: a
+    /// frame red on the left and blue on the right, cropped to the right, should come
+    /// out blue. `None` if the chain can't run here.
+    fn chain_crops(encoder: &Encoder) -> Option<bool> {
+        let (width, height) = (64u32, 32u32);
+        let desc = format!(
+            "appsrc name=src format=time caps=video/x-raw,format=BGRx,width={width},height={height},framerate=30/1 \
+             ! {} ! appsink name=out sync=false",
+            encoder.prepare((16, 16))
+        );
+        let pipeline = gst::parse::launch(&desc)
+            .ok()?
+            .downcast::<gst::Pipeline>()
+            .ok()?;
+        let src = pipeline
+            .by_name("src")?
+            .downcast::<gst_app::AppSrc>()
+            .ok()?;
+        let out = pipeline
+            .by_name("out")?
+            .downcast::<gst_app::AppSink>()
+            .ok()?;
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        for _ in 0..height {
+            for x in 0..width {
+                // BGRx: red, then blue.
+                pixels.extend(if x < width / 2 {
+                    [0, 0, 255, 255]
+                } else {
+                    [255, 0, 0, 255]
+                });
+            }
+        }
+        let mut buffer = gst::Buffer::from_mut_slice(pixels);
+        {
+            let buffer = buffer.get_mut().unwrap();
+            buffer.set_pts(gst::ClockTime::ZERO);
+            gst_video::VideoCropMeta::add(buffer, (width / 2, 0, width / 2, height));
+        }
+        pipeline.set_state(gst::State::Playing).ok()?;
+        let sample = src
+            .push_buffer(buffer)
+            .ok()
+            .and_then(|_| src.end_of_stream().ok())
+            .and_then(|_| out.try_pull_sample(gst::ClockTime::from_seconds(5)));
+        let blue = sample.and_then(|sample| {
+            let info = gst_video::VideoInfo::from_caps(sample.caps()?).ok()?;
+            let frame =
+                gst_video::VideoFrameRef::from_buffer_ref_readable(sample.buffer()?, &info).ok()?;
+            // A quarter of the way across, where the whole frame would be red: its Cb
+            // is high for blue, low for red. NV12 interleaves Cb and Cr; I420 doesn't.
+            let step = if info.format() == gst_video::VideoFormat::Nv12 {
+                2
+            } else {
+                1
+            };
+            let stride = frame.plane_stride()[1] as usize;
+            Some(frame.plane_data(1).ok()?[4 * stride + 2 * step] > 160)
+        });
+        let _ = pipeline.set_state(gst::State::Null);
+        blue
+    }
+
+    /// GPU frames of a region come as whole buffers with a crop meta, and only chains
+    /// that apply it may take them (`Chain::crops`). GL's elements ignore it, which
+    /// scaled the whole screen into a region's video.
+    #[test]
+    fn chains_that_take_cropped_gpu_frames_crop_them() {
+        gst::init().unwrap();
+        for encoder in discover()
+            .into_iter()
+            .filter(|e| e.chain.crops() && e.works())
+        {
+            assert_eq!(
+                chain_crops(&encoder),
+                Some(true),
+                "{} would scale whole frames into a region's video",
+                encoder.name()
+            );
+        }
     }
 
     #[test]

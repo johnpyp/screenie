@@ -137,6 +137,7 @@ impl Feed {
 
     /// A frame in a GPU buffer, as DMA-BUF memory (one per plane) with its layout and
     /// crop described, holding the capture buffer until the pipeline is done with it.
+    /// Only a chain that applies the crop gets cropped frames (`Encoder::gpu_format`).
     fn gpu_buffer(&mut self, frame: &Dmabuf) -> Option<gst::Buffer> {
         let caps = gst::Caps::builder("video/x-raw")
             .features(["memory:DMABuf"])

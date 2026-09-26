@@ -320,7 +320,8 @@ impl Capturer {
             None => None,
         };
         // wlr-screencopy can copy just the region; ext always copies the whole output and
-        // we crop afterwards.
+        // we crop afterwards: frames in memory here, GPU frames by saying which part to
+        // take (`Dmabuf::crop`), which the consumer must apply (`GpuOffer::cropped`).
         let (native_region, crop) = match self.backend {
             Backend::WlrScreencopy => (region, None),
             Backend::ExtImageCopyCapture => (None, region),
@@ -990,6 +991,7 @@ impl FrameStream {
 
     /// The GPU buffers the compositor could render frames into, once it has said (with
     /// the first frame). Only upright frames: a rotated or flipped one would need turning.
+    /// A region of an output captured whole comes in whole buffers, marked `cropped`.
     pub fn gpu_offer(&self) -> Option<GpuOffer> {
         self.capturer.state.linux_dmabuf.as_ref()?;
         let cap = self.capture();
@@ -1003,6 +1005,7 @@ impl FrameStream {
         Some(GpuOffer {
             device,
             formats: cap.constraints.dmabuf_formats.clone(),
+            cropped: self.crop.is_some(),
         })
     }
 

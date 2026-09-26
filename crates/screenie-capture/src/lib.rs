@@ -72,7 +72,7 @@ impl CaptureContext {
 
     /// Human-readable name of the backend `backend` resolves to.
     pub fn backend_name(&self, backend: CaptureBackend) -> &'static str {
-        match self.candidates(backend).first() {
+        match self.candidates(backend, false).first() {
             Some(b) => b.name(),
             None => "xdg-desktop-portal",
         }
@@ -82,23 +82,17 @@ impl CaptureContext {
     /// protocol the compositor offers, starting with the one that last worked: an
     /// advertised protocol can still be unusable (e.g. only offering a pixel format we
     /// can't read), and the other one may be fine.
-    fn candidates(&self, backend: CaptureBackend) -> Vec<Backend> {
+    ///
+    /// A `region` of an output goes to wlr-screencopy first, which copies just the
+    /// region. ext-image-copy-capture copies the whole output, and its GPU frames then
+    /// need cropping, which not every encoder can do on the GPU.
+    fn candidates(&self, backend: CaptureBackend, region: bool) -> Vec<Backend> {
         match backend {
             CaptureBackend::Ext => vec![Backend::ExtImageCopyCapture],
             CaptureBackend::Wlr => vec![Backend::WlrScreencopy],
             CaptureBackend::Portal => Vec::new(),
             CaptureBackend::Auto => {
-                let mut all = Vec::new();
-                if self.support.ext_image_copy_capture {
-                    all.push(Backend::ExtImageCopyCapture);
-                }
-                if self.support.wlr_screencopy {
-                    all.push(Backend::WlrScreencopy);
-                }
-                if let Some(working) = *self.working.lock().unwrap() {
-                    all.sort_by_key(|b| *b != working);
-                }
-                all
+                auto_order(&self.support, region, *self.working.lock().unwrap())
             }
         }
     }
@@ -107,9 +101,10 @@ impl CaptureContext {
     fn with_backends<T>(
         &self,
         backend: CaptureBackend,
+        region: bool,
         mut capture: impl FnMut(Backend) -> Result<T, screenie_wayland::Error>,
     ) -> Result<T> {
-        let candidates = self.candidates(backend);
+        let candidates = self.candidates(backend, region);
         let mut last = None;
         for (i, b) in candidates.iter().enumerate() {
             match capture(*b) {
@@ -152,7 +147,7 @@ impl CaptureContext {
             std::thread::spawn(move || compositor.windows())
         });
 
-        let outputs = self.with_backends(opts.backend, |b| {
+        let outputs = self.with_backends(opts.backend, false, |b| {
             Capturer::connect_with(Some(b))?.capture_outputs(None, opts.cursor)
         })?;
 
@@ -181,7 +176,7 @@ impl CaptureContext {
         region: Option<Rect>,
         cursor: bool,
     ) -> Result<Box<dyn FrameSource>> {
-        self.with_backends(backend, |b| {
+        self.with_backends(backend, region.is_some(), |b| {
             prime(Capturer::connect_with(Some(b))?.into_stream(output, region, cursor)?)
         })
     }
@@ -219,6 +214,25 @@ impl CaptureContext {
     pub fn outputs(&self) -> Result<Vec<OutputInfo>> {
         Ok(Capturer::connect()?.outputs())
     }
+}
+
+/// The protocols `support` offers, in the order `auto` tries them: ext first, or wlr
+/// for a `region`, and above all the one that `working` last.
+fn auto_order(support: &Support, region: bool, working: Option<Backend>) -> Vec<Backend> {
+    let mut all = Vec::new();
+    if support.ext_image_copy_capture {
+        all.push(Backend::ExtImageCopyCapture);
+    }
+    if support.wlr_screencopy {
+        all.push(Backend::WlrScreencopy);
+    }
+    if region {
+        all.sort_by_key(|b| *b != Backend::WlrScreencopy);
+    }
+    if let Some(working) = working {
+        all.sort_by_key(|b| *b != working);
+    }
+    all
 }
 
 /// Wait for `stream`'s first frame, proving the protocol can actually deliver.
@@ -277,5 +291,30 @@ impl FrameSource for Primed {
 impl Default for CaptureContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn regions_go_to_the_protocol_that_copies_just_them() {
+        use Backend::{ExtImageCopyCapture as Ext, WlrScreencopy as Wlr};
+        let both = Support {
+            ext_image_copy_capture: true,
+            wlr_screencopy: true,
+            ..Default::default()
+        };
+        assert_eq!(auto_order(&both, false, None), [Ext, Wlr]);
+        assert_eq!(auto_order(&both, true, None), [Wlr, Ext]);
+        // What worked when the other didn't comes first either way.
+        assert_eq!(auto_order(&both, true, Some(Ext)), [Ext, Wlr]);
+        assert_eq!(auto_order(&both, false, Some(Wlr)), [Wlr, Ext]);
+        let ext_only = Support {
+            ext_image_copy_capture: true,
+            ..Default::default()
+        };
+        assert_eq!(auto_order(&ext_only, true, None), [Ext]);
     }
 }

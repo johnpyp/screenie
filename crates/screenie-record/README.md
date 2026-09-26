@@ -15,7 +15,9 @@ let finished = recording.stop()?; // path, duration, size, bytes, last frame
   (VA-API, NVENC, gstreamer-vaapi, V4L2), then software (x264, OpenH264). Each is
   test-encoded once. An encoder's `Chain` is how frames reach it (VA-API's converter,
   GL, or the CPU); `Encoder::gpu_format(offer)` says whether it can take the source's
-  GPU buffers. `SCREENIE_ENCODER` forces one.
+  GPU buffers: on its GPU, in a format its chain imports, and, for a region of a
+  buffer (`GpuOffer::cropped`), only if the chain crops (`Chain::crops`: VA-API's does,
+  GL's doesn't). `SCREENIE_ENCODER` forces one.
 - The frame pump runs on its own thread. It caps the frame rate, holds early frames
   rather than dropping them, skips identical frames, and hands frames to GStreamer
   without copying (`feed`): memory as is, GPU buffers (DMA-BUF) as DMA-BUF memory the

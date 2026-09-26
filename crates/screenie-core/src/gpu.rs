@@ -127,6 +127,10 @@ pub const MODIFIER_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
 pub struct GpuOffer {
     pub device: GpuDevice,
     pub formats: Vec<DmabufFormat>,
+    /// Whether the frames are only part of their buffers ([`Dmabuf::crop`]: a region of an
+    /// output the protocol can't capture by itself). A consumer that can't crop on the
+    /// GPU must take them in memory, where the source crops them.
+    pub cropped: bool,
 }
 
 /// A frame in GPU memory. Cloning is cheap; the source reuses the buffer once every clone
