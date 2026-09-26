@@ -27,7 +27,10 @@ The compositor library behind sway, river and others (and the protocol reference
 most wlroots-family compositors). Capture: types/wlr_screencopy_v1.c,
 types/ext_image_capture_source_v1/ (output.c locks direct scanout for an output
 session; scene.c renders a window by itself), types/wlr_linux_dmabuf_v1.c (feedback).
-Direct scanout: types/scene/wlr_scene.c, types/output/render.c.
+Direct scanout: types/scene/wlr_scene.c, types/output/render.c. Focus:
+xwayland/xwm.c (X focus goes to PointerRoot when an X window is unfocused),
+types/wlr_pointer_constraints_v1.c (activation is the compositor's policy),
+types/seat/wlr_seat_keyboard.c (held keys on enter).
 """
 
 [[repo]]
@@ -36,7 +39,12 @@ url = "https://github.com/swaywm/sway"
 notes = """
 The compositor the headless test session runs. sway/desktop/layer_shell.c (how layer
 surfaces are placed), sway/ipc-json.c (the toplevel identifiers windows are matched by),
-sway/tree/view.c (foreign-toplevel handles).
+sway/tree/view.c (foreign-toplevel handles). Focus and pointer locks:
+sway/input/seat.c (enter carries held keys; locks activate with keyboard focus),
+sway/input/cursor.c pointer_motion (relative motion is sent, then motion is dropped while
+the cursor isn't over the locked surface: the frozen-cursor trap), seatop_default.c
+(focus_follows_mouse focuses keyboard-interactive layers on hover), desktop/layer_shell.c
+(a layer map or unmap re-picks the pointer's surface).
 """
 
 # Keyboard and pointer focus for overlays that float over games: how the layers under a
@@ -46,60 +54,122 @@ sway/tree/view.c (foreign-toplevel handles).
 name = "xserver"
 url = "https://gitlab.freedesktop.org/xorg/xserver"
 notes = """
-Xwayland (hw/xwayland/), which every X11 game runs through:
-xwayland-input.c for wl_keyboard enter/leave (keys held across a focus change) and
-the pointer lock/confine emulation for games that grab and warp a hidden cursor.
+Xwayland (hw/xwayland/). xwayland-input.c: keyboard_handle_enter/xwl_seat_leave_kbd press
+or release held keys silently (dix/getevents.c, Xi/exevents.c never deliver them), so X
+clients get no KeyRelease for a key let go while unfocused. KeymapNotify follows
+EnterNotify/FocusIn (dix/events.c). Pointer emulation: the warp emulator and hidden-cursor
+lock need pointer focus and survive leaves; xwl_seat_confine_pointer (an X grab's confine)
+doesn't need it and is dropped on any leave. Hooks in xwayland-screen.c.
 """
 
 [[repo]]
 name = "sdl"
 url = "https://github.com/libsdl-org/SDL"
 notes = """
-What native Linux games see: src/video/wayland/SDL_waylandevents.c (keyboard
-enter/leave, relative mouse via pointer locks) and src/video/x11/.
+SDL3, what native games see. src/events/SDL_keyboard.c: SDL_SetKeyboardFocus resets
+the keyboard (key-ups) on focus loss. src/video/wayland/SDL_waylandevents.c: enter
+re-presses only modifiers; the relative-mode lock needs both pointer and keyboard focus.
+src/video/x11/SDL_x11events.c: X11_ReconcileKeyboardState.
 """
 
 [[repo]]
 name = "hyprland"
 url = "https://github.com/hyprwm/Hyprland"
-notes = "Pointer constraint activation and layer-shell keyboard focus on Hyprland."
+notes = """
+Focus policy. src/managers/SeatManager.cpp setKeyboardFocus: enter carries held keys,
+releases go to the current focus. src/managers/input/InputManager.cpp: on_demand and
+exclusive layers take the keyboard on hover unless follow_mouse=3; constrained motion
+skips hit-testing. src/protocols/PointerConstraints.cpp: activating a lock pulls pointer
+focus to the game (no sway-style trap). src/xwayland/XWM.cpp activateSurface keeps X
+focus on the game while a layer has the keyboard. src/output/Monitor.cpp: any overlay
+layer blocks direct scanout and tearing.
+"""
 
 [[repo]]
 name = "hyprland-protocols"
 url = "https://github.com/hyprwm/hyprland-protocols"
-notes = "hyprland_focus_grab_v1: focus for popups and overlays without a keyboard grab."
+notes = """
+hyprland-focus-grab-v1.xml: a modal whitelist grab (keyboard whatever the layer's
+interactivity, held keys included; cleared by an outside click). For dismissing popups,
+not a hover-scoped keyboard. hyprland-global-shortcuts-v1.xml: compositor-bound shortcuts.
+"""
 
 [[repo]]
 name = "smithay"
 url = "https://github.com/Smithay/smithay"
-notes = "A Rust compositor library: seat, keyboard and pointer-constraint handling."
+notes = """
+src/wayland/pointer_constraints.rs (activation left to the compositor),
+src/wayland/seat/pointer.rs (deactivates on pointer leave), src/input/keyboard/mod.rs
+(enter carries held keys).
+"""
 
 [[repo]]
 name = "gamescope"
 url = "https://github.com/ValveSoftware/gamescope"
-notes = "Valve's game compositor: how it gives input to overlays (the Steam overlay) over a game."
+notes = """
+Input goes to overlays by role, never by hover: src/steamcompmgr.cpp (STEAM_OVERLAY,
+STEAM_INPUT_FOCUS), src/wlserver.cpp (pointer locks follow keyboard focus; layer surfaces
+never get input). src/Backends/WaylandBackend.cpp: client-side held-key bookkeeping
+(replay keys held at enter, release all at leave).
+"""
 
 [[repo]]
 name = "wlr-protocols"
 url = "https://gitlab.freedesktop.org/wlroots/wlr-protocols"
-notes = "The layer-shell spec (keyboard_interactivity: none, exclusive, on_demand)."
+notes = """
+unstable/wlr-layer-shell-unstable-v1.xml, keyboard_interactivity: none is never focused;
+exclusive on top/overlay always wins focus; on_demand is implementation-defined (sway and
+Hyprland focus it on hover); double-buffered.
+"""
 
 [[repo]]
 name = "mako"
 url = "https://github.com/emersion/mako"
-notes = "Minimal layer-shell notifications with no keyboard: interaction by pointer and makoctl."
+notes = """
+Never binds a keyboard (wayland.c); the input region is only the notifications. Pointer
+buttons map to actions (on-button-*, config.c); keyboard control is makoctl over D-Bus.
+"""
 
 [[repo]]
 name = "waybar"
 url = "https://github.com/Alexays/Waybar"
-notes = "Layer-shell bar: hover, tooltips and clicks without the keyboard."
+notes = """
+Bar hardcoded to keyboard none (src/bar.cpp). Hover only highlights (src/AModule.cpp);
+menus are GTK popups on click. Control by signals (src/main.cpp). `passthrough` gives an
+empty input region.
+"""
 
 [[repo]]
 name = "eww"
 url = "https://github.com/elkowar/eww"
-notes = "Layer-shell widgets with configurable keyboard focus."
+notes = """
+:focusable none|exclusive|ondemand fixed at open (crates/eww/src/display_backend.rs).
+Buttons fire on the release of Return/Space without checking where the press went
+(widget_definitions.rs): a split-press hazard to avoid.
+"""
 
 [[repo]]
 name = "gtk4-layer-shell"
 url = "https://github.com/wmww/gtk4-layer-shell"
-notes = "The GTK layer-shell library most of the above use: keyboard mode handling."
+notes = """
+Keyboard modes (include/gtk4-layer-shell.h) map 1:1 to the protocol; on_demand falls back
+to none below v4 (src/layer-surface.c). Nothing handles keys held across a mode change.
+"""
+
+[[repo]]
+name = "sdl2"
+url = "https://github.com/libsdl-org/SDL"
+ref = "SDL2"
+notes = """
+SDL2: key handling as in SDL3, but src/video/wayland/SDL_waylandmouse.c
+Wayland_input_lock_pointer locks every window regardless of focus.
+"""
+
+[[repo]]
+name = "xwayland-satellite"
+url = "https://github.com/Supreeeme/xwayland-satellite"
+notes = """
+Xwayland as an ordinary Wayland client. src/server/event.rs forwards wl_keyboard.enter
+keys to Xwayland and clears X focus on leave; src/server/dispatch.rs proxies pointer
+constraints.
+"""
