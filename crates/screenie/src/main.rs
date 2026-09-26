@@ -358,8 +358,15 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
         }
-        init_logging(true);
-        return match screenie_app::run(commit) {
+        let daemon = match screenie_app::claim() {
+            Ok(daemon) => daemon,
+            Err(e) => {
+                eprintln!("screenie daemon: {e:#}");
+                return ExitCode::from(2);
+            }
+        };
+        init_daemon_logging();
+        return match daemon.run(commit) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("screenie daemon: {e:#}");
@@ -367,7 +374,7 @@ fn main() -> ExitCode {
             }
         };
     }
-    init_logging(false);
+    init_logging();
 
     match run(command) {
         Ok(code) => code,
@@ -380,19 +387,99 @@ fn main() -> ExitCode {
     }
 }
 
-/// Log to stderr: a terminal, or the daemon's log file. Colour only for a terminal, so
-/// the file reads cleanly in `less` and `grep`; local time, like the capture file names.
-fn init_logging(daemon: bool) {
+/// A command logs warnings to stderr.
+fn init_logging() {
     use std::io::IsTerminal;
-    let default = if daemon { "info" } else { "warn" };
-    let filter = tracing_subscriber::EnvFilter::try_from_env("SCREENIE_LOG")
-        .unwrap_or_else(|_| default.into());
     tracing_subscriber::fmt()
-        .with_env_filter(filter)
+        .with_env_filter(log_filter("warn"))
         .with_writer(std::io::stderr)
         .with_ansi(std::io::stderr().is_terminal())
-        .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
+        .with_timer(log_timer())
         .init();
+}
+
+/// The daemon always logs to its file, however it was started: the previous run's is
+/// kept as `daemon.log.1`, so a crash's log survives the restart it causes. Where stderr
+/// leads somewhere (a terminal, a pipe, the journal) it's logged there too; where it
+/// goes nowhere (a daemon the CLI started), stdout and stderr are pointed at the file,
+/// so panics and what native libraries print land in it too.
+fn init_daemon_logging() {
+    use std::io::IsTerminal;
+    use tracing_subscriber::prelude::*;
+
+    let path = screenie_ipc::daemon_log_path();
+    let file = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(
+            |()| match std::fs::rename(&path, path.with_extension("log.1")) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            },
+        )
+        .and_then(|()| std::fs::File::create(&path));
+    let file = match file {
+        Ok(file) => Some(file),
+        Err(e) => {
+            eprintln!("screenie daemon: can't write {}: {e}", path.display());
+            None
+        }
+    };
+    let stderr_nowhere = stderr_is_null();
+    let (to_file, to_stderr) = match file {
+        Some(file) if stderr_nowhere => {
+            let _ = rustix::stdio::dup2_stdout(&file);
+            let _ = rustix::stdio::dup2_stderr(&file);
+            (None, true)
+        }
+        Some(file) => (Some(file), true),
+        None => (None, !stderr_nowhere),
+    };
+    let tee_panics = to_file.is_some();
+    tracing_subscriber::registry()
+        .with(log_filter("info"))
+        .with(to_file.map(|file| {
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::sync::Mutex::new(file))
+                .with_ansi(false)
+                .with_timer(log_timer())
+        }))
+        .with(to_stderr.then(|| {
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(std::io::stderr().is_terminal())
+                .with_timer(log_timer())
+        }))
+        .init();
+    if tee_panics {
+        // A panic prints to stderr only; the file gets it through the log.
+        let print = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            tracing::error!("{info}");
+            print(info);
+        }));
+    }
+}
+
+/// `SCREENIE_LOG`, or `default`.
+fn log_filter(default: &str) -> tracing_subscriber::EnvFilter {
+    tracing_subscriber::EnvFilter::try_from_env("SCREENIE_LOG").unwrap_or_else(|_| default.into())
+}
+
+/// Local time, like the capture file names.
+fn log_timer() -> tracing_subscriber::fmt::time::ChronoLocal {
+    tracing_subscriber::fmt::time::ChronoLocal::rfc_3339()
+}
+
+/// Whether stderr is `/dev/null` (or closed).
+fn stderr_is_null() -> bool {
+    let Ok(stderr) = rustix::fs::fstat(std::io::stderr()) else {
+        return true;
+    };
+    rustix::fs::stat("/dev/null").is_ok_and(|null| {
+        rustix::fs::FileType::from_raw_mode(stderr.st_mode) == rustix::fs::FileType::CharacterDevice
+            && stderr.st_rdev == null.st_rdev
+    })
 }
 
 fn request(req: &Request) -> anyhow::Result<Response> {

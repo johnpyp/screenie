@@ -203,31 +203,21 @@ pub enum Takeover {
     Busy(Status),
 }
 
-/// Start `screenie daemon` detached from this process's session, logging to the state
-/// directory. The previous daemon's log is kept as `daemon.log.1`, so the next command
-/// after a crash doesn't erase what the crash left.
+/// Start `screenie daemon` detached from this process's session. With nowhere else to
+/// print, it logs everything to its log file.
 fn spawn_daemon() -> Result<()> {
     let exe = std::env::current_exe()?;
-    let log_path = daemon_log_path();
-    if let Some(dir) = log_path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    match std::fs::rename(&log_path, log_path.with_extension("log.1")) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
-        _ => {}
-    }
-    let log = std::fs::File::create(&log_path)?;
     let mut cmd = Command::new(exe);
     cmd.arg("daemon")
         // It outlives the shell that started it: it mustn't keep that shell's directory
         // busy (an unmount would fail) or resolve anything against it.
         .current_dir("/")
         .stdin(Stdio::null())
-        .stdout(log.try_clone()?)
-        .stderr(log);
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     detach(&mut cmd);
     cmd.spawn()?;
-    tracing::debug!("spawned daemon, logging to {}", log_path.display());
+    tracing::debug!("spawned daemon, logging to {}", daemon_log_path().display());
     Ok(())
 }
 

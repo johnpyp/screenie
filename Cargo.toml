@@ -44,7 +44,7 @@ chrono = "0.4"
 directories = "6"
 shellexpand = { version = "3", default-features = false, features = ["base-0"] }
 async-channel = "2"
-rustix = { version = "1", features = ["fs", "shm", "mm", "process", "event"] }
+rustix = { version = "1", features = ["fs", "shm", "mm", "process", "event", "stdio"] }
 gbm = { version = "0.18", default-features = false }
 memmap2 = "0.9"
 rayon = "1"

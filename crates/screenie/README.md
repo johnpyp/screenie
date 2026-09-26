@@ -4,6 +4,12 @@ The `screenie` binary: a thin clap CLI that sends a request to the daemon (start
 if needed) and turns the response into stdout output and an exit code. `screenie daemon`
 runs the daemon in the foreground, and `screenie` alone prints help.
 
+The daemon always logs to `$XDG_STATE_HOME/screenie/daemon.log`, starting it afresh
+once it holds the socket (the previous run's is kept as `daemon.log.1`). It also logs to
+stderr when that leads somewhere, like a terminal or the journal. With stderr on
+`/dev/null`, as when the CLI starts it, stdout and stderr go to the log, so panics and
+what native libraries print land there too.
+
 Exit codes are 0 for done, 1 for cancelled and 2 for errors. Commands that produce a
 file print its path on stdout (`screenie record` prints the path it's recording to).
 

@@ -8,8 +8,7 @@ How the CLI talks to the daemon.
 - **Transport**: a Unix socket at `$XDG_RUNTIME_DIR/screenie/<WAYLAND_DISPLAY>.sock`, so
   each Wayland session gets its own daemon.
 - `Client::connect_or_spawn()` starts `screenie daemon` (detached with setsid, in `/`,
-  logging to `$XDG_STATE_HOME/screenie/daemon.log`, the previous log kept as
-  `daemon.log.1`) when none is running, then waits for it.
+  with stdio on `/dev/null`) when none is running, then waits for it.
 - **Upgrades**: `connect_or_spawn()` compares `exe_stamp()` (the identity of the
   running executable) with the daemon's. If they differ and the daemon is idle, it asks
   the daemon to quit and starts a fresh one, so replacing the binary is all an upgrade

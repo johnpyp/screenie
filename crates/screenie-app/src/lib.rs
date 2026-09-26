@@ -20,15 +20,36 @@ use std::sync::Arc;
 use screenie_capture::CaptureContext;
 use screenie_config::{Config, Paths};
 
-/// Run the daemon until asked to quit. `commit` describes the build (for `status`).
-pub fn run(commit: &'static str) -> anyhow::Result<()> {
+/// This session's daemon, once it has claimed the socket and before it serves: the
+/// place to set up anything only the one daemon may touch (its log).
+pub struct Claimed {
+    listener: std::os::unix::net::UnixListener,
+    claim: screenie_ipc::SocketClaim,
+}
+
+/// Become the session's daemon. Fails if another one is running.
+pub fn claim() -> anyhow::Result<Claimed> {
     // However it was started, the daemon lives on its own: it holds no directory busy,
     // and nothing it does depends on one (the CLI sends absolute paths).
     std::env::set_current_dir("/")?;
-    let socket = Paths::get().socket();
+    let (listener, claim) = screenie_ipc::bind_listener(&Paths::get().socket())?;
+    Ok(Claimed { listener, claim })
+}
+
+impl Claimed {
+    /// Run the daemon until asked to quit. `commit` describes the build (for `status`).
+    pub fn run(self, commit: &'static str) -> anyhow::Result<()> {
+        run(self, commit)
+    }
+}
+
+fn run(claimed: Claimed, commit: &'static str) -> anyhow::Result<()> {
     // Held until `run` returns, when it removes the socket.
-    let (listener, _claim) = screenie_ipc::bind_listener(&socket)?;
-    tracing::info!(socket = %socket.display(), "daemon listening");
+    let Claimed {
+        listener,
+        claim: _claim,
+    } = claimed;
+    tracing::info!(socket = %Paths::get().socket().display(), "daemon listening");
     let incoming = server::start(listener);
 
     let config = Config::load_or_default();

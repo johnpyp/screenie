@@ -400,13 +400,15 @@ detail is in [the compositor matrix](crates/screenie-compositor/README.md#compos
 
 ## Troubleshooting
 
-The log is at `~/.local/state/screenie/daemon.log`. For more detail, run the daemon in a
-terminal with debug logging:
+The log is at `~/.local/state/screenie/daemon.log`. For more detail, restart the daemon
+with debug logging:
 
 ```sh
 screenie quit
 SCREENIE_LOG=debug screenie daemon
 ```
+
+It logs to the terminal as well as the file.
 
 ## License
 
