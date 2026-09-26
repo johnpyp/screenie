@@ -217,10 +217,24 @@ impl Dispatch<ExtImageCopyCaptureCursorSessionV1, usize> for State {
         let feed = &mut state.cursors[*idx].report;
         feed.heard = true;
         match event {
-            Event::Enter => feed.entered = true,
-            Event::Leave => feed.entered = false,
-            Event::Position { x, y } => feed.position = (x, y),
-            Event::Hotspot { x, y } => feed.hotspot = (x, y),
+            Event::Enter => {
+                tracing::debug!(over = ?feed.over, "the pointer entered a cursor session");
+                feed.entered = true;
+            }
+            Event::Leave => {
+                tracing::debug!(over = ?feed.over, "the pointer left a cursor session");
+                feed.entered = false;
+            }
+            Event::Position { x, y } => {
+                tracing::trace!(over = ?feed.over, x, y, "pointer position");
+                feed.position = (x, y);
+            }
+            Event::Hotspot { x, y } => {
+                if feed.hotspot != (x, y) {
+                    tracing::debug!(over = ?feed.over, x, y, "pointer hotspot");
+                }
+                feed.hotspot = (x, y);
+            }
             _ => {}
         }
     }

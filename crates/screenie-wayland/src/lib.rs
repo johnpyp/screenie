@@ -446,6 +446,17 @@ impl Capturer {
         self.seat = Some((seat, pointer));
         // Where the pointer is now, and the pictures' buffer sizes.
         let _ = self.queue.roundtrip(&mut self.state);
+        tracing::debug!(
+            sessions = self.state.cursors.len(),
+            entered = ?self
+                .state
+                .cursors
+                .iter()
+                .filter(|c| c.report.entered)
+                .map(|c| c.report.over)
+                .collect::<Vec<_>>(),
+            "following the pointer"
+        );
         true
     }
 
@@ -1067,8 +1078,19 @@ impl FrameStream {
                 Phase::Ready => match self.capturer.take_image(slot) {
                     Ok(image) => {
                         let feed = &mut self.capturer.state.cursors[i];
-                        feed.report.image =
-                            pointer::trim(&image).map(|(image, at)| (Arc::new(image), at));
+                        let sprite = pointer::trim(&image);
+                        let size = |i: &Image| (i.width(), i.height());
+                        if sprite.as_ref().map(|(s, _)| size(s))
+                            != feed.report.image.as_ref().map(|(s, _)| size(s))
+                        {
+                            tracing::debug!(
+                                over = ?feed.report.over,
+                                buffer = ?size(&image),
+                                sprite = ?sprite.as_ref().map(|(s, _)| size(s)),
+                                "the pointer's picture changed"
+                            );
+                        }
+                        feed.report.image = sprite.map(|(image, at)| (Arc::new(image), at));
                         feed.failures = 0;
                     }
                     Err(e) => tracing::debug!("reading the cursor's picture failed: {e}"),
@@ -1177,7 +1199,16 @@ impl FrameStream {
             && !self.capturer.state.cursors.iter().any(|c| c.report.entered)
         {
             overlay.told = true;
+            let heard = self
+                .capturer
+                .state
+                .cursors
+                .iter()
+                .filter(|c| c.report.heard)
+                .count();
             tracing::warn!(
+                sessions = self.capturer.state.cursors.len(),
+                heard,
                 "the compositor hasn't reported the pointer (wlroots only does for a \
                  hardware cursor): the recording won't show it"
             );
