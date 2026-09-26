@@ -71,10 +71,15 @@ one of its areas, and until the keys pressed there are let go.
   output). sway looks for such a surface only on the output being arranged, and
   otherwise gives the keys to the last focused window, so an editor on one screen would
   lose its keys to a card on another.
-- **It doesn't grab a resting pointer.** A surface gets its input region only once it's
-  on screen. Compositors re-pick the pointer's surface when a surface maps, not when a
-  region grows, so an overlay appearing under a resting pointer isn't entered until the
-  pointer moves.
+- **It doesn't grab a resting pointer, at first.** A surface gets its input region only
+  once it's on screen. Compositors re-pick the pointer's surface when a surface maps,
+  not when a region grows, so an overlay appearing under a resting pointer isn't entered
+  when it appears. But sway also re-picks it on a button release and after any layout
+  change (another surface mapping, a window moving), and then a parked pointer is
+  entered, and takes the keyboard, without moving. That matters for a game whose locked
+  pointer was left where a card appears: the next click hands the card the keyboard.
+  Keeping the parked position out of the input region would fix it, but needs the
+  pointer's position at capture time, which only the selector knows.
 - **Hover is tracked from the raw pointer events**, capture phase, so no element can hide
   a move from it.
 

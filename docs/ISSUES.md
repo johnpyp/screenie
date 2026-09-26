@@ -14,6 +14,15 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
   until something else copies, so upgrades would stall. Options: hand the offer to the
   new daemon on quit, or serve copies from a small child process, as `wl-copy` does.
 
+- **A card can take the keyboard from a game whose locked pointer rests on it.** A
+  capture that ends in the corner where the card appears leaves the (locked) cursor
+  there. sway enters the card on the next button release or layout change without any
+  motion, and `Hover` then takes the keyboard, so the game loses focus and its pointer
+  lock mid-play. The fix is to keep the parked position out of the card's input region:
+  the selector knows the pointer's final position, and it would travel with the capture
+  to the card. Converting it to surface coordinates is ambiguous when bars take space on
+  more than one edge, so this needs trying live.
+
 - **A killed daemon loses its running recording.** On SIGTERM/SIGKILL (logout, OOM)
   the faststart MP4 is never finalized: the media data is in the hidden scratch file
   (`.NAME.mp4.part`), without an index. `screenie quit` saves properly. Options: handle

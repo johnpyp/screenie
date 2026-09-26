@@ -90,8 +90,9 @@ The cards never take the keyboard from the app you're in, except while the point
 on one: then those keys reach the card (Esc dismisses it rather than, say, unpausing the
 game beneath, whose pointer lock would also trap the pointer on the card). Moving off
 gives the keyboard back once no key is held, so nothing pressed on the card is released
-into the app. Cards that appear under a resting pointer aren't entered until it moves,
-so typing elsewhere carries on.
+into the app. Cards that appear under a resting pointer aren't entered when they appear,
+so typing elsewhere carries on. (On sway a pointer left resting on a card is entered on
+the next click or layout change, though; see ISSUES.)
 
 Cards are never in a capture: they're hidden for the moment a screenshot is taken, and
 while their screen is recorded (see [recording](recording.md)).

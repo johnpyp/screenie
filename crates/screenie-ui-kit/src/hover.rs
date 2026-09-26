@@ -14,8 +14,9 @@
 //! A surface starts with an empty input region and gets its areas once it's on screen.
 //! Compositors re-pick the pointer's surface when a surface maps, but not when an input
 //! region grows. So an overlay that appears under a resting pointer isn't entered (and
-//! doesn't take the typing of someone whose mouse happens to be there) until the pointer
-//! moves.
+//! doesn't take the typing of someone whose mouse happens to be there) when it appears.
+//! sway does re-pick it later, though, without any motion: on a button release, and after
+//! any layout change. A pointer parked on an area is entered then.
 //!
 //! Letting go of the keyboard, it goes back to a surface that owns it, if one is open
 //! (see [`crate::KeyboardGrab::for_window`]).
