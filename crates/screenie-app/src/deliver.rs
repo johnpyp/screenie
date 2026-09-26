@@ -262,13 +262,15 @@ pub(crate) async fn screenshot(
         .await?;
     tracing::info!(elapsed = ?started.elapsed(), path = ?path, "screenshot delivered");
     let kept = if temporary { None } else { path.clone() };
-    cx.update(|cx| Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Screenshot, kept)));
+    let noted =
+        cx.update(|cx| Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Screenshot, kept)));
 
     if actions.preview {
         let saved = if temporary { None } else { path.clone() };
         let output = capture.output.clone();
         let item =
-            PreviewItem::screenshot(capture, Arc::new(png), actions, saved, copied, cx).await;
+            PreviewItem::screenshot(capture, Arc::new(png), actions, noted, saved, copied, cx)
+                .await;
         cx.update(|cx| preview::show(item, output, cx));
     }
     if let Some(e) = failed {

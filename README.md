@@ -130,6 +130,9 @@ screenie query last recording    # or: screenshot. Exits 1 if there's none yet
 screenie query last --watch      # a line whenever a new capture lands
 ```
 
+A capture's path is empty while it isn't saved. Saving it from its preview card fills
+the path in, and deleting it there empties it again.
+
 States: `idle`, `selecting`, `editing`, `countdown`, `recording`, `paused`, `saving`
 (and `unknown`, when a newer daemon reports a state this binary doesn't know yet).
 `--watch` runs until whatever reads it goes away, through daemon restarts, upgrades and

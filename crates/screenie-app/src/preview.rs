@@ -25,12 +25,14 @@ use gpui::{
 };
 use screenie_config::{Align, ScreenPosition};
 use screenie_core::Image;
+use screenie_ipc::CaptureKind;
 use screenie_ui_kit::hud::{self, color};
 use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, layer_options, ui};
 
 use crate::clipboard;
 use crate::daemon::Daemon;
 use crate::deliver::{Actions, Capture};
+use crate::last::CaptureId;
 
 /// Largest card edge; thumbnails are fit within it.
 const CARD_MAX: f32 = 236.0;
@@ -157,6 +159,8 @@ pub(crate) enum Media {
         /// What it was taken to do (`--copy`, `--no-save`…): the editor does it when
         /// it's done.
         actions: Actions,
+        /// Its entry in `screenie query last`, which learns where it's saved.
+        noted: CaptureId,
     },
     Recording {
         duration: Duration,
@@ -187,12 +191,13 @@ pub(crate) struct PreviewItem {
 }
 
 impl PreviewItem {
-    /// `actions`: the ones it was taken with. `copied`: it was just put on the
-    /// clipboard.
+    /// `actions`: the ones it was taken with. `noted`: its entry in `screenie query
+    /// last`. `copied`: it was just put on the clipboard.
     pub async fn screenshot(
         capture: Capture,
         png: Arc<Vec<u8>>,
         actions: Actions,
+        noted: CaptureId,
         path: Option<PathBuf>,
         copied: bool,
         cx: &mut AsyncApp,
@@ -204,6 +209,7 @@ impl PreviewItem {
                 capture,
                 png,
                 actions,
+                noted,
             },
             image,
             bytes,
@@ -781,12 +787,21 @@ impl PreviewStack {
         if item.path.is_some() {
             return;
         }
-        let Media::Screenshot { png, capture, .. } = item.media.clone() else {
+        let Media::Screenshot {
+            png,
+            capture,
+            noted,
+            ..
+        } = item.media.clone()
+        else {
             return;
         };
         let path = crate::deliver::screenshot_path(&Daemon::get(cx).config, &capture);
         match crate::deliver::write_atomic(&path, &png) {
             Ok(()) => {
+                Daemon::update(cx, |d, _| {
+                    d.note_saved(noted, CaptureKind::Screenshot, path.clone())
+                });
                 if let Some(item) = self.item(id) {
                     item.path = Some(path);
                 }
@@ -855,10 +870,11 @@ impl PreviewStack {
     }
 
     fn delete(&mut self, id: u64, cx: &mut Context<Self>) {
-        if let Some(path) = self.item(id).and_then(|i| i.path.clone())
-            && let Err(e) = std::fs::remove_file(&path)
-        {
-            tracing::warn!("deleting {}: {e}", path.display());
+        if let Some(path) = self.item(id).and_then(|i| i.path.clone()) {
+            match std::fs::remove_file(&path) {
+                Ok(()) => Daemon::update(cx, |d, _| d.note_deleted(&path)),
+                Err(e) => tracing::warn!("deleting {}: {e}", path.display()),
+            }
         }
         self.remove(id, cx);
     }

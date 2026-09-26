@@ -9,6 +9,7 @@ mod clipboard;
 mod daemon;
 mod deliver;
 mod editor;
+mod last;
 mod preview;
 mod recording;
 mod screenshot;

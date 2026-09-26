@@ -7,6 +7,7 @@ The daemon. `screenie_app::run()` binds the socket, starts GPUI with
 | --- | --- |
 | `server` | Socket accept loop (threads) → `Incoming` messages on a channel. |
 | `daemon` | The `Daemon` global (config, capture context, last region, status watchers), request routing, config hot-reload. Every `Daemon::update` tells status watchers of whatever it changed. |
+| `last` | The latest capture of each kind (`screenie query last`), kept up to date as cards save or delete them, and remembered in `state.yaml`. |
 | `screenshot` | Freeze → select or resolve target → render → deliver. |
 | `deliver` | After-capture actions for screenshots and recordings: encode, save, copy, preview or edit. |
 | `editor` | Opens `screenie-editor` for a capture or `screenie edit FILE`, and acts on its output (copy, save over the capture, Save As, Done → preview card). |

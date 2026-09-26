@@ -1,6 +1,6 @@
 //! Daemon-wide state and request routing.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -8,8 +8,9 @@ use gpui::{App, AsyncApp, BorrowAppContext, Global};
 use screenie_capture::CaptureContext;
 use screenie_config::{Config, Paths};
 use screenie_core::Rect;
-use screenie_ipc::{CaptureKind, LastCapture, Request, Response, State, Status};
+use screenie_ipc::{CaptureKind, Request, Response, State, Status};
 
+use crate::last::{CaptureId, LastCaptures};
 use crate::server::Incoming;
 
 pub(crate) struct Daemon {
@@ -24,6 +25,8 @@ pub(crate) struct Daemon {
     pub saving: bool,
     /// Open editor windows.
     pub editors: u32,
+    /// The latest captures, kept in `state` too.
+    last: LastCaptures,
     /// What's remembered between runs: the editor's last style, and the last captures
     /// (so `shot last` and `query last` survive a restart, above all an automatic one).
     pub state: screenie_state::StateFile,
@@ -37,6 +40,7 @@ impl Global for Daemon {}
 
 impl Daemon {
     pub fn new(config: Config, capture: Arc<CaptureContext>, commit: &'static str) -> Self {
+        let state = screenie_state::StateFile::open();
         Self {
             config,
             capture,
@@ -45,7 +49,8 @@ impl Daemon {
             recording: None,
             saving: false,
             editors: 0,
-            state: screenie_state::StateFile::open(),
+            last: LastCaptures::restore(&state.state().last),
+            state,
             commit,
             watchers: Vec::new(),
             told: None,
@@ -80,8 +85,8 @@ impl Daemon {
             state,
             recording,
             editors: self.editors,
-            last_screenshot: self.last_capture(CaptureKind::Screenshot),
-            last_recording: self.last_capture(CaptureKind::Recording),
+            last_screenshot: self.last.get(CaptureKind::Screenshot).cloned(),
+            last_recording: self.last.get(CaptureKind::Recording).cloned(),
             capturing: self.capturing,
             pid: std::process::id(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -96,29 +101,31 @@ impl Daemon {
     }
 
     /// Remember a finished capture (for `screenie query last` and status watchers).
-    pub fn note_capture(&mut self, kind: CaptureKind, path: Option<PathBuf>) {
-        let time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        let capture = Some(screenie_state::Capture { path, time });
-        self.remember(|last| match kind {
-            CaptureKind::Screenshot => last.screenshot = capture,
-            CaptureKind::Recording => last.recording = capture,
-        });
-        self.broadcast();
+    pub fn note_capture(&mut self, kind: CaptureKind, path: Option<PathBuf>) -> CaptureId {
+        let id = self.last.note(kind, path, unix_now());
+        self.captures_changed();
+        id
     }
 
-    fn last_capture(&self, kind: CaptureKind) -> Option<LastCapture> {
-        let last = &self.state.state().last;
-        let capture = match kind {
-            CaptureKind::Screenshot => &last.screenshot,
-            CaptureKind::Recording => &last.recording,
-        };
-        capture.as_ref().map(|c| LastCapture {
-            kind,
-            path: c.path.clone(),
-            time: c.time,
-        })
+    /// Capture `id` was saved to `path` later, from its preview card.
+    pub fn note_saved(&mut self, id: CaptureId, kind: CaptureKind, path: PathBuf) {
+        self.last.saved(id, kind, path, unix_now());
+        self.captures_changed();
+    }
+
+    /// The file at `path` was deleted, from its preview card.
+    pub fn note_deleted(&mut self, path: &Path) {
+        if self.last.deleted(path) {
+            self.captures_changed();
+        }
+    }
+
+    /// Remember the latest captures across runs, and tell watchers.
+    fn captures_changed(&mut self) {
+        if let Err(e) = self.state.update(|s| self.last.persist(&mut s.last)) {
+            tracing::warn!("{e}");
+        }
+        self.broadcast();
     }
 
     /// The region of the latest capture, for `screenie shot last` / `record last`.
@@ -184,6 +191,12 @@ fn same(a: &Status, b: &Status) -> bool {
         s
     };
     seconds(a) == seconds(b)
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 /// Route requests from the socket to their handlers. Each runs as its own task so a
