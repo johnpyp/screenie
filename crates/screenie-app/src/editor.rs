@@ -16,9 +16,7 @@ use screenie_state::EditorState;
 
 use crate::clipboard;
 use crate::daemon::Daemon;
-use crate::deliver::{
-    Actions, Capture, encode_png, screenshot_path, suggested_path, write_atomic,
-};
+use crate::deliver::{Actions, Capture, encode_png, screenshot_path, suggested_path, write_atomic};
 
 /// Why a second editor can't open.
 const ALREADY_EDITING: &str = "Already editing a capture: finish this one first";

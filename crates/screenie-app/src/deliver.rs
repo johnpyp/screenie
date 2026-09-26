@@ -109,9 +109,7 @@ impl Delivery {
         };
         let path = cx
             .background_executor()
-            .spawn(async move {
-                write_temporary(&encode_png(&image)?)
-            })
+            .spawn(async move { write_temporary(&encode_png(&image)?) })
             .await?;
         Ok(Some(Delivered {
             path: Some(path),
