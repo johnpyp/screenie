@@ -79,7 +79,10 @@ wasn't saved). Hovering shows only what's left to do:
 - **Pencil** (E): annotate in the editor (screenshots).
 - **×** (Esc): dismiss.
 - **Trash** (Delete): delete the file and dismiss. Only shown when there is a file.
-- A caption above that pill shows the pixel size and file size.
+- Along the top, between × and the pencil, the pixel size and file size.
+
+The hover layout is in rows (corner buttons and caption, the main buttons, then Delete),
+so nothing overlaps, whatever the card's shape.
 
 The cards never take the keyboard from the app you're in, except while the pointer is
 on one: then those keys reach the card (Esc dismisses it rather than, say, unpausing the

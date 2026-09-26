@@ -110,6 +110,7 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 - Clipboard offered `text/plain` with the file URI, which pasted a path into text
   fields. We now omit the implicit text types.
 - Preview card overlay collided with the size caption on short cards. Cards now have a
-  minimum size and letterbox the thumbnail.
+  minimum size and letterbox the thumbnail. The Copied/Saved pill brought the collision
+  back; the hover overlay is now laid out in rows (caption at the top), so it can't.
 - Daemon exited when the last selector window closed (GPUI's default quit mode).
   It now uses `QuitMode::Explicit`.

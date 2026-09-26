@@ -955,9 +955,12 @@ impl PreviewStack {
             .map(|d| d.1)
             .collect();
         // Bottom right, hovered or not: what's already been done with it (the buttons for
-        // those are gone), with the size caption above it on hover.
+        // those are gone).
         let status = (!done.is_empty()).then(|| {
             div()
+                .absolute()
+                .bottom(ui(8.))
+                .right(ui(8.))
                 .flex()
                 .flex_row()
                 .items_center()
@@ -971,24 +974,6 @@ impl PreviewStack {
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(Icon::Check.element().size_3().text_color(gpui::white()))
                 .child(done.join(" & "))
-        });
-        let caption = hovered.then(|| {
-            div()
-                .text_size(ui(11.))
-                .text_color(rgba(0xffffffb3))
-                .child(item.caption())
-        });
-        let corner_info = (status.is_some() || caption.is_some()).then(|| {
-            div()
-                .absolute()
-                .bottom(ui(8.))
-                .right(ui(8.))
-                .flex()
-                .flex_col()
-                .items_end()
-                .gap_1()
-                .children(caption)
-                .children(status)
         });
 
         // Videos are marked so they aren't mistaken for screenshots.
@@ -1059,41 +1044,53 @@ impl PreviewStack {
                 .when(offered(CardAction::Reveal), |d| {
                     d.child(middle(CardAction::Reveal, cx))
                 });
+            // Rows, so nothing can overlap at any card size: the corner buttons with the
+            // size caption between them, what's left to do in the middle, and Delete
+            // along the bottom, clear of the pill in the corner.
+            let slot = || div().flex_none().size(ui(30.));
+            let top = div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .child(slot().child(corner(CardAction::Dismiss, cx)))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .truncate()
+                        .text_center()
+                        .text_size(ui(11.))
+                        .text_color(rgba(0xffffffb3))
+                        .child(item.caption()),
+                )
+                .child(slot().when(offered(CardAction::Annotate), |d| {
+                    d.child(corner(CardAction::Annotate, cx))
+                }));
+            let center = div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(actions);
+            let bottom =
+                div()
+                    .flex()
+                    .flex_row()
+                    .child(slot().when(offered(CardAction::Delete), |d| {
+                        d.child(corner(CardAction::Delete, cx))
+                    }));
             div()
                 .absolute()
                 .inset_0()
+                .p(ui(6.))
                 .rounded(ui(11.))
                 .bg(rgba(0x00000099))
                 .flex()
                 .flex_col()
-                .items_center()
-                .justify_center()
-                .child(actions)
-                .child(
-                    div()
-                        .absolute()
-                        .top(ui(6.))
-                        .left(ui(6.))
-                        .child(corner(CardAction::Dismiss, cx)),
-                )
-                .when(offered(CardAction::Delete), |d| {
-                    d.child(
-                        div()
-                            .absolute()
-                            .bottom(ui(6.))
-                            .left(ui(6.))
-                            .child(corner(CardAction::Delete, cx)),
-                    )
-                })
-                .when(offered(CardAction::Annotate), |d| {
-                    d.child(
-                        div()
-                            .absolute()
-                            .top(ui(6.))
-                            .right(ui(6.))
-                            .child(corner(CardAction::Annotate, cx)),
-                    )
-                })
+                .child(top)
+                .child(center)
+                .child(bottom)
         });
 
         let card = div()
@@ -1126,7 +1123,7 @@ impl PreviewStack {
             .children(badge)
             .children(pending)
             .children(overlay)
-            .children(corner_info)
+            .children(status)
             .child(Hover::area(&self.hover, id));
         if item.arrived {
             return card.into_any_element();
