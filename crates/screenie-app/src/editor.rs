@@ -370,8 +370,9 @@ fn finish(
         .await;
 
         let mut e = edit.borrow_mut();
-        // Recorded once per capture, and again for each new version of its file.
-        if wrote.is_some() || !e.noted {
+        // Recorded once per capture (once delivered), and again for each new version
+        // of its file.
+        if wrote.is_some() || (!e.noted && result.is_ok()) {
             e.noted = true;
             let path = e.saved.clone();
             cx.update(|cx| {
