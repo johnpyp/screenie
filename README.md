@@ -390,8 +390,9 @@ detail is in [the compositor matrix](crates/screenie-compositor/README.md#compos
 
 - Recording a window captures just that window on Sway 1.11+. Elsewhere it records that
   part of the screen.
-- A window recording on Sway shows the pointer only when it's a hardware cursor. With
-  `WLR_NO_HARDWARE_CURSORS=1` it's left out.
+- A window recording on Sway shows the pointer only when it's a hardware cursor. On
+  NVIDIA, or with `WLR_NO_HARDWARE_CURSORS=1`, it's left out. Record the screen to
+  include it.
 - A recording is only saved when it's stopped. If the daemon is killed mid-recording, the
   video is lost.
 - Recording a whole screen leaves no room for the pill. Stop with your record key or

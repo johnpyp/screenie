@@ -1209,8 +1209,9 @@ impl FrameStream {
             tracing::warn!(
                 sessions = self.capturer.state.cursors.len(),
                 heard,
-                "the compositor hasn't reported the pointer (wlroots only does for a \
-                 hardware cursor): the recording won't show it"
+                "the compositor hasn't reported the pointer, so the recording won't show \
+                 it: wlroots only reports a hardware cursor, and draws the cursor in \
+                 software on NVIDIA and when the cursor is too big for the cursor plane"
             );
         }
     }

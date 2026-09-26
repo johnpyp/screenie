@@ -72,6 +72,11 @@ real digging.
   which ignores `paint_cursors` and offers no cursor session. Only output sources do, and
   only for a hardware cursor. So we draw the pointer ourselves from the outputs' cursor
   sessions, mapped into the window through its IPC rectangle.
+- **wlroots has no hardware cursor on NVIDIA.** Its cursor plane takes only linear
+  buffers, which NVIDIA can't render into, so no cursor format intersects and the
+  cursor is drawn in software (wlroots !4596 and !5209 are the open fixes). Cursor
+  sessions stay silent, OBS gets no cursor either, and `grim` without `-c` shows the
+  pointer, which is the quick check for a software cursor.
 - **`gloverlaycompositor` passes through when its caps don't change**, which they never
   do, so the overlay meta was silently ignored. Turn passthrough off on each CAPS event.
   Asking for the meta's caps feature instead fails: `glupload` and `glcolorconvert`
