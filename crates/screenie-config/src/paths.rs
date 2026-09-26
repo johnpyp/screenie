@@ -41,7 +41,7 @@ impl Paths {
     }
 
     pub fn config_file(&self) -> PathBuf {
-        self.config_dir.join("config.toml")
+        self.config_dir.join("config.yaml")
     }
 
     pub fn config_dir(&self) -> &Path {

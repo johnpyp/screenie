@@ -152,38 +152,38 @@ cancelled, `2` error.
 
 ## Configuration
 
-The config lives in `~/.config/screenie/config.toml`. Every key is optional, and changes
+The config lives in `~/.config/screenie/config.yaml`. Every key is optional, and changes
 apply within a second, without a restart.
 
-```toml
-[screenshot]
-directory = "~/Pictures/Screenshots"
-filename = "Screenshot_%Y-%m-%d_%H-%M-%S_{app}"  # {app}/{title}: the captured window, if any
-after_capture = { copy = false, save = false, preview = true, edit = false }
+```yaml
+screenshot:
+  directory: ~/Pictures/Screenshots
+  filename: "Screenshot_%Y-%m-%d_%H-%M-%S_{app}"  # {app}/{title}: the captured window, if any
+  after_capture: { copy: false, save: false, preview: true, edit: false }
 
-[recording]
-framerate = 60
-quality = "high"          # low | medium | high | lossless
-encoder = "auto"          # auto | hardware | software
-countdown = 3
-system_audio = false
-microphone = false
+recording:
+  framerate: 60
+  quality: high           # low | medium | high | lossless
+  encoder: auto           # auto | hardware | software
+  countdown: 3
+  system_audio: false
+  microphone: false
 
-[preview]
-corner = "bottom-right"
-timeout = 10              # seconds; 0 keeps cards until dismissed
+preview:
+  corner: bottom-right
+  timeout: 10             # seconds; 0 keeps cards until dismissed
 
-[selector]
-capture_on_release = true # false: adjust the selection, then press Enter
-dim = 0.45
+selector:
+  capture_on_release: true  # false: adjust the selection, then press Enter
+  dim: 0.45
 
-[editor]
-mode = "overlay"          # over the screen, the capture in place; or "window"
-palette = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#1c1c1e"]
-default_color = "#ff3b30"
-stroke_width = 4.0        # logical pixels; sizes are 1 2 4 6 8 12 16 20 26 32
-exit_on_copy = false      # close the editor once the image is copied (Ctrl+C / Copy)
-exit_on_save = false      # … or saved (Ctrl+S / Save / Save As)
+editor:
+  mode: overlay           # over the screen, the capture in place; or window
+  palette: ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#1c1c1e"]
+  default_color: "#ff3b30"
+  stroke_width: 4.0       # logical pixels; sizes are 1 2 4 6 8 12 16 20 26 32
+  exit_on_copy: false     # close the editor once the image is copied (Ctrl+C / Copy)
+  exit_on_save: false     # … or saved (Ctrl+S / Save / Save As)
 ```
 
 All keys are listed in [`crates/screenie-config/src/schema.rs`](crates/screenie-config/src/schema.rs).

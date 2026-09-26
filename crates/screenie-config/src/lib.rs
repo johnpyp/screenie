@@ -1,7 +1,7 @@
 //! Screenie's configuration: the schema, where it lives on disk, and how output files are
 //! named.
 //!
-//! The config is a TOML file at `$XDG_CONFIG_HOME/screenie/config.toml`. It is optional;
+//! The config is a YAML file at `$XDG_CONFIG_HOME/screenie/config.yaml`. It is optional;
 //! every setting has a default. The settings window writes it and the daemon reloads it
 //! when it changes, so hand edits take effect immediately too.
 
@@ -20,11 +20,11 @@ pub enum Error {
     #[error("reading {path}: {source}")]
     Read { path: PathBuf, source: std::io::Error },
     #[error("parsing {path}: {source}")]
-    Parse { path: PathBuf, source: toml::de::Error },
+    Parse { path: PathBuf, source: Box<serde_saphyr::Error> },
     #[error("writing {path}: {source}")]
     Write { path: PathBuf, source: std::io::Error },
     #[error("serializing config: {0}")]
-    Serialize(#[from] toml::ser::Error),
+    Serialize(#[from] serde_saphyr::SerializeError),
 }
 
 const HEADER: &str = "\
@@ -41,7 +41,7 @@ impl Config {
 
     pub fn load_from(path: &Path) -> Result<Config, Error> {
         match std::fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text).map_err(|source| Error::Parse { path: path.into(), source }),
+            Ok(text) => parse(&text).map_err(|source| Error::Parse { path: path.into(), source: Box::new(source) }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
             Err(source) => Err(Error::Read { path: path.into(), source }),
         }
@@ -62,13 +62,13 @@ impl Config {
 
     /// Write atomically so a reader never sees a half-written file.
     pub fn save_to(&self, path: &Path) -> Result<(), Error> {
-        let text = format!("{HEADER}{}", toml::to_string_pretty(self)?);
+        let text = format!("{HEADER}{}", serde_saphyr::to_string(self)?);
         let write = |p: &Path| std::fs::write(p, &text);
         let werr = |source| Error::Write { path: path.into(), source };
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(werr)?;
         }
-        let tmp = path.with_extension("toml.tmp");
+        let tmp = path.with_extension("yaml.tmp");
         write(&tmp).map_err(werr)?;
         std::fs::rename(&tmp, path).map_err(werr)
     }
@@ -82,6 +82,12 @@ impl Config {
     pub fn recording_dir(&self) -> PathBuf {
         resolve_dir(&self.recording.directory, || Paths::get().videos_dir().join("Screencasts"))
     }
+}
+
+/// Parse config text. A file with nothing in it (or only comments) is all defaults.
+fn parse(text: &str) -> Result<Config, serde_saphyr::Error> {
+    let blank = text.lines().all(|l| matches!(l.trim_start().chars().next(), None | Some('#')));
+    if blank { Ok(Config::default()) } else { serde_saphyr::from_str(text) }
 }
 
 fn resolve_dir(configured: &Path, default: impl FnOnce() -> PathBuf) -> PathBuf {
@@ -101,38 +107,46 @@ mod tests {
     fn readme_example_is_valid() {
         let readme = include_str!("../../../README.md");
         let example = readme
-            .split("```toml\n")
+            .split("```yaml\n")
             .nth(1)
             .and_then(|rest| rest.split("```").next())
-            .expect("README has a toml example");
-        let config: Config = toml::from_str(example).expect("README example parses");
+            .expect("README has a yaml example");
+        let config = parse(example).expect("README example parses");
         let _ = config.screenshot_dir();
 
-        fn check(example: &toml::Table, schema: &toml::Table, path: &str) {
+        use serde_json::Value;
+        fn check(example: &Value, schema: &Value, path: &str) {
+            let (Value::Object(example), Value::Object(schema)) = (example, schema) else { return };
             for (key, value) in example {
                 let here = format!("{path}{key}");
                 let known = schema.get(key).unwrap_or_else(|| panic!("README uses unknown key {here}"));
-                if let (toml::Value::Table(e), toml::Value::Table(s)) = (value, known) {
-                    check(e, s, &format!("{here}."));
-                }
+                check(value, known, &format!("{here}."));
             }
         }
-        let schema = toml::Table::try_from(Config::default()).unwrap();
-        check(&toml::from_str(example).unwrap(), &schema, "");
+        let schema = serde_json::to_value(Config::default()).unwrap();
+        let example: Value = serde_saphyr::from_str(example).unwrap();
+        check(&example, &schema, "");
     }
 
     #[test]
     fn partial_config_uses_defaults() {
-        let cfg: Config = toml::from_str("[recording]\nframerate = 30\n").unwrap();
+        let cfg = parse("recording:\n  framerate: 30\n").unwrap();
         assert_eq!(cfg.recording.framerate, 30);
         assert_eq!(cfg.recording.countdown, RecordingConfig::default().countdown);
         assert_eq!(cfg.screenshot, ScreenshotConfig::default());
     }
 
     #[test]
+    fn empty_or_comment_only_is_default() {
+        assert_eq!(parse("").unwrap(), Config::default());
+        assert_eq!(parse("# nothing yet\n\n").unwrap(), Config::default());
+        assert_eq!(parse("{}").unwrap(), Config::default());
+    }
+
+    #[test]
     fn roundtrip() {
         let dir = std::env::temp_dir().join(format!("screenie-config-test-{}", std::process::id()));
-        let path = dir.join("config.toml");
+        let path = dir.join("config.yaml");
         let mut cfg = Config::default();
         cfg.selector.freeze = false;
         cfg.recording.quality = Quality::Lossless;
@@ -143,7 +157,7 @@ mod tests {
 
     #[test]
     fn unknown_keys_are_ignored() {
-        let cfg: Config = toml::from_str("future_thing = 1\n[selector]\nsparkles = true\n").unwrap();
+        let cfg = parse("future_thing: 1\nselector:\n  sparkles: true\n").unwrap();
         assert_eq!(cfg, Config::default());
     }
 }

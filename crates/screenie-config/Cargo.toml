@@ -7,8 +7,11 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
-toml.workspace = true
+serde-saphyr.workspace = true
 chrono.workspace = true
 directories.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
