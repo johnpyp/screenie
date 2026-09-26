@@ -503,7 +503,13 @@ impl PreviewStack {
             .border_color(rgba(0xffffff26))
             .shadow(hud::panel_shadow())
             .cursor_pointer()
-            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.set_hovered(id, *hovered, cx)))
+            // GPUI re-derives hover from the last pointer position after every frame, and that
+            // position outlives the pointer leaving the surface, so a card left through the
+            // edge of the surface would flip back to hovered (and never time out). Only
+            // believe "hovered" while the pointer is actually on the surface.
+            .on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
+                this.set_hovered(id, *hovered && window.is_window_hovered(), cx)
+            }))
             .on_click(cx.listener(move |this, _, _, cx| this.open(id, cx)))
             .child(img(item.thumb.clone()).size_full().object_fit(ObjectFit::Contain).rounded(px(11.)))
             .children(badge)
