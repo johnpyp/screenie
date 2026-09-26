@@ -71,10 +71,13 @@ impl Session {
         ((r.width * scale).round() as u32, (r.height * scale).round() as u32)
     }
 
+    /// The confirm button (Capture / Record) on `output`'s toolbar: exactly what Enter
+    /// picks, i.e. what's highlighted, else that output.
     fn confirm_on(&mut self, output: &str, cx: &mut Context<Self>) {
-        let selection = self.model.editing().cloned().or_else(|| {
-            self.model.outputs().iter().find(|o| o.name == output).cloned().map(Selection::Output)
-        });
+        let selection = match self.model.confirm() {
+            Outcome::Confirm(selection) => Some(selection),
+            _ => self.model.outputs().iter().find(|o| o.name == output).cloned().map(Selection::Output),
+        };
         if selection.is_some() {
             self.finish(selection, cx);
         }
@@ -276,9 +279,10 @@ impl OutputView {
                 let handle = s.model.hover_handle();
                 window.set_cursor_style(cursor_for(handle), &hitbox);
 
-                // Pointer events. Presses only count on the backdrop (not the toolbar);
-                // moves and releases are tracked everywhere so drags survive leaving the
-                // surface.
+                // Pointer events. Presses only count on the backdrop (not the toolbar), and
+                // so do moves outside drags: on the toolbar, what's highlighted holds, so its
+                // confirm button takes what you were pointing at. Releases and drags are
+                // tracked everywhere, so drags survive leaving the surface.
                 let (sess, hb) = (session.clone(), hitbox.clone());
                 window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
                     if phase != DispatchPhase::Bubble || !hb.is_hovered(window) {
@@ -309,20 +313,23 @@ impl OutputView {
                         s.apply(outcome, cx);
                     });
                 });
-                let (sess, name, this) = (session.clone(), output_name.clone(), this.clone());
-                window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {
+                let (sess, name, this, hb) = (session.clone(), output_name.clone(), this.clone(), hitbox.clone());
+                window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
                     if phase != DispatchPhase::Bubble {
                         return;
                     }
                     let p = to_global(e.position);
                     tracing::trace!(output = name, ?p, "pointer moved");
+                    let on_backdrop = e.pressed_button.is_some() || hb.is_hovered(window);
                     sess.update(cx, |s, cx| {
                         if e.pressed_button.is_none() && s.active_output.as_deref() != Some(name.as_str()) {
                             s.active_output = Some(name.clone());
                         }
                         s.model.set_modifiers(modifiers(&e.modifiers));
-                        let outcome = s.model.pointer_moved(p);
-                        s.apply(outcome, cx);
+                        if on_backdrop {
+                            let outcome = s.model.pointer_moved(p);
+                            s.apply(outcome, cx);
+                        }
                     });
                     let _ = this.update(cx, |_, cx| cx.notify());
                 });

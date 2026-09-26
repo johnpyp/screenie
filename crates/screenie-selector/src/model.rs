@@ -496,13 +496,10 @@ impl Model {
         match &self.phase {
             Phase::Editing { selection, .. } => Outcome::Confirm(selection.clone()),
             Phase::Drawing { .. } => Outcome::Nothing,
+            // What's highlighted, else the screen under the pointer.
             Phase::Idle => {
                 let p = self.cursor.or_else(|| self.outputs.first().map(|o| o.logical.center()));
-                let target = p.and_then(|p| match self.mode {
-                    Mode::Window => self.window_at(p).map(Selection::Window),
-                    _ => None,
-                });
-                let target = target.or_else(|| p.and_then(|p| self.output_at(p)).cloned().map(Selection::Output));
+                let target = p.and_then(|p| self.target_at(p).or_else(|| self.output_at(p).cloned().map(Selection::Output)));
                 target.map(Outcome::Confirm).unwrap_or(Outcome::Nothing)
             }
         }
@@ -801,6 +798,15 @@ mod tests {
             Outcome::Confirm(Selection::Output(o)) => assert_eq!(o.name, "B"),
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn enter_picks_what_is_highlighted() {
+        let mut m = model(Purpose::Screenshot);
+        m.pointer_moved(Point::new(150.0, 150.0));
+        let highlighted = m.hover_target();
+        assert!(matches!(&highlighted, Some(Selection::Window(w)) if w.title == "top"));
+        assert_eq!(m.key_pressed(Key::Enter, NO_MODS), Outcome::Confirm(highlighted.unwrap()));
     }
 
     #[test]

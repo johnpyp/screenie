@@ -56,7 +56,7 @@ blurring. A region spanning mixed-DPI outputs is rendered at the highest scale.
 | --- | --- |
 | Drag | Region. Shift: square. Alt: from center. Space (held): move while drawing. |
 | Click | The window under the pointer, or the screen if there is none. |
-| Enter | Confirm, or take the screen under the pointer. |
+| Enter | Confirm: the selection, else what's highlighted, else the screen under the pointer. The toolbar's Capture / Record button does the same. |
 | Esc | Cancel (or leave adjust mode). |
 | 1/2/3, a/w/s, Tab | Area / window / screen mode. |
 | Space (idle) | Toggle area and window mode. |
