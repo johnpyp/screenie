@@ -49,12 +49,8 @@ enum Command {
     Pause,
     /// Stop the running recording and discard it.
     Cancel,
-    /// Open the settings window.
-    Settings,
     /// Open an image in the annotation editor.
     Edit { file: PathBuf },
-    /// Pin an image to the screen.
-    Pin { file: PathBuf },
     /// Ask what screenie is doing or has done, for scripts and status bars. Never
     /// starts the daemon: if it isn't running, screenie is idle.
     #[command(subcommand)]
@@ -335,11 +331,7 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
         Command::Stop => request_running(&Request::RecordStop, not_recording())?,
         Command::Pause => request_running(&Request::RecordPause, not_recording())?,
         Command::Cancel => request_running(&Request::RecordCancel, not_recording())?,
-        Command::Settings => request(&Request::Settings)?,
         Command::Edit { file } => request(&Request::Edit {
-            path: existing(&file)?,
-        })?,
-        Command::Pin { file } => request(&Request::Pin {
             path: existing(&file)?,
         })?,
         Command::Query(Query::Last { kind, json, watch }) => {

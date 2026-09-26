@@ -235,12 +235,10 @@ async fn handle(request: Request, cx: &mut AsyncApp) -> Response {
         Request::RecordStop => crate::recording::stop(cx).await,
         Request::RecordCancel => crate::recording::cancel(cx).await,
         Request::RecordPause => cx.update(crate::recording::toggle_pause),
-        Request::Settings => Response::error("the settings window is not implemented yet"),
         Request::Edit { path } => match crate::editor::open_file(path, cx).await {
             Ok(()) => Response::Ok,
             Err(e) => Response::error(format!("{e:#}")),
         },
-        Request::Pin { .. } => Response::error("pinning is not implemented yet"),
         Request::Watch => Response::error("watch is a streaming request"),
     }
 }

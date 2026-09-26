@@ -19,14 +19,8 @@ pub enum Request {
     /// Stop and throw away the active recording.
     RecordCancel,
     RecordPause,
-    /// Open the settings window.
-    Settings,
     /// Open an existing image in the editor.
     Edit {
-        path: PathBuf,
-    },
-    /// Pin an image file to the screen.
-    Pin {
         path: PathBuf,
     },
     Status,
