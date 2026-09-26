@@ -134,19 +134,11 @@ fn resolve_dir(configured: &Path, default: impl FnOnce() -> PathBuf) -> PathBuf 
 mod tests {
     use super::*;
 
-    /// The example in the top-level README must parse, and use only real keys (unknown
-    /// keys are tolerated on load, so a typo there would otherwise go unnoticed).
+    /// The examples in the top-level README (the full one and the presets) must parse,
+    /// and use only real keys (unknown keys are tolerated on load, so a typo there would
+    /// otherwise go unnoticed).
     #[test]
-    fn readme_example_is_valid() {
-        let readme = include_str!("../../../README.md");
-        let example = readme
-            .split("```yaml\n")
-            .nth(1)
-            .and_then(|rest| rest.split("```").next())
-            .expect("README has a yaml example");
-        let config = parse(example).expect("README example parses");
-        let _ = config.screenshot_dir();
-
+    fn readme_examples_are_valid() {
         use serde_json::Value;
         fn check(example: &Value, schema: &Value, path: &str) {
             let (Value::Object(example), Value::Object(schema)) = (example, schema) else {
@@ -161,8 +153,21 @@ mod tests {
             }
         }
         let schema = serde_json::to_value(Config::default()).unwrap();
-        let example: Value = serde_saphyr::from_str(example).unwrap();
-        check(&example, &schema, "");
+
+        let readme = include_str!("../../../README.md");
+        let examples: Vec<_> = readme
+            .split("```yaml\n")
+            .skip(1)
+            .filter_map(|rest| rest.split("```").next())
+            .collect();
+        assert!(examples.len() > 1, "README has its yaml examples");
+        for example in examples {
+            let config = parse(example)
+                .unwrap_or_else(|e| panic!("README example parses: {e}\n{example}"));
+            let _ = config.screenshot_dir();
+            let example: Value = serde_saphyr::from_str(example).unwrap();
+            check(&example, &schema, "");
+        }
     }
 
     #[test]

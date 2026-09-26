@@ -71,16 +71,14 @@ That's intended: turning on copy or save is how you keep captures.
 Clicking a card opens the capture in its default app (from a temporary file if it
 wasn't saved). Hovering shows only what's left to do:
 
-- **Copy** (Ctrl+C) and **Save** (Ctrl+S) icon buttons, until the capture is copied or
+- **Copy** and **Save** icon buttons, until the capture is copied or
   saved. From then on a small **✓ Copied**, **✓ Saved** or **✓ Copied & Saved** pill
   sits in the bottom-right corner, hovered or not. "Copied" lasts until screenie copies
   something else. Copies made by other apps go unnoticed.
 - **Show in folder**, once there's a file.
-- **Pencil** (E): annotate in the editor (screenshots).
-- **×** (Esc): dismiss.
-- **Trash** (Delete): delete the file and dismiss. Only shown when there is a file.
-
-Each key acts once per press: holding it doesn't repeat on the next card.
+- **Pencil**: annotate in the editor (screenshots).
+- **×**: dismiss.
+- **Trash**: delete the file and dismiss. Only shown when there is a file.
 - Along the top, between × and the pencil, the pixel size and file size.
 
 The hover layout is in rows (corner buttons and caption, the main buttons, then Delete),

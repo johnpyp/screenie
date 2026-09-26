@@ -198,6 +198,77 @@ editor:
   confirm_discard: true   # ask before closing with annotations neither copied nor saved
 ```
 
+### Presets
+
+Starting points that make screenie behave like other screenshot tools, as far as its
+settings go. Paste one into `config.yaml` and adjust.
+
+<details>
+<summary><b>CleanShot X</b>: the card is the hub, and stays until you're done with it</summary>
+
+Nothing happens on its own: the card waits in the bottom-left corner until you copy,
+save, annotate or dismiss it. Annotate is a window, and copying from it closes it.
+
+```yaml
+screenshot:
+  after_capture: { copy: false, save: false, preview: true, edit: false }
+preview:
+  position: bottom-left
+  timeout: 0              # no auto-close
+editor:
+  mode: window            # float it on tiling compositors (see Annotating)
+  exit_on_copy: true
+```
+
+</details>
+
+<details>
+<summary><b>Screendrop</b>: the card waits, and the editor is a window you keep working in</summary>
+
+Like CleanShot X, but the card sits bottom-right, and saving from the editor is a
+checkpoint rather than the end: it stays open until you close it, and asks before
+throwing away changes.
+
+```yaml
+screenshot:
+  after_capture: { copy: false, save: false, preview: true, edit: false }
+preview:
+  position: bottom-right
+  timeout: 0
+editor:
+  mode: window
+  exit_on_copy: false
+  exit_on_save: false
+  confirm_discard: true
+```
+
+</details>
+
+<details>
+<summary><b>Flameshot</b>: annotate in place, then copy or save and be done</summary>
+
+The editor opens over the screen as the selection is made, with the capture where it
+was. Enter or Ctrl+C copies and closes, Ctrl+S saves and closes, Esc throws it away
+without asking. No card, no magnifier, and a darker dim.
+
+```yaml
+screenshot:
+  after_capture: { copy: true, save: false, preview: false, edit: true }
+selector:
+  magnifier: false
+  dim: 0.75               # a darker surround, like Flameshot's
+editor:
+  mode: overlay
+  exit_on_copy: true
+  exit_on_save: true
+  confirm_discard: false
+```
+
+Flameshot lets you resize the selection while annotating; screenie doesn't yet. Set
+`selector.capture_on_release: false` to adjust it before the editor opens.
+
+</details>
+
 All keys are listed in [`crates/screenie-config/src/schema.rs`](crates/screenie-config/src/schema.rs).
 The daemon logs to `~/.local/state/screenie/daemon.log` (the previous run's log is
 `daemon.log.1`). Set `SCREENIE_LOG=debug` for more detail.
