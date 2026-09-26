@@ -10,8 +10,9 @@ recording.set_paused(true)?;
 let finished = recording.stop()?; // path, duration, size, bytes, last frame
 ```
 
-- `Encoder::select(preference)` finds a working H.264 encoder (VA-API first, then x264,
-  then openh264) by test-encoding, and caches the result.
+- `Encoder::select(preference, size)` finds a working H.264 encoder that takes the
+  video's size (VA-API first, then x264, then openh264) by test-encoding, and caches
+  the result.
 - The frame pump runs on its own thread. It caps the frame rate, holds early frames
   rather than dropping them, skips identical frames, and hands pixels to GStreamer
   without copying.

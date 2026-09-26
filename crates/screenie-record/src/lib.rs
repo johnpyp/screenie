@@ -14,7 +14,8 @@
 //! The video's size is the first frame's, capped by `recording.resolution` (scaled down
 //! before colour conversion, so a 4K screen recorded at 1080p costs about what a 1080p
 //! one does). A source whose frames change size (a recorded window being resized) is
-//! scaled to fit it, letterboxed. `recording.framerate` paces the source itself, so the
+//! scaled to fit it, letterboxed: the frame is padded with black to the video's aspect
+//! ratio first, since GPU scalers' own borders vary by driver (green on radeonsi). `recording.framerate` paces the source itself, so the
 //! compositor only copies the frames that get recorded.
 
 mod encoder;
@@ -168,7 +169,7 @@ impl Recording {
             return Err(Error::TooSmall);
         }
         let size = fit(native, spec.resolution.bounds(native.0, native.1));
-        let encoder = Encoder::select(spec.encoder).ok_or(Error::NoEncoder)?;
+        let encoder = Encoder::select(spec.encoder, size).ok_or(Error::NoEncoder)?;
         // What the stream says it is; frames are timestamped as they come either way.
         let fps = cap.unwrap_or(60);
 
@@ -202,7 +203,7 @@ impl Recording {
         let eos = watch_bus(&pipeline, shared.clone());
         pipeline.set_state(gst::State::Playing)?;
         let clock = Clock { started: Instant::now(), paused_at: None, paused_total: Duration::ZERO };
-        let mut feed = Feed { appsrc, fps, caps: None, pushed: 0 };
+        let mut feed = Feed { appsrc, fps, size, caps: None, pushed: 0 };
         feed.push(&first);
 
         let capture = {
@@ -346,6 +347,25 @@ fn even_size(image: &Image) -> (u32, u32) {
     (image.width() & !1, image.height() & !1)
 }
 
+/// `image` padded with black to the aspect ratio of `video`, centred, or `None` if it's
+/// already within a couple of pixels of it.
+fn letterbox(image: &Image, video: (u32, u32)) -> Option<Image> {
+    let (w, h) = even_size(image);
+    let (vw, vh) = (video.0 as u64, video.1 as u64);
+    let even_up = |v: u64| (v.div_ceil(2) * 2) as u32;
+    let (pw, ph) = if w as u64 * vh > h as u64 * vw {
+        (w, even_up((w as u64 * vh).div_ceil(vw)))
+    } else {
+        (even_up((h as u64 * vw).div_ceil(vh)), h)
+    };
+    if pw - w <= 2 && ph - h <= 2 {
+        return None;
+    }
+    let mut padded = Image::new(pw, ph, image.format());
+    padded.blit(image, ((pw - w) / 2) as i32, ((ph - h) / 2) as i32);
+    Some(padded)
+}
+
 /// `size` scaled down to fit `bounds` (never up), keeping its aspect ratio, in even
 /// dimensions.
 fn fit((width, height): (u32, u32), bounds: Option<(u32, u32)>) -> (u32, u32) {
@@ -450,6 +470,8 @@ impl AsRef<[u8]> for Pixels {
 struct Feed {
     appsrc: gst_app::AppSrc,
     fps: u32,
+    /// The video's size.
+    size: (u32, u32),
     caps: Option<(gst_video::VideoFormat, u32, u32)>,
     pushed: u64,
 }
@@ -464,6 +486,8 @@ impl Feed {
     }
 
     fn push(&mut self, image: &Image) {
+        let padded = letterbox(image, self.size);
+        let image = padded.as_ref().unwrap_or(image);
         let format = video_format(image.format());
         let (width, height) = even_size(image);
         if width < 2 || height < 2 {
@@ -638,6 +662,29 @@ mod tests {
         assert_eq!(fit((3000, 1000), box1080), (1920, 640));
         assert_eq!(fit((1001, 3002), Some((1080, 1920))), (640, 1920));
         assert_eq!(fit((3840, 2160), None), (3840, 2160));
+    }
+
+    #[test]
+    fn frames_of_another_shape_are_letterboxed() {
+        let red = Image::from_raw(1, 1, 4, PixelFormat::Bgrx, vec![0, 0, 255, 255]);
+        let mut wide = Image::new(100, 30, PixelFormat::Bgrx);
+        for y in 0..30 {
+            for x in 0..100 {
+                wide.blit(&red, x, y);
+            }
+        }
+        // Into a 4:3 video: black above and below, the frame in the middle.
+        let boxed = letterbox(&wide, (400, 300)).unwrap();
+        assert_eq!((boxed.width(), boxed.height()), (100, 76));
+        assert_eq!(boxed.rgba_at(50, 5)[..3], [0, 0, 0]);
+        assert_eq!(boxed.rgba_at(50, 38)[..3], [255, 0, 0]);
+        assert_eq!(boxed.rgba_at(50, 70)[..3], [0, 0, 0]);
+        // Tall into wide: bars at the sides.
+        let boxed = letterbox(&Image::new(30, 100, PixelFormat::Bgrx), (1920, 1080)).unwrap();
+        assert_eq!((boxed.width(), boxed.height()), (178, 100));
+        // Already the right shape (give or take rounding): untouched.
+        assert!(letterbox(&Image::new(1921, 1080, PixelFormat::Bgrx), (1920, 1080)).is_none());
+        assert!(letterbox(&Image::new(640, 361, PixelFormat::Bgrx), (1920, 1080)).is_none());
     }
 
     #[test]

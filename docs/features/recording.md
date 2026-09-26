@@ -75,10 +75,15 @@ Settings:
   orientation. It never scales up and keeps the aspect ratio. A 4K screen at `1080p`
   is a quarter of the pixels to encode and store.
 
-- **Encoders** are probed once by actually encoding test frames. The order is
-  `vah264enc` → `vah264lpenc` → `vaapih264enc` → `x264enc` → `openh264enc`, and
-  `recording.encoder` (`auto`/`hardware`/`software`) filters it. Constant quality (CQP /
-  CRF) comes from `recording.quality`, with no B-frames and keyframes every 2 s.
+- **Encoders** are probed once by actually encoding test frames, through the same
+  scaling and conversion a recording uses. The order is `vah264enc` → `vah264lpenc` →
+  `vaapih264enc` → `x264enc` → `openh264enc`, and `recording.encoder`
+  (`auto`/`hardware`/`software`) filters it. Encoders whose size limits (read from
+  their pad templates; VA-API takes 128 to 4096 pixels a side) don't fit the video are
+  skipped, so a tiny region or a native ultrawide falls back to x264. Constant quality
+  (CQP / CRF) comes from `recording.quality`, with no B-frames and keyframes every 2 s.
+  x264enc's `bitrate` is set to its maximum: in CRF mode GStreamer turns it into a VBV
+  ceiling, 2 Mbit/s by default, which starves anything that moves.
 - **Frames** are damage-driven and paced, and identical frames are skipped. A static
   screen costs almost nothing, and the output is variable frame rate. Buffers wrap the
   captured pixels without copying. Odd sizes lose their last row or column, since 4:2:0
@@ -95,7 +100,9 @@ Settings:
   skipped=… fps=… longest_gap=…`, and warns when more than 5% were skipped.
 - **Measuring**: `tools/rec_stress.py` records an uncapped fullscreen `weston-simple-egl`
   on a temporary 4K output of the headless session and reports the video's frame rate
-  and gaps. On the dev machine: 60 fps at 1080p, ~57 at native 4K.
+  and gaps, the encoder and the bitrate. On the dev machine (an integrated Radeon): 60
+  fps at 1080p with VA-API or x264; native 4K is held to ~32 fps by that GPU's
+  encoder.
 - **Timing**: buffers carry the pipeline's running time. Pausing sets the live
   pipeline to PAUSED, which stops running time for audio and video alike, so resumed
   segments join seamlessly.
