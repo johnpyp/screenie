@@ -41,7 +41,11 @@ is tracked in [ISSUES](../ISSUES.md).
 
 ## Preview card
 
-A small card slides in at the bottom-right of the output where the capture happened.
+A small card slides in on the output where the capture happened, at
+`preview.position`: a corner (`top-left`, `top-right`, `bottom-left`, `bottom-right`,
+the default) or the middle of an edge (`top-middle`, `bottom-middle`, `left-middle`,
+`right-middle`). It sits 18px from the edges it touches, clear of bars, and slides in
+from the nearest edge. The newest card is closest to that edge.
 It stays for `preview.timeout` seconds (default 10; 0 = until dismissed). Hovering pauses the
 timer, and leaving gives it a short fresh lease. Up to five cards stack.
 
@@ -58,8 +62,9 @@ wasn't saved). Hovering shows only what's left to do:
 - **Trash**: delete the file and dismiss. Only shown when there is a file.
 - A caption above that pill shows the pixel size and file size.
 
-All cards share one layer surface along the right edge. Its input region is limited to
-the cards, so the empty part of the column is click-through.
+All cards share one transparent layer surface over the output's free area. It has no
+fixed size, so the compositor fits it between bars. Its input region is limited to the
+cards, so the rest is click-through.
 
 Planned: a **Pin** button, and **drag the card into another app**, which GPUI can't do
 yet (see ISSUES).

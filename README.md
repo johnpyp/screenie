@@ -170,7 +170,7 @@ recording:
   microphone: false
 
 preview:
-  corner: bottom-right
+  position: bottom-right   # top-left | top-middle | top-right | left-middle | right-middle | bottom-left | bottom-middle | bottom-right
   timeout: 10             # seconds; 0 keeps cards until dismissed
 
 selector:

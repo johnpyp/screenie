@@ -116,36 +116,58 @@ impl Default for RecordingConfig {
     }
 }
 
+/// Where on the screen something sits: a corner, or the middle of an edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Corner {
+pub enum ScreenPosition {
     TopLeft,
+    TopMiddle,
     TopRight,
+    LeftMiddle,
+    RightMiddle,
     BottomLeft,
+    BottomMiddle,
     BottomRight,
 }
 
-impl Corner {
-    pub fn is_left(self) -> bool {
-        matches!(self, Self::TopLeft | Self::BottomLeft)
+/// Where along one axis: at the start (left/top), in the middle, or at the end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Align {
+    Start,
+    Middle,
+    End,
+}
+
+impl ScreenPosition {
+    pub fn horizontal(self) -> Align {
+        match self {
+            Self::TopLeft | Self::LeftMiddle | Self::BottomLeft => Align::Start,
+            Self::TopMiddle | Self::BottomMiddle => Align::Middle,
+            Self::TopRight | Self::RightMiddle | Self::BottomRight => Align::End,
+        }
     }
 
-    pub fn is_top(self) -> bool {
-        matches!(self, Self::TopLeft | Self::TopRight)
+    pub fn vertical(self) -> Align {
+        match self {
+            Self::TopLeft | Self::TopMiddle | Self::TopRight => Align::Start,
+            Self::LeftMiddle | Self::RightMiddle => Align::Middle,
+            Self::BottomLeft | Self::BottomMiddle | Self::BottomRight => Align::End,
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PreviewConfig {
-    pub corner: Corner,
+    /// Where the cards stack: `bottom-right`, `top-middle`, `left-middle`, ...
+    pub position: ScreenPosition,
     /// Seconds before the card slides away; 0 keeps it until dismissed.
     pub timeout: u32,
 }
 
 impl Default for PreviewConfig {
     fn default() -> Self {
-        Self { corner: Corner::BottomRight, timeout: 10 }
+        Self { position: ScreenPosition::BottomRight, timeout: 10 }
     }
 }
 

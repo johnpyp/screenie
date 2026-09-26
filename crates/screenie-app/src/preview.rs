@@ -1,5 +1,5 @@
-//! The floating preview stack: a card per fresh capture in the corner of the screen, with
-//! quick actions on hover. Cards slide away on their own unless the pointer is on them.
+//! The floating preview stack: a card per fresh capture at the edge of the screen
+//! (`preview.position`: a corner or the middle of an edge), with quick actions on hover. Cards slide away on their own unless the pointer is on them.
 //!
 //! Hovering shows only what's left to do: Copy and Save buttons until the capture is
 //! copied or saved. What's done shows as a "✓ Copied & Saved" pill in the corner, hovered
@@ -21,7 +21,7 @@ use gpui::{
     Animation, AnimationExt, App, AsyncApp, Bounds, Context, FontWeight, Global, ObjectFit, Pixels, RenderImage, Window,
     WindowHandle, canvas, div, img, px, rgba, size,
 };
-use screenie_config::Corner;
+use screenie_config::{Align, ScreenPosition};
 use screenie_core::Image;
 use screenie_ui_kit::hud::{self, color};
 use screenie_ui_kit::{Icon, LayerSpec, layer_options};
@@ -136,7 +136,7 @@ impl PreviewItem {
 #[derive(Clone, PartialEq)]
 struct Placement {
     output: Option<String>,
-    corner: Corner,
+    position: ScreenPosition,
 }
 
 struct Previews {
@@ -150,7 +150,7 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
     if !cx.has_global::<Previews>() {
         cx.set_global(Previews { window: None });
     }
-    let placement = Placement { output: output.clone(), corner: Daemon::get(cx).config.preview.corner };
+    let placement = Placement { output: output.clone(), position: Daemon::get(cx).config.preview.position };
     // Reuse the open stack if it's in the same place.
     if let Some((handle, current)) = cx.global::<Previews>().window.clone()
         && current == placement
@@ -168,23 +168,20 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
         let _ = handle.update(cx, |_, window, _| window.remove_window());
     }
 
-    let height = output
-        .as_deref()
-        .and_then(|name| Daemon::get(cx).capture.outputs().ok()?.into_iter().find(|o| o.name == name))
-        .map(|o| o.logical.height as f32)
-        .unwrap_or(1080.0);
-    let side = if placement.corner.is_left() { Anchor::LEFT } else { Anchor::RIGHT };
+    // One transparent surface over the output's free area (a size of 0 lets the compositor
+    // stretch it between the anchors, clear of bars); input is limited to the cards, so
+    // the rest is click-through. Positions are just alignments within it.
     let spec = LayerSpec {
         output: output.clone(),
         ..LayerSpec::floating(
             "screenie-preview",
-            Anchor::TOP | Anchor::BOTTOM | side,
-            size(px(CARD_MAX + EDGE_MARGIN * 2.0), px(height)),
+            Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+            size(px(0.), px(0.)),
         )
     };
-    let corner = placement.corner;
+    let position = placement.position;
     let opened = cx.open_window(layer_options(cx, &spec), |window, cx| {
-        let stack = cx.new(|cx| PreviewStack::new(corner, output, window, cx));
+        let stack = cx.new(|cx| PreviewStack::new(position, output, window, cx));
         stack.update(cx, |s, cx| {
             s.push(item, cx);
         });
@@ -200,7 +197,7 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
 type CardBounds = (u64, Bounds<Pixels>);
 
 pub(crate) struct PreviewStack {
-    corner: Corner,
+    position: ScreenPosition,
     /// The output the stack is on, where editors open too.
     output: Option<String>,
     items: Vec<PreviewItem>,
@@ -211,7 +208,7 @@ pub(crate) struct PreviewStack {
 }
 
 impl PreviewStack {
-    fn new(corner: Corner, output: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(position: ScreenPosition, output: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Nothing is interactive until the first card is laid out.
         window.set_input_region(Some(&[]));
         cx.spawn_in(window, async move |this, cx| {
@@ -233,7 +230,7 @@ impl PreviewStack {
             }
         })
         .detach();
-        Self { corner, output, items: Vec::new(), card_bounds: Rc::default(), pointer: None }
+        Self { position, output, items: Vec::new(), card_bounds: Rc::default(), pointer: None }
     }
 
     fn timeout(cx: &App) -> Option<Duration> {
@@ -419,7 +416,13 @@ impl PreviewStack {
         let hovered = item.hovered;
         let bounds_sink = self.card_bounds.clone();
         let saved = item.path.is_some();
-        let from_left = self.corner.is_left();
+        // Cards slide in from the edge they sit at (the side one, for corners).
+        let slide = match (self.position.horizontal(), self.position.vertical()) {
+            (Align::Start, _) => (-48.0, 0.0),
+            (Align::End, _) => (48.0, 0.0),
+            (Align::Middle, Align::Start) => (0.0, -48.0),
+            (Align::Middle, _) => (0.0, 48.0),
+        };
 
         let button = |icon: Icon, tip: &'static str, action: fn(&mut Self, u64, &mut Context<Self>), cx: &mut Context<Self>| {
             div()
@@ -558,10 +561,7 @@ impl PreviewStack {
             .with_animation(
                 ("card-in", id),
                 Animation::new(Duration::from_millis(260)).with_easing(gpui::ease_out_quint()),
-                move |el, t| {
-                    let offset = px((1.0 - t) * 48.0);
-                    if from_left { el.mr(offset) } else { el.ml(offset) }.opacity(t)
-                },
+                move |el, t| el.left(px(slide.0 * (1.0 - t))).top(px(slide.1 * (1.0 - t))).opacity(t),
             )
     }
 }
@@ -582,17 +582,25 @@ fn format_bytes(n: u64) -> String {
 impl Render for PreviewStack {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.card_bounds.borrow_mut().clear();
-        // The newest card sits nearest the corner.
-        let top = self.corner.is_top();
+        // The newest card sits nearest the edge (at the bottom, for the side middles).
+        let vertical = self.position.vertical();
         let mut cards: Vec<_> = self.items.iter().map(|item| self.card(item, cx).into_any_element()).collect();
-        if top {
+        if vertical == Align::Start {
             cards.reverse();
         }
         let bounds = self.card_bounds.clone();
         let this = cx.entity();
         let stack = div().size_full().font_family(screenie_ui_kit::FONT).flex().flex_col();
-        let stack = if top { stack.justify_start() } else { stack.justify_end() };
-        let stack = if self.corner.is_left() { stack.items_start() } else { stack.items_end() };
+        let stack = match vertical {
+            Align::Start => stack.justify_start(),
+            Align::Middle => stack.justify_center(),
+            Align::End => stack.justify_end(),
+        };
+        let stack = match self.position.horizontal() {
+            Align::Start => stack.items_start(),
+            Align::Middle => stack.items_center(),
+            Align::End => stack.items_end(),
+        };
         stack
             .gap(px(GAP))
             .p(px(EDGE_MARGIN))
