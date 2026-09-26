@@ -151,8 +151,8 @@ Settings:
   pushed are counted. Each recording logs `recording encoder=… gpu_frames=…` as it
   starts, then `capture stream frames=… gpu_frames=… latency_avg=… latency_max=…` (how
   long the compositor takes to deliver a frame) and `recorded frames received=…
-  pushed=… gpu=… skipped=… fps=… longest_gap=…`, and warns when more than 5% were
-  skipped.
+  pushed=… gpu=… skipped=… fps=… longest_gap=… paused_for=…`, and warns when more
+  than 5% were skipped. Pauses count for nothing in these.
 - **Measuring**: `tools/rec_stress.py` records an uncapped fullscreen `weston-simple-egl`
   (the whole 4K output, an odd-sized region of it, or the window) on a temporary output
   of the headless session and reports the video's frame rate and gaps, the encoder and
@@ -164,7 +164,10 @@ Settings:
 - **Timing**: each frame is stamped with when the compositor presented it, on the
   pipeline's clock (CLOCK_MONOTONIC), so the video's timing is the screen's however
   unevenly frames reach us. Pausing sets the live pipeline to PAUSED, which stops
-  running time for audio and video alike, so resumed segments join seamlessly.
+  running time for audio and video alike, so resumed segments join seamlessly. It
+  pauses the capture too: the compositor copies nothing, and a captured output can scan
+  out a fullscreen app directly again. Resuming starts the capture over, so the video
+  picks up with the screen as it is then, even if nothing moves.
 - **Audio** goes through pulsesrc (PipeWire and PulseAudio both serve it) and is encoded
   as AAC (`avenc_aac` → `fdkaacenc` → `voaacenc`), or Opus if there's no AAC encoder.
 - **File**: MP4 with the index up front (faststart). Its scratch file lives next to the

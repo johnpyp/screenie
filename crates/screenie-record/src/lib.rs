@@ -788,6 +788,9 @@ fn watch_bus(pipeline: &gst::Pipeline, shared: Arc<Shared>) -> mpsc::Receiver<Re
 ///
 /// Frames replaced before they could be pushed are counted and logged at the end: with
 /// a paced source there should be none, and many mean the pipeline couldn't keep up.
+///
+/// While paused, the source is paused too (it stops asking the compositor for frames),
+/// and the loop only listens for it ending. Paused time counts for nothing in the stats.
 fn capture_loop(
     mut source: Box<dyn FrameSource>,
     mut feed: Feed,
@@ -808,9 +811,28 @@ fn capture_loop(
     let mut last = first;
     let mut last_push = started;
     let mut pending: Option<Frame> = None;
+    let (mut paused_at, mut paused_for) = (None::<Instant>, Duration::ZERO);
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
+        let paused = shared.paused.load(Ordering::Relaxed);
+        if paused != paused_at.is_some() {
+            if let Err(e) = source.set_paused(paused) {
+                shared.fail(format!("screen capture stopped: {e}"));
+                break;
+            }
+            match paused_at.take() {
+                Some(at) => {
+                    paused_for += now - at;
+                    last_push += now - at;
+                }
+                None => {
+                    paused_at = Some(now);
+                    pending = None;
+                }
+            }
+        }
         let wait = match (&pending, pacer.wait_until(now)) {
+            _ if paused => Duration::from_millis(50),
             (Some(_), Some(due)) => due - now,
             // Due, but the pipeline is busy: look again shortly.
             (Some(_), None) if !feed.has_room() => Duration::from_millis(2),
@@ -818,10 +840,12 @@ fn capture_loop(
             (None, _) => Duration::from_millis(100),
         };
         match source.next_frame(wait.max(Duration::from_millis(1))) {
-            Ok(Next::Frame(frame)) => {
+            Ok(Next::Frame(frame)) if !paused => {
                 received += 1;
                 skipped += pending.replace(frame).is_some() as u64;
             }
+            // One the source had on its way when paused.
+            Ok(Next::Frame(_)) => {}
             Ok(Next::Unchanged) => {}
             Ok(Next::Ended) => {
                 tracing::info!("the recorded source ended");
@@ -833,10 +857,7 @@ fn capture_loop(
                 break;
             }
         }
-        if shared.paused.load(Ordering::Relaxed)
-            || pacer.wait_until(Instant::now()).is_some()
-            || !feed.has_room()
-        {
+        if paused || pacer.wait_until(Instant::now()).is_some() || !feed.has_room() {
             continue;
         }
         let Some(frame) = pending.take() else {
@@ -884,7 +905,12 @@ fn capture_loop(
             *shared.latest.lock().unwrap() = Some(image);
         }
     }
-    let seconds = started.elapsed().as_secs_f64().max(1e-3);
+    let paused_for = paused_for + paused_at.map_or(Duration::ZERO, |at| at.elapsed());
+    let seconds = started
+        .elapsed()
+        .saturating_sub(paused_for)
+        .as_secs_f64()
+        .max(1e-3);
     tracing::info!(
         received,
         pushed = feed.pushed,
@@ -892,6 +918,7 @@ fn capture_loop(
         skipped,
         fps = format!("{:.1}", feed.pushed as f64 / seconds),
         ?longest_gap,
+        ?paused_for,
         "recorded frames"
     );
     if skipped * 20 > received {

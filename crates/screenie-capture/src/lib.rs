@@ -283,6 +283,10 @@ impl FrameSource for Primed {
         Ok(self.stream.use_gpu(format)?)
     }
 
+    fn set_paused(&mut self, paused: bool) -> Result<(), SourceError> {
+        Ok(self.stream.set_paused(paused)?)
+    }
+
     fn snapshot(&mut self) -> Option<Image> {
         FrameSource::snapshot(&mut self.stream)
     }

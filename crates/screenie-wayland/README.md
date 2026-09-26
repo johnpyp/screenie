@@ -18,7 +18,13 @@ to grim.
     frame. ext says the GPU and formats itself; wlr names a format, and the GPU and
     its layouts come from linux-dmabuf's default feedback (`state::Feedback`), which
     also answers `gpu()` for streams in memory. `snapshot()` is the stream's current
-    picture in memory, e.g. for a thumbnail of GPU frames.
+    picture in memory, e.g. for a thumbnail of GPU frames. A region of an output
+    captured whole (ext) comes in whole GPU buffers with a crop, which `gpu_offer()`
+    marks `cropped`.
+  - `set_paused(true)` closes the capture on the compositor's side (keeping the
+    buffers), so a paused recording copies nothing and a captured output can scan out
+    a fullscreen app directly again. `set_paused(false)` starts it over, and its first
+    frame comes right away.
   - `into_window_stream(window, cursor)` streams one window by itself
     (`ext-foreign-toplevel-image-capture-source-v1`), found through
     `ext-foreign-toplevel-list-v1` by identifier, or by app id and title. Its frames

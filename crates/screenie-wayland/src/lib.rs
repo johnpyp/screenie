@@ -680,6 +680,35 @@ impl Capturer {
         }
     }
 
+    /// Stop a capture for now, keeping its buffers: its objects on the compositor's
+    /// side go, so the compositor copies nothing and holds nothing for it (capturing an
+    /// output keeps it from scanning out a fullscreen app directly). [`Capturer::restart`]
+    /// starts it again.
+    fn suspend(&mut self, slot: usize) {
+        let cap = &mut self.state.captures[slot];
+        match &mut cap.protocol {
+            Protocol::Ext {
+                source,
+                session,
+                frame,
+            } => {
+                if let Some(f) = frame.take() {
+                    f.destroy();
+                }
+                session.destroy();
+                source.destroy();
+            }
+            Protocol::Wlr { frame, .. } => {
+                if let Some(f) = frame.take() {
+                    f.destroy();
+                }
+            }
+        }
+        cap.in_flight = None;
+        cap.phase = Phase::Suspended;
+        let _ = self.conn.flush();
+    }
+
     fn release(&mut self, slot: usize) {
         let cap = &mut self.state.captures[slot];
         match &mut cap.protocol {
@@ -963,7 +992,7 @@ impl FrameStream {
                 }
                 Phase::Failed(msg) => return Err(Error::Capture(msg.clone())),
                 Phase::Stopped => return Err(Error::Stopped),
-                Phase::Negotiating | Phase::Copying => {}
+                Phase::Negotiating | Phase::Copying | Phase::Suspended => {}
             }
             let now = Instant::now();
             if now >= deadline {
@@ -1044,6 +1073,23 @@ impl FrameStream {
         Ok(())
     }
 
+    /// Pause: stop asking the compositor for frames, and let go of the capture on its
+    /// side, so a paused recording costs nothing (and a captured output can go back to
+    /// scanning out a fullscreen app directly). Resuming starts the capture over, so
+    /// the first frame comes right away, showing what changed during the pause.
+    pub fn set_paused(&mut self, paused: bool) -> Result<()> {
+        match (paused, self.phase()) {
+            (true, Phase::Negotiating | Phase::Copying | Phase::Ready) => {
+                self.settle()?;
+                self.requested = None;
+                self.capturer.suspend(self.slot);
+            }
+            (false, Phase::Suspended) => self.capturer.restart(self.slot),
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// Let a frame in flight land (and drop it), so the buffers can change.
     fn settle(&mut self) -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(1);
@@ -1119,6 +1165,10 @@ impl screenie_core::FrameSource for FrameStream {
 
     fn use_gpu(&mut self, format: Option<DmabufFormat>) -> Result<(), screenie_core::SourceError> {
         Ok(FrameStream::use_gpu(self, format)?)
+    }
+
+    fn set_paused(&mut self, paused: bool) -> Result<(), screenie_core::SourceError> {
+        Ok(FrameStream::set_paused(self, paused)?)
     }
 
     fn snapshot(&mut self) -> Option<Image> {

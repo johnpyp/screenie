@@ -94,6 +94,13 @@ pub trait FrameSource: Send {
         }
     }
 
+    /// Stop producing frames while a recording is paused, or start again. Sources
+    /// that can stop the compositor copying frames do; others keep delivering them,
+    /// and the consumer drops them.
+    fn set_paused(&mut self, _paused: bool) -> Result<(), SourceError> {
+        Ok(())
+    }
+
     /// What it shows right now, as an image, even if nothing has changed since the
     /// last frame (whose pixels may be on a GPU).
     fn snapshot(&mut self) -> Option<Image> {

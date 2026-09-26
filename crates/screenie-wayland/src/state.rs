@@ -149,6 +149,9 @@ pub(crate) enum Phase {
     Failed(String),
     /// The source went away for good (ext `stopped`).
     Stopped,
+    /// Paused by the consumer, with nothing open on the compositor's side until
+    /// `Capturer::restart`.
+    Suspended,
 }
 
 /// Buffer constraints advertised by the compositor.
