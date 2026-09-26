@@ -173,3 +173,11 @@ Xwayland as an ordinary Wayland client. src/server/event.rs forwards wl_keyboard
 keys to Xwayland and clears X focus on leave; src/server/dispatch.rs proxies pointer
 constraints.
 """
+
+[[repo]]
+name = "xdg-desktop-portal-wlr"
+url = "https://github.com/emersion/xdg-desktop-portal-wlr"
+notes = """
+The screen-sharing portal on wlroots, which OBS and browsers record through. Its cursor
+modes and window (toplevel) sharing show what they get from the compositor.
+"""
