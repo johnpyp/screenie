@@ -846,6 +846,19 @@ impl Session {
         }
     }
 
+    /// Whether holding `key` down repeats it. Typing repeats, and so do nudging,
+    /// deleting and stepping the size. Everything else (Esc, Enter, tools, toggles)
+    /// acts once per press: a held Esc would otherwise go on from deselecting to closing.
+    pub fn repeats(&self, key: &Key) -> bool {
+        match key {
+            Key::Escape => false,
+            _ if self.text.is_some() => true,
+            Key::Left | Key::Right | Key::Up | Key::Down | Key::Backspace | Key::Delete => true,
+            Key::Text(t) => matches!(t.as_str(), "[" | "]"),
+            Key::Enter | Key::Home | Key::End => false,
+        }
+    }
+
     // Crop.
 
     fn enter_crop(&mut self) {
@@ -1234,6 +1247,31 @@ mod tests {
         s.undo();
         assert!(s.doc().shapes().is_empty());
         assert!(!s.doc().can_undo());
+    }
+
+    #[test]
+    fn only_typing_nudging_and_deleting_repeat() {
+        let mut s = session();
+        for key in [
+            Key::Left,
+            Key::Delete,
+            Key::Backspace,
+            Key::Text("]".into()),
+        ] {
+            assert!(s.repeats(&key), "{key:?}");
+        }
+        for key in [
+            Key::Escape,
+            Key::Enter,
+            Key::Text("b".into()),
+            Key::Text("f".into()),
+        ] {
+            assert!(!s.repeats(&key), "{key:?}");
+        }
+        s.set_tool(Tool::Text);
+        s.press(pt(50.0, 50.0), REACH, 1);
+        assert!(s.repeats(&Key::Text("b".into())) && s.repeats(&Key::Enter));
+        assert!(!s.repeats(&Key::Escape));
     }
 
     #[test]

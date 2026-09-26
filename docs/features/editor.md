@@ -91,6 +91,9 @@ Other keys:
   or saving (including Save As) also commits typing and deselects, so after Ctrl+C one
   Esc closes. Closing with unsaved changes asks first, and so does a window's close
   button.
+- Holding a key down repeats typing, nudging, Delete and Backspace, `[` `]`, and undo
+  and redo. Everything else acts once per press, so a held Esc can't go on from
+  deselecting to closing, or open and dismiss the close prompt over and over.
 
 Drawing tools stay active after a shape, and the new shape is selected so it can be
 adjusted straight away. Pressing on the selected shape moves it, and pressing anywhere

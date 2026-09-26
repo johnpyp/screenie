@@ -512,8 +512,13 @@ impl Editor {
         let m = &ks.modifiers;
         let key = ks.key.as_str();
         cx.stop_propagation();
+        // Held keys repeat: fine for typing and nudging, not for one-shot actions.
+        let held = event.is_held;
 
         if self.confirm_close {
+            if held {
+                return;
+            }
             match key {
                 "escape" => self.confirm_close = false,
                 "enter" => self.keep_and_close(window, cx),
@@ -524,6 +529,11 @@ impl Editor {
         }
 
         if m.control || m.platform {
+            let typing = self.session.text_edit().is_some();
+            let repeats = matches!(key, "z" | "y") || (key == "v" && typing);
+            if held && !repeats {
+                return;
+            }
             match (key, m.shift) {
                 ("z", false) => {
                     self.session.undo();
@@ -537,7 +547,7 @@ impl Editor {
                 ("d", _) => {
                     self.session.duplicate_selected();
                 }
-                ("v", _) if self.session.text_edit().is_some() => {
+                ("v", _) if typing => {
                     if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
                         self.session.key(Key::Text(text), Modifiers::default());
                     }
@@ -570,6 +580,9 @@ impl Editor {
             _ => ks.key_char.clone().map(Key::Text),
         };
         let Some(mapped) = mapped else { return };
+        if held && !self.session.repeats(&mapped) {
+            return;
+        }
         match self.session.key(mapped, mods) {
             Outcome::Nothing => {}
             Outcome::Redraw => cx.notify(),
