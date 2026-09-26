@@ -51,6 +51,11 @@ const CENTRED_FIT: f32 = 0.8;
 /// the screen edges.
 const BAR_GAP: f32 = 10.0;
 const SCREEN_MARGIN: f32 = 8.0;
+/// Each bar's row (a HUD panel of 30px buttons). The overlay lays out as if both rows
+/// were always there, so switching tools (which shows or hides the style bar) never
+/// moves the capture or the main bar.
+const BAR_HEIGHT: f32 = 40.0;
+const BARS_HEIGHT: f32 = BAR_HEIGHT * 2.0 + BAR_GAP - 2.0;
 /// How much the overlay dims the screen around the capture: in place, and centred
 /// (darker, so a capture of the screen doesn't blend into the screen behind it).
 const OVERLAY_DIM: f32 = 0.5;
@@ -99,8 +104,8 @@ pub struct Editor {
     pointer: Option<Point>,
     /// Scroll-wheel travel not yet turned into size steps.
     scrolled: f32,
-    /// The overlay's bars as last laid out, to place them next frame.
-    bars: Rc<Cell<Option<Size<Pixels>>>>,
+    /// The overlay's main bar width as last laid out, to keep it on screen next frame.
+    bar_width: Rc<Cell<Option<Pixels>>>,
     toast: Option<(SharedString, u64)>,
     /// Asking whether to save before closing.
     confirm_close: bool,
@@ -133,7 +138,7 @@ impl Editor {
             focus,
             pointer: None,
             scrolled: 0.0,
-            bars: Rc::default(),
+            bar_width: Rc::default(),
             toast: None,
             confirm_close: false,
             closed: false,
@@ -413,7 +418,7 @@ impl Editor {
         };
         let zoom = fit / doc.scale();
         let (w, h) = (w * fit, h * fit);
-        let bars = self.bars.get().map_or(100.0, |b| f32::from(b.height)) + BAR_GAP;
+        let bars = BARS_HEIGHT + BAR_GAP;
         let top = if h + bars + SCREEN_MARGIN * 2.0 <= screen_h { (screen_h - h - bars) / 2.0 } else { (screen_h - h) / 2.0 };
         let left = f32::from(bounds.origin.x) + (screen_w - w) / 2.0;
         let top = f32::from(bounds.origin.y) + top;
@@ -889,8 +894,8 @@ impl Editor {
         let (w, h) = (f32::from(screen.width), f32::from(screen.height));
         let shown = self.shown(Bounds::new(point(px(0.), px(0.)), screen));
         let (top, bottom) = (f32::from(shown.top()), f32::from(shown.bottom()));
-        let measured = self.bars.get();
-        let need = measured.map_or(100.0, |m| f32::from(m.height));
+        let measured = self.bar_width.get();
+        let need = BARS_HEIGHT;
 
         #[derive(PartialEq)]
         enum Side {
@@ -906,32 +911,35 @@ impl Editor {
             Side::Inside
         };
 
-        let main = div()
-            .flex()
-            .flex_row()
+        let row = || div().h(px(BAR_HEIGHT)).flex().flex_row().items_center().justify_center();
+        let slot = self.bar_width.clone();
+        let main = row()
+            .relative()
             .gap_2()
             .child(self.history_bar(cx))
             .child(self.tool_bar(cx))
-            .child(self.action_bar(cx));
-        let slot = self.bars.clone();
+            .child(self.action_bar(cx))
+            .child(
+                canvas(
+                    move |bounds, window, _| {
+                        if slot.get() != Some(bounds.size.width) {
+                            slot.set(Some(bounds.size.width));
+                            window.on_next_frame(|window, _| window.refresh());
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            );
         let mut stack = div()
-            .relative()
             .flex()
             .flex_col()
             .items_center()
             .gap(px(BAR_GAP - 2.0))
-            .when(measured.is_none(), |d| d.opacity(0.))
-            .child(canvas(
-                move |bounds, window, _| {
-                    if slot.get() != Some(bounds.size) {
-                        slot.set(Some(bounds.size));
-                        window.on_next_frame(|window, _| window.refresh());
-                    }
-                },
-                |_, _, _, _| {},
-            ).absolute().inset_0());
+            .when(measured.is_none(), |d| d.opacity(0.));
         // The main bar sits nearest the capture.
-        let style = self.style_bar(cx);
+        let style = self.style_bar(cx).map(|bar| row().child(bar));
         if side == Side::Below {
             stack = stack.child(main).children(style);
         } else {
@@ -941,7 +949,7 @@ impl Editor {
         // Centred on the capture; against the nearer screen edge when too wide for that.
         let center = f32::from(shown.center().x).clamp(0.0, w);
         let half = (center - SCREEN_MARGIN).min(w - SCREEN_MARGIN - center).max(0.0);
-        let fits = measured.is_none_or(|m| f32::from(m.width) <= half * 2.0);
+        let fits = measured.is_none_or(|width| f32::from(width) <= half * 2.0);
         let mut column = div().absolute().flex().flex_col().gap(px(BAR_GAP - 2.0));
         column = if fits {
             column.left(px(center - half)).w(px(half * 2.0)).items_center()
