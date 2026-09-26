@@ -111,6 +111,13 @@ pub fn overlay_open(cx: &App) -> bool {
         .is_some_and(|o| !o.open.is_empty() || o.parked > 0)
 }
 
+/// The open overlay editors' windows.
+pub fn overlay_windows(cx: &App) -> Vec<gpui::AnyWindowHandle> {
+    cx.try_global::<Overlays>()
+        .map(|o| o.open.iter().map(|&h| h.into()).collect())
+        .unwrap_or_default()
+}
+
 /// Call `f` whenever an overlay editor opens or closes.
 pub fn observe_overlays<V: 'static>(
     cx: &mut Context<V>,

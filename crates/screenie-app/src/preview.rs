@@ -19,8 +19,9 @@ use std::time::{Duration, Instant};
 use gpui::layer_shell::Anchor;
 use gpui::prelude::*;
 use gpui::{
-    Animation, AnimationExt, App, AsyncApp, Context, Entity, FontWeight, Global, KeyDownEvent,
-    Keystroke, ObjectFit, RenderImage, Window, WindowHandle, div, img, px, rgba, size,
+    Animation, AnimationExt, AnyElement, AnyWindowHandle, App, AsyncApp, Context, Entity,
+    FontWeight, Global, KeyDownEvent, Keystroke, ObjectFit, RenderImage, Window, WindowHandle, div,
+    img, px, rgba, size,
 };
 use screenie_config::{Align, ScreenPosition};
 use screenie_core::Image;
@@ -177,6 +178,9 @@ pub(crate) struct PreviewItem {
     hovered: bool,
     /// It's been on screen (rather than concealed from the moment it came).
     seen: bool,
+    /// It's been on screen already (and moved to a new surface): it doesn't slide in
+    /// again.
+    arrived: bool,
 }
 
 impl PreviewItem {
@@ -296,6 +300,7 @@ impl PreviewItem {
             deadline: None,
             hovered: false,
             seen: false,
+            arrived: false,
         }
     }
 
@@ -431,6 +436,26 @@ fn open_stack(placement: Placement, items: Vec<PreviewItem>, cx: &mut App) {
     }
 }
 
+/// Move a stack to a new surface over the editor that just opened (see
+/// [`PreviewStack::editors_changed`]). The old surface closes once it's empty.
+fn raise(handle: WindowHandle<PreviewStack>, cx: &mut App) {
+    let Some(placement) = cx.try_global::<Previews>().and_then(|p| {
+        p.stacks
+            .iter()
+            .find(|(h, _)| *h == handle)
+            .map(|(_, p)| p.clone())
+    }) else {
+        return;
+    };
+    let Ok(items) = handle.update(cx, |stack, _, cx| stack.hand_over(cx)) else {
+        return;
+    };
+    Previews::forget(handle, cx);
+    if !items.is_empty() {
+        open_stack(placement, items, cx);
+    }
+}
+
 /// A recording's card, shown while it was being finished, now has its file. False if
 /// the card is gone (its surface closed with its output, say).
 pub(crate) fn saved(
@@ -481,6 +506,11 @@ pub(crate) struct PreviewStack {
     hover: Entity<Hover<u64>>,
     /// When the cards' time was last counted.
     ticked: Instant,
+    handle: Option<WindowHandle<Self>>,
+    /// An overlay editor is open: the cards wait for it.
+    editing: bool,
+    /// The overlay editors that were open when this surface opened, so it's above them.
+    above: Vec<AnyWindowHandle>,
 }
 
 impl PreviewStack {
@@ -497,7 +527,7 @@ impl PreviewStack {
             stack.pointer_on(card, cx);
         })
         .detach();
-        screenie_editor::observe_overlays(cx, |_, cx| cx.notify()).detach();
+        screenie_editor::observe_overlays(cx, Self::editors_changed).detach();
         let handle = window.window_handle().downcast::<Self>();
         cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -529,7 +559,50 @@ impl PreviewStack {
             items: Vec::new(),
             hover,
             ticked: Instant::now(),
+            handle,
+            editing: screenie_editor::overlay_open(cx),
+            above: screenie_editor::overlay_windows(cx),
         }
+    }
+
+    /// An overlay editor opened or closed. Cards taken while editing wait for the edit
+    /// to be done, and stay within reach meanwhile: over the editor, rather than dimmed
+    /// under its backdrop where they can't be pointed at.
+    fn editors_changed(&mut self, cx: &mut Context<Self>) {
+        let editing = screenie_editor::overlay_open(cx);
+        if self.editing && !editing {
+            // Done editing: the cards get their time from now.
+            let deadline = Self::timeout(cx).map(|t| Instant::now() + t);
+            for item in &mut self.items {
+                item.deadline = deadline;
+            }
+        }
+        self.editing = editing;
+        let editors = screenie_editor::overlay_windows(cx);
+        if editors.iter().any(|e| !self.above.contains(e)) {
+            // Surfaces on the same layer stack in the order they're mapped, so the
+            // stack moves to a new one above the editor.
+            self.above = editors;
+            if let Some(handle) = self.handle {
+                cx.defer(move |cx| raise(handle, cx));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Give up the cards to a new surface.
+    fn hand_over(&mut self, cx: &mut Context<Self>) -> Vec<PreviewItem> {
+        cx.notify();
+        let timeout = Self::timeout(cx);
+        let mut items = std::mem::take(&mut self.items);
+        for item in &mut items {
+            item.arrived = true;
+            if item.hovered {
+                item.hovered = false;
+                item.deadline = Self::lease(timeout);
+            }
+        }
+        items
     }
 
     fn timeout(cx: &App) -> Option<Duration> {
@@ -567,6 +640,11 @@ impl PreviewStack {
             self.items.iter_mut().for_each(|i| i.seen = true);
         }
         self.ticked = now;
+        // Captures taken while editing wait for the edit to be done (see
+        // `editors_changed`).
+        if self.editing {
+            return;
+        }
         let before = self.items.len();
         self.items
             .retain(|i| i.pinned() || i.deadline.is_none_or(|d| d > now));
@@ -638,12 +716,16 @@ impl PreviewStack {
         let timeout = Self::timeout(cx);
         if let Some(item) = self.item(id) {
             item.hovered = hovered;
-            // Leaving a card gives it a fresh (shorter) lease so it doesn't vanish instantly.
             if !hovered {
-                item.deadline = timeout.map(|t| Instant::now() + t.min(Duration::from_secs(3)));
+                item.deadline = Self::lease(timeout);
             }
         }
         cx.notify();
+    }
+
+    /// Leaving a card gives it a fresh (shorter) lease so it doesn't vanish instantly.
+    fn lease(timeout: Option<Duration>) -> Option<Instant> {
+        timeout.map(|t| Instant::now() + t.min(Duration::from_secs(3)))
     }
 
     fn copy(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -759,7 +841,7 @@ impl PreviewStack {
         self.remove(id, cx);
     }
 
-    fn card(&self, item: &PreviewItem, cx: &mut Context<Self>) -> impl IntoElement {
+    fn card(&self, item: &PreviewItem, cx: &mut Context<Self>) -> AnyElement {
         let id = item.id;
         // The card's size in pixels at the interface scale (exact, so the thumbnail can
         // fill its inside precisely); everything else in it is in `ui` lengths.
@@ -953,7 +1035,7 @@ impl PreviewStack {
                 })
         });
 
-        div()
+        let card = div()
             .id(("card", id))
             .relative()
             .w(px(w))
@@ -982,16 +1064,20 @@ impl PreviewStack {
             .children(pending)
             .children(overlay)
             .children(corner_info)
-            .child(Hover::area(&self.hover, id))
-            .with_animation(
-                ("card-in", id),
-                Animation::new(Duration::from_millis(260)).with_easing(gpui::ease_out_quint()),
-                move |el, t| {
-                    el.left(px(slide.0 * (1.0 - t)))
-                        .top(px(slide.1 * (1.0 - t)))
-                        .opacity(t)
-                },
-            )
+            .child(Hover::area(&self.hover, id));
+        if item.arrived {
+            return card.into_any_element();
+        }
+        card.with_animation(
+            ("card-in", id),
+            Animation::new(Duration::from_millis(260)).with_easing(gpui::ease_out_quint()),
+            move |el, t| {
+                el.left(px(slide.0 * (1.0 - t)))
+                    .top(px(slide.1 * (1.0 - t)))
+                    .opacity(t)
+            },
+        )
+        .into_any_element()
     }
 }
 
@@ -1012,11 +1098,7 @@ impl Render for PreviewStack {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The newest card sits nearest the edge (at the bottom, for the side middles).
         let vertical = self.position.vertical();
-        let mut cards: Vec<_> = self
-            .items
-            .iter()
-            .map(|item| self.card(item, cx).into_any_element())
-            .collect();
+        let mut cards: Vec<_> = self.items.iter().map(|item| self.card(item, cx)).collect();
         if vertical == Align::Start {
             cards.reverse();
         }

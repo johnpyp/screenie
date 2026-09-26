@@ -31,8 +31,11 @@ drawing) and CleanShot X.
 In overlay mode there is **one editor at a time**. While it's open, captures still
 work, and one that would open the editor (`shot --edit`, or `after_capture.edit`) goes
 to a preview card instead, preview on or not, to be picked up once this edit is done.
-Cards hide their pencil meanwhile. `screenie edit FILE` is refused, and the open
-editor says so.
+Cards hide their pencil meanwhile, and wait: none times out while the editor is open,
+and each gets its full `preview.timeout` once it closes. They stay within reach above
+the editor, rather than dimmed under its backdrop. (Surfaces on the same layer stack in
+the order they appear, so a stack that was up before the editor moves to a new surface
+over it.) `screenie edit FILE` is refused, and the open editor says so.
 
 **Save As** would open the portal file chooser underneath the overlay. So the overlay
 steps aside while the chooser is up, then comes back exactly as it was.
