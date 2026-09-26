@@ -206,6 +206,8 @@ pub(crate) struct PreviewStack {
     items: Vec<PreviewItem>,
     /// Card bounds from the last paint, for the input region and hover.
     card_bounds: Rc<RefCell<Vec<CardBounds>>>,
+    /// Where the pointer is on the surface, if it is (see `render` for why we track it).
+    pointer: Option<gpui::Point<Pixels>>,
 }
 
 impl PreviewStack {
@@ -231,7 +233,7 @@ impl PreviewStack {
             }
         })
         .detach();
-        Self { corner, output, items: Vec::new(), card_bounds: Rc::default() }
+        Self { corner, output, items: Vec::new(), card_bounds: Rc::default(), pointer: None }
     }
 
     fn timeout(cx: &App) -> Option<Duration> {
@@ -266,6 +268,22 @@ impl PreviewStack {
 
     fn item(&mut self, id: u64) -> Option<&mut PreviewItem> {
         self.items.iter_mut().find(|i| i.id == id)
+    }
+
+    /// The card under `pointer`, as last painted.
+    fn card_at(&self, pointer: Option<gpui::Point<Pixels>>) -> Option<u64> {
+        let p = pointer?;
+        self.card_bounds.borrow().iter().find(|(_, b)| b.contains(&p)).map(|(id, _)| *id)
+    }
+
+    fn hovered_card(&self) -> Option<u64> {
+        self.items.iter().find(|i| i.hovered).map(|i| i.id)
+    }
+
+    /// The pointer moved on the surface (`Some`) or left it (`None`).
+    fn pointer_at(&mut self, pointer: Option<gpui::Point<Pixels>>, cx: &mut Context<Self>) {
+        self.pointer = pointer;
+        self.pointer_on(self.card_at(pointer), cx);
     }
 
     /// The pointer is on this card (or none).
@@ -573,7 +591,7 @@ impl Render for PreviewStack {
             // Painted last: restrict input to where the cards actually are, and track
             // which card the pointer is on.
             .child(
-                canvas(|_, _, _| {}, move |_, _, window, _| {
+                canvas(|_, _, _| {}, move |_, _, window, cx| {
                     let cards = bounds.borrow().clone();
                     window.set_input_region(Some(&cards.iter().map(|(_, b)| *b).collect::<Vec<_>>()));
                     // BUG(gpui-pre 0.3.6): GPUI's hover goes stale when the pointer leaves the
@@ -584,20 +602,25 @@ impl Render for PreviewStack {
                     // events can't fix that. So hover is tracked here from the raw events
                     // instead (Capture phase, before any card sees them). Proper fix: clear
                     // the position / hit test on MouseExited upstream.
-                    let on_card = move |p: gpui::Point<Pixels>| cards.iter().find(|(_, b)| b.contains(&p)).map(|(id, _)| *id);
                     let moved = this.clone();
                     window.on_mouse_event(move |e: &gpui::MouseMoveEvent, phase, _, cx| {
                         if phase == gpui::DispatchPhase::Capture {
-                            let card = on_card(e.position);
-                            moved.update(cx, |stack, cx| stack.pointer_on(card, cx));
+                            moved.update(cx, |stack, cx| stack.pointer_at(Some(e.position), cx));
                         }
                     });
                     let left = this.clone();
                     window.on_mouse_event(move |_: &gpui::MouseExitEvent, phase, _, cx| {
                         if phase == gpui::DispatchPhase::Capture {
-                            left.update(cx, |stack, cx| stack.pointer_on(None, cx));
+                            left.update(cx, |stack, cx| stack.pointer_at(None, cx));
                         }
                     });
+                    // Cards move under a still pointer too (one dismissed, one added): re-check
+                    // after each frame, like GPUI does, but only while the pointer is here.
+                    let stack = this.read(cx);
+                    if stack.card_at(stack.pointer) != stack.hovered_card() {
+                        let this = this.clone();
+                        cx.defer(move |cx| this.update(cx, |stack, cx| stack.pointer_at(stack.pointer, cx)));
+                    }
                 })
                 .absolute()
                 .size_0(),
