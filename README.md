@@ -24,10 +24,10 @@ screenie record   # record one
   - Hardware encoding on AMD, Intel and NVIDIA GPUs
   - Pause and resume
 - Annotation editor
-  - Arrows, lines, rectangles and ellipses
-  - Pen and highlighter
-  - Text and numbered steps
-  - Pixelate, blur and spotlight
+  - Draw arrows, shapes and text
+  - Number steps
+  - Blur sensitive info
+  - Spotlight a region
   - Crop
 - Preview cards to copy, save or annotate captures
 - Status bar integration with waybar and swaybar
