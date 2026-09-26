@@ -39,8 +39,7 @@ See [the compositor matrix](crates/screenie-compositor/README.md#compositor-supp
 
 - GNOME and KDE capture needs the xdg-desktop-portal backend, which isn't written yet.
   GNOME also has no data-control protocol, so there's no clipboard there.
-- Preview cards can't be dragged into other apps yet (GPUI can't start a Wayland drag
-  with our own data).
+- Preview cards can't be dragged into other apps yet.
 - The window-mode editor tiles on tiling compositors; float it by app id (see
   [Annotating](#annotating)).
 - A recording is only saved if the daemon stops cleanly (`screenie stop`,
@@ -50,6 +49,34 @@ See [the compositor matrix](crates/screenie-compositor/README.md#compositor-supp
   pasted goes with the old daemon.
 - Recording a whole output leaves no room outside it for the pill; stop with the record
   shortcut or `screenie stop`.
+
+## Installing
+
+screenie is built from source for now. You need Rust 1.98 or newer (via
+[rustup](https://rustup.rs) or [mise](https://mise.jdx.dev)) and, on Debian/Ubuntu:
+
+```sh
+sudo apt install build-essential pkg-config \
+  libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
+  libwayland-dev libvulkan-dev \
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+  gstreamer1.0-libav gstreamer1.0-pulseaudio
+```
+
+Then build and install it:
+
+```sh
+cargo build --profile dist
+install -Dm755 target/dist/screenie ~/.local/bin/screenie
+```
+
+Recording uses VA-API when a driver is installed (`mesa-va-drivers`,
+`intel-media-va-driver`), NVENC on NVIDIA, and x264 otherwise.
+
+To upgrade, replace the binary. The next `screenie` command notices that the daemon is
+running a different build and restarts it, unless it's busy (recording, selecting,
+editing), in which case a later command does. `screenie --version` shows the build.
 
 ## Usage
 
@@ -296,93 +323,6 @@ Flameshot lets you resize the selection while annotating; screenie doesn't yet. 
 All keys are listed in [`crates/screenie-config/src/schema.rs`](crates/screenie-config/src/schema.rs).
 The daemon logs to `~/.local/state/screenie/daemon.log` (the previous run's log is
 `daemon.log.1`). Set `SCREENIE_LOG=debug` for more detail.
-
-## Building
-
-You need Rust (stable, via [mise](https://mise.jdx.dev) or rustup) and, on Debian/Ubuntu:
-
-```sh
-sudo apt install build-essential pkg-config \
-  libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
-  libwayland-dev libvulkan-dev \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-  gstreamer1.0-libav gstreamer1.0-pulseaudio
-```
-
-Then:
-
-```sh
-cargo build --release
-install -Dm755 target/release/screenie ~/.local/bin/screenie
-```
-
-`--release` is tuned for quick rebuilds while developing. For a packaged build, use
-`cargo build --profile dist` (thin LTO, one codegen unit), which lands in `target/dist/`.
-
-To upgrade, replace the binary. The next `screenie` command notices that the daemon
-is running a different build and restarts it, unless it's in use (recording, selecting,
-editing), in which case it waits for a later command. `screenie daemon` does the same
-and says what it did. `screenie --version` and
-`screenie query status --json` show the git commit each side was built from.
-
-At runtime, recording uses VA-API when a driver is present (`mesa-va-drivers`,
-`intel-media-va-driver`), and falls back to x264 otherwise.
-
-## Development
-
-The workspace is split into small crates so builds stay fast. Each one has its own
-README. Why things are the way they are is in
-[`ai-docs/key-decisions.md`](ai-docs/key-decisions.md), and the bugs that took real
-digging are in [`ai-docs/key-lessons.md`](ai-docs/key-lessons.md).
-
-| Crate | Role |
-| --- | --- |
-| `screenie` | The CLI binary |
-| `screenie-app` | The daemon: request routing, capture/record flows, preview cards, recording controls |
-| `screenie-selector` | The capture overlay and its (unit-tested) interaction model |
-| `screenie-editor` | The annotation editor (overlay or window) and its (unit-tested) interaction model |
-| `screenie-annotate` | Annotation documents and their tiny-skia renderer (shared by canvas and export) |
-| `screenie-record` | GStreamer recording engine |
-| `screenie-capture` | "Freeze the desktop" facade and backend selection |
-| `screenie-wayland` | ext-image-copy-capture / wlr-screencopy, stills and streams |
-| `screenie-compositor` | Window geometry via Sway / Hyprland / niri IPC |
-| `screenie-ui-kit` | Shared GPUI look: fonts, icons, HUD widgets, layer-shell helpers |
-| `screenie-ipc` | CLI ⇄ daemon protocol and socket |
-| `screenie-config` | Config schema, XDG paths, file naming |
-| `screenie-state` | What's remembered between runs: a versioned, migrated state file |
-| `screenie-core` | Geometry, images, snapshots, frame sources |
-
-A plain `cargo build` builds just the app. Pass `--workspace` to check or test
-everything: `cargo clippy --workspace --all-targets`, `cargo test --workspace`.
-
-You don't need a display to develop. `tools/` has a headless sway session with two
-mixed-DPI outputs, a virtual pointer and keyboard, and an image diff:
-
-```sh
-tools/session.sh start && source $XDG_RUNTIME_DIR/screenie-session.env
-cargo run -p screenie -- shot
-cargo run -p wlinput -- drag 100 100 800 600 15
-tools/session.sh shot .cache/session.png
-python3 tools/imgdiff.py a.png b.png
-uv run --project tests/e2e tools/rec_stress.py screen 6   # recording frame rate at 4K
-```
-
-`tests/e2e` drives the real daemon in that session with pytest: keyboard handoff,
-the editor's close/save flows, Save As, remembered state, interface scale. Each test
-gets its own config, state and home, so nothing touches yours. See its
-[README](tests/e2e/README.md).
-
-```sh
-mise run test:e2e                 # or: mise run test:e2e -- -k save_as -x
-```
-
-Reference projects (Screendrop, gpui-component…) are
-cloned into `references/` with `mise run refs`, along with any listed in your own
-`references/manifest.local.toml` (gitignored).
-
-The screenshots and the tour above come from [`tools/demo`](tools/demo/README.md): a
-headless demo desktop, a scripted run through the features, and a renderer for the video.
 
 ## License
 
