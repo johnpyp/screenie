@@ -25,7 +25,8 @@ pub fn run(commit: &'static str) -> anyhow::Result<()> {
     // and nothing it does depends on one (the CLI sends absolute paths).
     std::env::set_current_dir("/")?;
     let socket = Paths::get().socket();
-    let listener = screenie_ipc::bind_listener(&socket)?;
+    // Held until `run` returns, when it removes the socket.
+    let (listener, _claim) = screenie_ipc::bind_listener(&socket)?;
     tracing::info!(socket = %socket.display(), "daemon listening");
     let incoming = server::start(listener);
 
@@ -46,7 +47,5 @@ pub fn run(commit: &'static str) -> anyhow::Result<()> {
             cx.spawn(async move |cx| daemon::watch_config(cx).await)
                 .detach();
         });
-
-    let _ = std::fs::remove_file(&socket);
     Ok(())
 }

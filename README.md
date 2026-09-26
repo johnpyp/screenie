@@ -192,8 +192,8 @@ editor:
 ```
 
 All keys are listed in [`crates/screenie-config/src/schema.rs`](crates/screenie-config/src/schema.rs).
-The daemon logs to `~/.local/state/screenie/daemon.log`. Set `SCREENIE_LOG=debug` for
-more detail.
+The daemon logs to `~/.local/state/screenie/daemon.log` (the previous run's log is
+`daemon.log.1`). Set `SCREENIE_LOG=debug` for more detail.
 
 ## Building
 

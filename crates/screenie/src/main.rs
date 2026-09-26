@@ -277,13 +277,18 @@ fn main() -> ExitCode {
     }
 }
 
+/// Log to stderr: a terminal, or the daemon's log file. Colour only for a terminal, so
+/// the file reads cleanly in `less` and `grep`; local time, like the capture file names.
 fn init_logging(daemon: bool) {
+    use std::io::IsTerminal;
     let default = if daemon { "info" } else { "warn" };
     let filter = tracing_subscriber::EnvFilter::try_from_env("SCREENIE_LOG")
         .unwrap_or_else(|_| default.into());
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
+        .with_ansi(std::io::stderr().is_terminal())
+        .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
         .init();
 }
 

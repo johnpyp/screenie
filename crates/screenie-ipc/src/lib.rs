@@ -3,11 +3,16 @@
 //! The daemon listens on `$XDG_RUNTIME_DIR/screenie/<wayland-display>.sock`. The client
 //! connects, and if nothing is listening it starts `screenie daemon` in the background and
 //! retries, so users never manage the daemon by hand.
+//!
+//! Two locks beside the socket keep that to one daemon per session, however many
+//! commands start at once: the daemon holds `<display>.lock` for as long as it runs, and
+//! a client holds `<display>.spawn.lock` while it decides whether to start one.
 
+mod lock;
 mod protocol;
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -15,6 +20,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use lock::FileLock;
 pub use protocol::*;
 use screenie_config::Paths;
 
@@ -24,8 +30,10 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("malformed message: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("the daemon closed the connection without replying")]
-    Disconnected,
+    #[error("the daemon closed the connection without replying; see {log}")]
+    Disconnected { log: PathBuf },
+    #[error("another screenie daemon is already running")]
+    AlreadyRunning,
     #[error("the daemon did not start; see {log}")]
     DaemonDidNotStart { log: PathBuf },
     #[error("the outdated daemon did not exit; run `screenie quit` and retry")]
@@ -119,6 +127,10 @@ impl Client {
     /// build is replaced first, unless it's busy, in which case it's used as-is and
     /// replaced on a later call.
     pub fn connect_or_spawn() -> Result<Client> {
+        // One client at a time decides whether to start a daemon, so commands fired
+        // together (at login, say) start one between them. The others wait here, then
+        // find it running.
+        let _deciding = FileLock::acquire(&spawn_lock_path(&Paths::get().socket()))?;
         match Self::take_over()? {
             Takeover::Current(_) | Takeover::Busy(_) => return Self::connect(),
             Takeover::NotRunning | Takeover::Replaced(_) => {}
@@ -157,7 +169,9 @@ impl Client {
     pub fn request(mut self, request: &Request) -> Result<Response> {
         write_message(&mut self.stream, request)?;
         let mut reader = BufReader::new(self.stream);
-        read_message(&mut reader)?.ok_or(Error::Disconnected)
+        read_message(&mut reader)?.ok_or_else(|| Error::Disconnected {
+            log: daemon_log_path(),
+        })
     }
 
     /// Send [`Request::Watch`] and call `on_status` for every update until the daemon exits
@@ -190,12 +204,17 @@ pub enum Takeover {
 }
 
 /// Start `screenie daemon` detached from this process's session, logging to the state
-/// directory.
+/// directory. The previous daemon's log is kept as `daemon.log.1`, so the next command
+/// after a crash doesn't erase what the crash left.
 fn spawn_daemon() -> Result<()> {
     let exe = std::env::current_exe()?;
     let log_path = daemon_log_path();
     if let Some(dir) = log_path.parent() {
         std::fs::create_dir_all(dir)?;
+    }
+    match std::fs::rename(&log_path, log_path.with_extension("log.1")) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+        _ => {}
     }
     let log = std::fs::File::create(&log_path)?;
     let mut cmd = Command::new(exe);
@@ -223,22 +242,53 @@ fn detach(cmd: &mut Command) {
     }
 }
 
-/// Remove a stale socket file and bind a fresh listener. Fails if another daemon is
-/// actually listening.
-pub fn bind_listener(path: &Path) -> Result<std::os::unix::net::UnixListener> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+/// The lock a client holds while it decides whether to start a daemon.
+fn spawn_lock_path(socket: &Path) -> PathBuf {
+    socket.with_extension("spawn.lock")
+}
+
+/// The lock the daemon holds for as long as it runs.
+fn daemon_lock_path(socket: &Path) -> PathBuf {
+    socket.with_extension("lock")
+}
+
+/// A daemon's claim on its session's socket: while it's held, no other daemon can
+/// listen there. Dropping it removes the socket, then lets the next daemon in.
+#[derive(Debug)]
+pub struct SocketClaim {
+    socket: PathBuf,
+    _lock: FileLock,
+}
+
+impl Drop for SocketClaim {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.socket);
     }
+}
+
+/// Become the session's daemon: take the daemon lock, replace a stale socket file and
+/// listen on it. Fails with [`Error::AlreadyRunning`] if another daemon has it.
+pub fn bind_listener(path: &Path) -> Result<(UnixListener, SocketClaim)> {
+    // A daemon that was just asked to quit may still be on its way out: give it a moment.
+    claim_socket(path, Duration::from_secs(3))
+}
+
+fn claim_socket(path: &Path, patience: Duration) -> Result<(UnixListener, SocketClaim)> {
+    let lock = FileLock::acquire_within(&daemon_lock_path(path), patience)?
+        .ok_or(Error::AlreadyRunning)?;
+    // A daemon from before the lock existed doesn't take it, but does answer.
     if UnixStream::connect(path).is_ok() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::AddrInUse,
-            "another screenie daemon is already running",
-        )));
+        return Err(Error::AlreadyRunning);
     }
     let _ = std::fs::remove_file(path);
-    Ok(std::os::unix::net::UnixListener::bind(path)?)
+    let listener = UnixListener::bind(path)?;
+    Ok((
+        listener,
+        SocketClaim {
+            socket: path.to_path_buf(),
+            _lock: lock,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -282,6 +332,22 @@ mod tests {
         write_message(&mut buf, &req).unwrap();
         let back: Request = read_message(&mut buf.as_slice()).unwrap().unwrap();
         assert_eq!(back, req);
+    }
+
+    #[test]
+    fn one_daemon_holds_the_socket_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("screenie-ipc-{}", std::process::id()));
+        let socket = dir.join("wayland-test.sock");
+        let (_listener, claim) = claim_socket(&socket, Duration::ZERO).unwrap();
+        assert!(matches!(
+            claim_socket(&socket, Duration::ZERO),
+            Err(Error::AlreadyRunning)
+        ));
+        assert!(socket.exists(), "a failed claim leaves the socket alone");
+        drop(claim);
+        assert!(!socket.exists(), "the socket goes with its claim");
+        let (_listener, _claim) = claim_socket(&socket, Duration::ZERO).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
