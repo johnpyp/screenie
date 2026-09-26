@@ -16,8 +16,11 @@ drawing) and CleanShot X.
 
 - **`overlay`** (default), like Flameshot. A layer-shell surface covers the capture's
   screen and dims it. The capture sits exactly where it was taken, so annotating feels
-  like a continuation of selecting. Cropping keeps it in place too. A capture that isn't
-  wholly on one screen, or a file from `screenie edit`, is centred and fitted instead.
+  like a continuation of selecting (`--edit`). Cropping keeps it in place too.
+  Otherwise it's centred at its on-screen size: when picked up later from a preview
+  card, for `screenie edit FILE`, or if it isn't wholly on one screen. A centred
+  capture over 95% of the screen's width or height is shrunk to within 80% of both, so
+  it can't be mistaken for the screen itself.
   The overlay takes the keyboard until you're done. On compositors without layer-shell
   (GNOME) it's a fullscreen window.
 - **`window`**: a regular, resizable window (app id `dev.johnpyp.Screenie`).

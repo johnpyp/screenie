@@ -322,6 +322,8 @@ impl PreviewStack {
         }
         let path = item.path.clone();
         capture.output = capture.output.or_else(|| self.output.clone());
+        // Picked up again later, it opens centred rather than where it was taken.
+        capture.placement = None;
         self.remove(id, cx);
         let config = &Daemon::get(cx).config.screenshot.after_capture;
         let actions = crate::deliver::Actions::resolve(config, &Default::default(), None, false);

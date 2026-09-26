@@ -42,8 +42,11 @@ pub type OutputHandler = Rc<dyn Fn(Output, &mut App) -> anyhow::Result<Option<St
 
 /// Space kept free around the image for the bars: top, bottom, sides.
 const WINDOW_INSETS: (f32, f32, f32) = (64.0, 68.0, 28.0);
-/// As an overlay, when the capture isn't shown in place: the bars go below it.
-const OVERLAY_INSETS: (f32, f32, f32) = (48.0, 132.0, 48.0);
+/// As an overlay, a capture not shown in place is centred at its on-screen size, unless
+/// it nearly fills the screen (over this share of its width or height): then it's
+/// shrunk to within `CENTRED_FIT` of both, so it can't be mistaken for the screen itself.
+const CENTRED_LIMIT: f32 = 0.95;
+const CENTRED_FIT: f32 = 0.8;
 /// Distance between the capture and the bars hanging off it, between bars, and from
 /// the screen edges.
 const BAR_GAP: f32 = 10.0;
@@ -381,7 +384,10 @@ impl Editor {
         }
         // In crop mode the whole image shows, so the crop can grow again.
         let shown = if self.session.crop_edit().is_some() { doc.bounds() } else { doc.visible() };
-        let (inset_top, inset_bottom, inset_side) = if self.overlay() { OVERLAY_INSETS } else { WINDOW_INSETS };
+        if self.overlay() {
+            return self.centred(bounds, shown);
+        }
+        let (inset_top, inset_bottom, inset_side) = WINDOW_INSETS;
         let avail_w = (f32::from(bounds.size.width) - inset_side * 2.0).max(40.0);
         let avail_h = (f32::from(bounds.size.height) - inset_top - inset_bottom).max(40.0);
         // Never beyond the capture's own size on screen (logical 1:1), so it stays sharp.
@@ -389,6 +395,26 @@ impl Editor {
         let (w, h) = (shown.width as f32 * zoom, shown.height as f32 * zoom);
         let left = f32::from(bounds.origin.x) + inset_side + (avail_w - w) / 2.0;
         let top = f32::from(bounds.origin.y) + inset_top + (avail_h - h) / 2.0;
+        Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom }
+    }
+
+    /// An overlay's capture, when it isn't in place: logical 1:1, or shrunk if it nearly
+    /// fills the screen, and centred together with the bars below it.
+    fn centred(&self, bounds: Bounds<Pixels>, shown: Rect) -> Viewport {
+        let doc = self.session.doc();
+        let (screen_w, screen_h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+        let (w, h) = (shown.width as f32 / doc.scale(), shown.height as f32 / doc.scale());
+        let fit = if w > screen_w * CENTRED_LIMIT || h > screen_h * CENTRED_LIMIT {
+            (screen_w * CENTRED_FIT / w).min(screen_h * CENTRED_FIT / h)
+        } else {
+            1.0
+        };
+        let zoom = fit / doc.scale();
+        let (w, h) = (w * fit, h * fit);
+        let bars = self.bars.get().map_or(100.0, |b| f32::from(b.height)) + BAR_GAP;
+        let top = if h + bars + SCREEN_MARGIN * 2.0 <= screen_h { (screen_h - h - bars) / 2.0 } else { (screen_h - h) / 2.0 };
+        let left = f32::from(bounds.origin.x) + (screen_w - w) / 2.0;
+        let top = f32::from(bounds.origin.y) + top;
         Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom }
     }
 
