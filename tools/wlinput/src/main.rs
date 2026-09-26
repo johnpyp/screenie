@@ -172,6 +172,13 @@ fn main() {
         kb
     });
     queue.roundtrip(&mut State).expect("roundtrip");
+    // Clients drop the first key from a keyboard whose keymap they haven't seen yet, so
+    // introduce it with a no-op modifiers event first.
+    if let Some(kb) = &keyboard {
+        kb.modifiers(0, 0, 0, 0);
+        queue.roundtrip(&mut State).expect("roundtrip");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 
     let mut input = Input {
         conn: conn.clone(),

@@ -28,6 +28,24 @@ and does everything itself. You don't pipe a selector into a grabber into an enc
 7. **Configurable without editing files.** XDG TOML config that the settings window edits
    live; hand edits are picked up live too.
 
+## The editor
+
+The annotation editor is where screenie most easily goes wrong: it could turn into a
+paint program. The bar is Screendrop's and CleanShot's editors, with Flameshot's
+"nothing to set up" speed:
+
+- **One key per tool, no set-up.** Pick a tool with a letter, drag, done. The tool
+  stays armed and the new shape is selected, so adjusting it is one drag away.
+- **An object canvas.** Every shape stays editable (move, resize, restyle, delete)
+  until export, and cropping is non-destructive.
+- **Quiet chrome.** One tool bar, and a style bar showing only what applies right now.
+  Selections show corner handles and nothing else.
+- **What you see is the file.** The canvas and the export share one renderer, and
+  sizes are in logical pixels, so HiDPI captures look the way they did on screen.
+- **Fast.** Only the shape under your hands is re-rendered while it changes.
+- **Finishing is one key.** Enter saves, copies and closes. Esc backs out one level at
+  a time and never throws work away without asking.
+
 ## Non-goals
 
 - X11.

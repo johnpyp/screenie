@@ -35,7 +35,8 @@ const MAX_CARDS: usize = 5;
 
 #[derive(Clone)]
 pub(crate) enum Media {
-    Screenshot { png: Arc<Vec<u8>> },
+    /// `scale` is image pixels per logical pixel, for the editor.
+    Screenshot { image: Image, scale: f32, png: Arc<Vec<u8>> },
     Recording { duration: Duration },
 }
 
@@ -53,9 +54,9 @@ pub(crate) struct PreviewItem {
 }
 
 impl PreviewItem {
-    pub async fn screenshot(image: Image, png: Arc<Vec<u8>>, path: Option<PathBuf>, cx: &mut AsyncApp) -> Self {
+    pub async fn screenshot(image: Image, scale: f32, png: Arc<Vec<u8>>, path: Option<PathBuf>, cx: &mut AsyncApp) -> Self {
         let bytes = png.len() as u64;
-        Self::new(Media::Screenshot { png }, image, bytes, path, cx).await
+        Self::new(Media::Screenshot { image: image.clone(), scale, png }, image, bytes, path, cx).await
     }
 
     pub async fn recording(finished: screenie_record::Finished, cx: &mut AsyncApp) -> Self {
@@ -155,7 +156,7 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
     };
     let corner = placement.corner;
     let opened = cx.open_window(layer_options(cx, &spec), |window, cx| {
-        let stack = cx.new(|cx| PreviewStack::new(corner, window, cx));
+        let stack = cx.new(|cx| PreviewStack::new(corner, output, window, cx));
         stack.update(cx, |s, cx| {
             s.push(item, cx);
         });
@@ -169,13 +170,15 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
 
 pub(crate) struct PreviewStack {
     corner: Corner,
+    /// The output the stack is on, where editors open too.
+    output: Option<String>,
     items: Vec<PreviewItem>,
     /// Card bounds from the last paint, for the input region.
     card_bounds: Rc<RefCell<Vec<Bounds<Pixels>>>>,
 }
 
 impl PreviewStack {
-    fn new(corner: Corner, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(corner: Corner, output: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Nothing is interactive until the first card is laid out.
         window.set_input_region(Some(&[]));
         cx.spawn_in(window, async move |this, cx| {
@@ -197,7 +200,7 @@ impl PreviewStack {
             }
         })
         .detach();
-        Self { corner, items: Vec::new(), card_bounds: Rc::default() }
+        Self { corner, output, items: Vec::new(), card_bounds: Rc::default() }
     }
 
     fn timeout(cx: &App) -> Option<Duration> {
@@ -252,7 +255,7 @@ impl PreviewStack {
         cx.background_executor()
             .spawn(async move {
                 let result = match (media, path) {
-                    (Media::Screenshot { png }, path) => {
+                    (Media::Screenshot { png, .. }, path) => {
                         clipboard::copy(clipboard::Content::Image { png: png.to_vec(), file: path.as_deref() })
                     }
                     (Media::Recording { .. }, Some(path)) => clipboard::copy(clipboard::Content::File(&path)),
@@ -274,7 +277,7 @@ impl PreviewStack {
             self.remove(id, cx);
             return;
         }
-        let Media::Screenshot { png } = item.media.clone() else { return };
+        let Media::Screenshot { png, .. } = item.media.clone() else { return };
         let path = crate::deliver::screenshot_path(&Daemon::get(cx).config);
         match crate::deliver::write_atomic(&path, &png) {
             Ok(()) => {
@@ -292,6 +295,16 @@ impl PreviewStack {
         let Some(path) = self.item(id).and_then(|i| i.path.clone()) else { return };
         cx.open_with_system(&path);
         self.remove(id, cx);
+    }
+
+    /// Annotate the capture; the card makes way for the editor.
+    fn edit(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(item) = self.item(id) else { return };
+        let Media::Screenshot { image, scale, .. } = item.media.clone() else { return };
+        let path = item.path.clone();
+        let output = self.output.clone();
+        self.remove(id, cx);
+        crate::editor::open(image, scale, path, output, cx);
     }
 
     fn delete(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -386,6 +399,10 @@ impl PreviewStack {
                 .child(pill_button(if saved { "Show" } else { "Save" }, Self::save_or_reveal, cx))
                 .child(div().absolute().top(px(6.)).left(px(6.)).child(corner(Icon::Close, "Dismiss", Self::remove, cx)))
                 .child(div().absolute().bottom(px(6.)).left(px(6.)).child(corner(Icon::Trash, "Delete", Self::delete, cx)))
+                .children(
+                    matches!(item.media, Media::Screenshot { .. })
+                        .then(|| div().absolute().top(px(6.)).right(px(6.)).child(corner(Icon::Pen, "Annotate", Self::edit, cx))),
+                )
                 .child(
                     div()
                         .absolute()

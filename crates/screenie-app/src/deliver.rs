@@ -72,6 +72,7 @@ pub(crate) fn encode_png(image: &Image) -> anyhow::Result<Vec<u8>> {
 /// Run the after-capture actions for a screenshot.
 pub(crate) async fn screenshot(
     image: Image,
+    scale: f32,
     actions: Actions,
     config: Config,
     output_name: Option<String>,
@@ -110,11 +111,12 @@ pub(crate) async fn screenshot(
         .await?;
     tracing::info!(elapsed = ?started.elapsed(), path = ?path, "screenshot delivered");
 
+    let saved = if temporary { None } else { path.clone() };
     if actions.edit {
-        tracing::warn!("opening captures in the editor isn't available yet");
-    }
-    if actions.preview {
-        let item = PreviewItem::screenshot(image, Arc::new(png), if temporary { None } else { path.clone() }, cx).await;
+        // The editor takes the preview card's place.
+        cx.update(|cx| crate::editor::open(image, scale, saved, output_name, cx));
+    } else if actions.preview {
+        let item = PreviewItem::screenshot(image, scale, Arc::new(png), saved, cx).await;
         cx.update(|cx| preview::show(item, output_name, cx));
     }
     Ok(Delivered { path, temporary })

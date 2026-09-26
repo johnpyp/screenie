@@ -1,0 +1,12 @@
+[package]
+name = "screenie-annotate"
+description = "Annotation documents (a screenshot plus editable shapes) and their tiny-skia renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+tiny-skia.workspace = true
+cosmic-text = "0.19"
+tracing.workspace = true

@@ -48,7 +48,7 @@ ashpd = "0.13"
 # UI: GPUI (Zed's GPU UI framework, via the gpui-pre snapshots) and gpui-component.
 gpui = { package = "gpui-pre", version = "=0.3.6" }
 gpui-kit = { version = "=0.6.6", default-features = false, features = ["component", "assets"] }
-tiny-skia = "0.11"
+tiny-skia = "0.12"
 gst = { package = "gstreamer", version = "0.25" }
 gst-app = { package = "gstreamer-app", version = "0.25" }
 gst-video = { package = "gstreamer-video", version = "0.25" }

@@ -20,6 +20,8 @@ pub(crate) struct Daemon {
     /// A selector (or other capture UI) is on screen.
     pub capturing: bool,
     pub recording: Option<crate::recording::Active>,
+    /// The style the last editor closed with, for the next one.
+    pub editor_style: Option<screenie_annotate::Style>,
     commit: &'static str,
     watchers: Vec<async_channel::Sender<Status>>,
 }
@@ -28,7 +30,7 @@ impl Global for Daemon {}
 
 impl Daemon {
     pub fn new(config: Config, capture: Arc<CaptureContext>, commit: &'static str) -> Self {
-        Self { config, capture, last_region: None, capturing: false, recording: None, commit, watchers: Vec::new() }
+        Self { config, capture, last_region: None, capturing: false, recording: None, editor_style: None, commit, watchers: Vec::new() }
     }
 
     pub fn get(cx: &App) -> &Daemon {
@@ -101,7 +103,10 @@ async fn handle(request: Request, cx: &mut AsyncApp) -> Response {
         Request::RecordCancel => crate::recording::cancel(cx).await,
         Request::RecordPause => cx.update(crate::recording::toggle_pause),
         Request::Settings => Response::error("the settings window is not implemented yet"),
-        Request::Edit { .. } => Response::error("the editor is not implemented yet"),
+        Request::Edit { path } => match crate::editor::open_file(path, cx).await {
+            Ok(()) => Response::Ok,
+            Err(e) => Response::error(format!("{e:#}")),
+        },
         Request::Pin { .. } => Response::error("pinning is not implemented yet"),
         Request::Watch => Response::error("watch is a streaming request"),
     }

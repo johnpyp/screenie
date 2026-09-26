@@ -128,7 +128,8 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
     cx.update(|cx| Daemon::update(cx, |d, _| d.last_region = Some(region)));
 
     let actions = Actions::resolve(&config.screenshot.after_capture, &req.actions, req.output.clone(), req.want_file);
-    deliver::screenshot(image, actions, config, output_name, cx).await.map(Some)
+    let scale = (image.width() as f64 / region.width) as f32;
+    deliver::screenshot(image, scale, actions, config, output_name, cx).await.map(Some)
 }
 
 /// The output showing most of `region`.

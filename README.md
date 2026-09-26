@@ -17,7 +17,8 @@ Everything is built in: selector, capture, clipboard, encoder and UI. You don't 
 | Frozen overlay with loupe, window snapping, pixel-grid snapping on fractional scales | ✅ |
 | Clipboard (image + file), saving, floating preview cards | ✅ |
 | Screen recording: MP4 (H.264/AAC), VA-API or x264, system audio + mic, pause | ✅ |
-| Annotation editor, pinning, settings window | planned |
+| Annotation editor: arrows, shapes, text, steps, pixelate/blur, spotlight, crop | ✅ |
+| Pinning, settings window | planned |
 | GNOME / KDE (xdg-desktop-portal capture) | planned |
 | OCR, GIF export | later |
 
@@ -68,9 +69,26 @@ In the selector:
 | Arrows | Nudge an editable selection (Shift ×10, Ctrl resizes) |
 | M | Toggle the magnifier |
 
-What happens after a capture (copy, save, preview) is configurable, and can be
-overridden per call with `--copy/--no-copy`, `--save/--no-save`, `--no-preview` and
-`-o FILE`.
+What happens after a capture (copy, save, preview, edit) is configurable, and can be
+overridden per call with `--copy/--no-copy`, `--save/--no-save`, `--no-preview`,
+`--edit` and `-o FILE`.
+
+### Annotating
+
+```sh
+screenie shot --edit             # capture, then annotate
+screenie edit shot.png           # annotate an existing PNG
+```
+
+Or hover a preview card and click the pencil. Each tool has one key: **A**rrow,
+**L**ine, **R**ectangle, **O** ellipse, **P**en, **H**ighlighter, **T**ext,
+**N**umbered step, **B** pixelate/blur, **S**potlight, **C**rop, **V** select. Keys
+`1`–`5` pick a size and **F** toggles fill. Enter saves, copies and closes, and Esc
+backs out. See [the editor doc](docs/features/editor.md) for the rest.
+
+On tiling compositors the editor opens as a normal window. To float it, match its app
+id `dev.johnpyp.Screenie`, e.g. on Hyprland:
+`windowrule = float, class:dev.johnpyp.Screenie`.
 
 ### Recording
 
@@ -122,6 +140,11 @@ timeout = 6               # seconds; 0 keeps cards until dismissed
 [selector]
 capture_on_release = true # false: adjust the selection, then press Enter
 dim = 0.45
+
+[editor]
+palette = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#1c1c1e"]
+default_color = "#ff3b30"
+stroke_width = 4.0        # logical pixels; 2, 4, 6, 8, 12 are the presets
 ```
 
 All keys are listed in [`crates/screenie-config/src/schema.rs`](crates/screenie-config/src/schema.rs).
@@ -168,6 +191,8 @@ per-feature docs are in [`docs/features/`](docs/features), and known problems ar
 | `screenie` | The CLI binary |
 | `screenie-app` | The daemon: request routing, capture/record flows, preview cards, recording controls |
 | `screenie-selector` | The capture overlay and its (unit-tested) interaction model |
+| `screenie-editor` | The annotation editor window and its (unit-tested) interaction model |
+| `screenie-annotate` | Annotation documents and their tiny-skia renderer (shared by canvas and export) |
 | `screenie-record` | GStreamer recording engine |
 | `screenie-capture` | "Freeze the desktop" facade and backend selection |
 | `screenie-wayland` | ext-image-copy-capture / wlr-screencopy, stills and streams |
@@ -193,5 +218,5 @@ cloned into `references/` with `mise run refs`.
 
 ## License
 
-MIT. The bundled Inter font is under the SIL Open Font License, and the Lucide icons
+MIT. The bundled Inter font (in `assets/fonts`) is under the SIL Open Font License, and the Lucide icons
 are under ISC.

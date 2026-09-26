@@ -1,0 +1,17 @@
+[package]
+name = "screenie-editor"
+description = "The annotation editor window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+screenie-annotate.workspace = true
+screenie-ui-kit.workspace = true
+gpui.workspace = true
+gpui-kit.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+image = { version = "0.25", default-features = false }
+smallvec = "1"

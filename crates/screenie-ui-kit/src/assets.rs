@@ -12,7 +12,7 @@ use gpui::{App, AssetSource, IntoElement, SharedString, Styled, Svg, svg};
 struct Icons;
 
 #[derive(rust_embed::RustEmbed)]
-#[folder = "fonts"]
+#[folder = "../../assets/fonts"]
 #[include = "*.otf"]
 struct Fonts;
 

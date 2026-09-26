@@ -4,6 +4,14 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 
 ## Open
 
+- **The editor redraws its composite on the CPU.** Every settled change (a finished
+  stroke, undo, a style change) re-renders the full-size image with tiny-skia and
+  re-uploads it. That takes tens of milliseconds on a 4K capture. Moving a spotlight
+  re-renders a full-size tile per frame. Fine so far; if it isn't, render
+  the composite on a background thread or split it into tiles.
+- **Editor windows tile on tiling compositors.** Wayland has no "please float" hint
+  for toplevels. The README documents a float rule for the app id.
+
 - **A killed daemon loses its running recording.** On SIGTERM/SIGKILL (logout, OOM)
   the faststart MP4 is never finalized. `screenie quit` saves properly. Options:
   handle SIGTERM by stopping, or mux with mp4mux's robust (moov-reserving) mode.
@@ -29,6 +37,9 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
   is fine for tiled windows but can be wrong for overlapping floats.
 
 ## Fixed
+
+- `screenie shot --edit` / `after_capture.edit` did nothing (the editor didn't exist).
+  They open the annotation editor now.
 
 - "no supported shm format among [Bgr888]" on Hyprland: compositors that offer only
   the output's native packed 24-bit format are now supported. `auto` also falls back
