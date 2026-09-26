@@ -91,11 +91,12 @@ copy, save, annotate or dismiss the capture.
 
 ```sh
 screenie shot                      # pick an area, a window or a screen
-screenie shot window               # pick a window
-screenie shot screen               # the focused screen, right away
+screenie shot window               # the focused window
+screenie shot window -i            # click a window
+screenie shot screen               # the focused screen
+screenie shot screen -i            # click a screen
 screenie shot screen --output-name DP-1
 screenie shot all                  # every screen as one image
-screenie shot active               # the focused window, right away
 screenie shot last                 # the same region as last time
 screenie shot --region "100,100 800x600"
 screenie shot --delay 3 --cursor
@@ -180,8 +181,9 @@ for_window [app_id="dev.johnpyp.Screenie"] floating enable
 
 ```sh
 screenie record                  # pick an area, a window or a screen, then press Record
+screenie record window           # the focused window
+screenie record window -i        # click a window
 screenie record screen           # the focused screen
-screenie record window           # pick a window
 screenie record --audio --mic    # with system audio and the microphone
 screenie pause                   # pause, or resume
 screenie stop                    # stop and save (or run `screenie record` again)

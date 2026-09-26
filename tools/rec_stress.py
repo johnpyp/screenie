@@ -58,7 +58,7 @@ def record(big: str) -> Daemon:
         wait_for(lambda: session.window("simple-egl"), "the demo", timeout=10)
         time.sleep(1)
         if mode == "window":
-            daemon.spawn("record", "window", "-o", str(out))
+            daemon.spawn("record", "window", "-i", "-o", str(out))
             daemon.wait_log(r"selector keyboard focus .*active=true")
             o = session.outputs()[big].rect
             input.click(o.x + o.width / 2, o.y + o.height / 2)

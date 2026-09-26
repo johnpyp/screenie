@@ -74,17 +74,13 @@ enum ShotTarget {
     /// Drag an area, click a window, or press Enter to capture the whole screen.
     #[default]
     Pick,
-    /// Pick a window.
+    /// The focused window, or the one you click with `-i`.
     Window,
-    /// Pick a screen interactively.
-    PickScreen,
-    /// The focused screen, immediately.
+    /// The focused screen, or the one you click with `-i`.
     Screen,
-    /// All screens as one image, immediately.
+    /// All screens as one image.
     All,
-    /// The focused window, immediately.
-    Active,
-    /// The same region as last time, immediately.
+    /// The same region as last time.
     Last,
 }
 
@@ -137,11 +133,14 @@ struct ShotArgs {
     /// What to capture.
     #[arg(value_enum, default_value_t)]
     target: ShotTarget,
+    /// Choose the window or screen in the selector.
+    #[arg(short, long)]
+    interactive: bool,
     /// Capture this region instead: "X,Y WxH" or "WxH+X+Y" in logical coordinates.
-    #[arg(short, long, value_parser = parse_rect, conflicts_with = "target")]
+    #[arg(short, long, value_parser = parse_rect, conflicts_with_all = ["target", "interactive"])]
     region: Option<Rect>,
     /// Capture this output (connector name, e.g. DP-1).
-    #[arg(long)]
+    #[arg(long, conflicts_with = "interactive")]
     output_name: Option<String>,
     /// Wait this many seconds first.
     #[arg(short, long, default_value_t = 0)]
@@ -161,19 +160,24 @@ enum RecordTarget {
     /// Pick an area, window or screen, then press Record.
     #[default]
     Pick,
+    /// The focused window, or the one you click with `-i`.
     Window,
-    /// The focused screen, immediately.
+    /// The focused screen, or the one you click with `-i`.
     Screen,
-    /// The same region as last time, immediately.
+    /// The same region as last time.
     Last,
 }
 
 #[derive(Args)]
 struct RecordArgs {
+    /// What to record.
     #[arg(value_enum, default_value_t)]
     target: RecordTarget,
+    /// Choose the window or screen in the selector.
+    #[arg(short, long)]
+    interactive: bool,
     /// Record this region instead: "X,Y WxH" or "WxH+X+Y" in logical coordinates.
-    #[arg(short, long, value_parser = parse_rect, conflicts_with = "target")]
+    #[arg(short, long, value_parser = parse_rect, conflicts_with_all = ["target", "interactive"])]
     region: Option<Rect>,
     /// Record system audio.
     #[arg(long)]
@@ -191,6 +195,29 @@ struct RecordArgs {
 
 fn parse_rect(s: &str) -> Result<Rect, String> {
     s.parse()
+}
+
+/// A window or screen: the focused one, or the one the user picks with `-i`.
+fn focused_or_picked(interactive: bool, mode: SelectMode) -> Target {
+    match (interactive, mode) {
+        (true, mode) => Target::Select { mode },
+        (false, SelectMode::Window) => Target::ActiveWindow,
+        (false, _) => Target::Screen { output: None },
+    }
+}
+
+/// `-i` only means something for a window or a screen.
+fn check_interactive(subcommand: &str, interactive: bool, pickable: bool) {
+    if interactive && !pickable {
+        let mut cli = <Cli as clap::CommandFactory>::command();
+        cli.build();
+        let cmd = cli.find_subcommand_mut(subcommand).expect("a subcommand");
+        cmd.error(
+            clap::error::ErrorKind::ArgumentConflict,
+            "--interactive applies to `window` and `screen`",
+        )
+        .exit();
+    }
 }
 
 fn main() -> ExitCode {
@@ -296,15 +323,22 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
     let response = match command {
         Command::Shot(args) => return shot(args),
         Command::Record(args) => {
+            check_interactive(
+                "record",
+                args.interactive,
+                matches!(args.target, RecordTarget::Window | RecordTarget::Screen),
+            );
             let target = match (args.region, args.target) {
                 (Some(rect), _) => Target::Region { rect },
                 (None, RecordTarget::Pick) => Target::Select {
                     mode: SelectMode::Area,
                 },
-                (None, RecordTarget::Window) => Target::Select {
-                    mode: SelectMode::Window,
-                },
-                (None, RecordTarget::Screen) => Target::Screen { output: None },
+                (None, RecordTarget::Window) => {
+                    focused_or_picked(args.interactive, SelectMode::Window)
+                }
+                (None, RecordTarget::Screen) => {
+                    focused_or_picked(args.interactive, SelectMode::Screen)
+                }
                 (None, RecordTarget::Last) => Target::LastRegion,
             };
             request(&Request::Record(RecordRequest {
@@ -370,6 +404,11 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
 }
 
 fn shot(args: ShotArgs) -> anyhow::Result<ExitCode> {
+    check_interactive(
+        "shot",
+        args.interactive,
+        matches!(args.target, ShotTarget::Window | ShotTarget::Screen),
+    );
     let target = match (args.region, args.output_name) {
         (Some(rect), _) => Target::Region { rect },
         (None, Some(name)) => Target::Screen { output: Some(name) },
@@ -377,15 +416,9 @@ fn shot(args: ShotArgs) -> anyhow::Result<ExitCode> {
             ShotTarget::Pick => Target::Select {
                 mode: SelectMode::Area,
             },
-            ShotTarget::Window => Target::Select {
-                mode: SelectMode::Window,
-            },
-            ShotTarget::PickScreen => Target::Select {
-                mode: SelectMode::Screen,
-            },
-            ShotTarget::Screen => Target::Screen { output: None },
+            ShotTarget::Window => focused_or_picked(args.interactive, SelectMode::Window),
+            ShotTarget::Screen => focused_or_picked(args.interactive, SelectMode::Screen),
             ShotTarget::All => Target::AllScreens,
-            ShotTarget::Active => Target::ActiveWindow,
             ShotTarget::Last => Target::LastRegion,
         },
     };

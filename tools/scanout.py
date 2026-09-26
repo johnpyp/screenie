@@ -92,7 +92,7 @@ try:
         mark("daemon started")
         if mode == "window":
             input = Input(session)
-            daemon.spawn("record", "window", "-o", str(home / "out.mp4"))
+            daemon.spawn("record", "window", "-i", "-o", str(home / "out.mp4"))
             daemon.wait_log(r"selector keyboard focus .*active=true")
             input.click(960, 540)
             input.keys("return")

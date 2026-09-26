@@ -162,7 +162,7 @@ def test_a_resized_window_is_fitted_into_the_video(session, daemon, input, home,
         resize(session, "target", 1000, 300)
         daemon.wait_log(r"recorded frames changed")
 
-    record_and_stop(daemon, input, target, out, during, "window")
+    record_and_stop(daemon, input, target, out, during, "window", "-i")
     video = frames(out, home / "frames")
     first, last = video[0], video[-1]
     width, height = first.size
@@ -177,9 +177,26 @@ def test_closing_the_recorded_window_saves_the_recording(session, daemon, input,
     target = solid("target", RED)
     out = home / "closed.mp4"
     mark = daemon.mark()
-    record_window(daemon, input, target, out, "window")
+    record_window(daemon, input, target, out, "window", "-i")
     session.swaymsg("[app_id=target] kill")
     daemon.wait_log(r"recording saved", after=mark, timeout=15)
     daemon.wait_status("idle")
     assert frames(out, home / "frames")
+    daemon.assert_healthy()
+
+
+@pytest.mark.config(NO_COUNTDOWN)
+def test_record_window_records_the_focused_one(daemon, home, solid):
+    target = solid("target", RED)
+    _, _, w, h = target
+    out = home / "focused.mp4"
+    mark = daemon.mark()
+    daemon.spawn("record", "window", "-o", str(out))
+    daemon.wait_status("recording", timeout=10)
+    assert daemon.cli("stop").returncode == 0
+    daemon.wait_log(r"recording saved", after=mark, timeout=15)
+    video = frames(out, home / "frames")
+    width, height = video[0].size
+    assert about((width, height), (w, h))
+    assert is_red(video[-1].getpixel((width // 2, height // 2)))
     daemon.assert_healthy()

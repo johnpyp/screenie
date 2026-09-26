@@ -12,11 +12,11 @@ file print its path on stdout (`screenie record` prints the path it's recording 
 | Command | What happens |
 | --- | --- |
 | `screenie shot` / `screenie shot pick` | Freeze all outputs, show the selector in area mode. |
-| `screenie shot window` | Selector in window mode (click a window). |
-| `screenie shot pick-screen` | Selector in screen mode (click a screen). |
+| `screenie shot window` | Focused window, no UI (needs compositor IPC). |
+| `screenie shot window -i` | Selector in window mode (click a window). |
 | `screenie shot screen` | Focused output, no UI. `--output-name DP-1` picks one. |
+| `screenie shot screen -i` | Selector in screen mode (click a screen). |
 | `screenie shot all` | Every output stitched into one image at the highest scale. |
-| `screenie shot active` | Focused window, no UI (needs compositor IPC). |
 | `screenie shot last` | Same region as the previous capture, even across daemon restarts. |
 | `screenie shot --region "X,Y WxH"` | That logical region, no UI. `WxH+X+Y` also parses. |
 
@@ -26,12 +26,15 @@ file print its path on stdout (`screenie record` prints the path it's recording 
 replaced) or a directory (one that exists, or a path ending in `/`), which gets a
 configured name. `--stdout` writes the PNG bytes to stdout.
 
+`-i` (`--interactive`) only applies to `window` and `screen`, and can't be combined with
+`--region` or `--output-name`.
+
 `shot --edit` waits for the editor: it prints the saved file, if any, and exits 1 if the
 editor closed without Done and nothing was copied or saved.
 
 Pressing a shortcut again while its selector is up does what you'd expect: the same one
 closes it, another selection mode switches it, and a capture without a selector
-(`shot screen`, `shot all`, `shot last`, `--region`) is taken from the frozen desktop
+(`shot window`, `shot screen`, `shot all`, `shot last`, `--region`) is taken from the frozen desktop
 the selector shows.
 
 ## Recording
@@ -39,7 +42,8 @@ the selector shows.
 | Command | What happens |
 | --- | --- |
 | `screenie record` | Live selector with audio toggles, then **Record**. Stops the running recording instead, if there is one. |
-| `screenie record window` / `screen` / `last` | A window, the focused output, or the previous region. |
+| `screenie record window` / `screen` / `last` | The focused window, the focused output, or the previous region. |
+| `screenie record window -i` / `screen -i` | Live selector in window or screen mode. |
 | `screenie record --region "X,Y WxH"` | That region, no selector. |
 | `screenie stop` | Stop and save. Cancels a countdown. |
 | `screenie pause` | Pause or resume. |
