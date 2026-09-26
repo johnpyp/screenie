@@ -160,6 +160,12 @@ impl OutputView {
     ) -> Self {
         cx.observe(&session, |_, _, cx| cx.notify()).detach();
         screenie_ui_kit::track_ui_scale(window, cx);
+        // Tests wait for this before typing (see tests/e2e).
+        let name = output.name.clone();
+        cx.observe_window_activation(window, move |_, window, _| {
+            tracing::debug!(output = name, active = window.is_window_active(), "selector keyboard focus");
+        })
+        .detach();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         Self { session, output, frozen, focus }

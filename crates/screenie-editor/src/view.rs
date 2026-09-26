@@ -130,6 +130,11 @@ impl Editor {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         screenie_ui_kit::track_ui_scale(window, cx);
+        // Tests wait for this before typing (see tests/e2e).
+        cx.observe_window_activation(window, |_, window, _| {
+            tracing::debug!(active = window.is_window_active(), "editor keyboard focus");
+        })
+        .detach();
         let grab = KeyboardGrab::new(cx);
         cx.observe(&grab, |_, _, cx| cx.notify()).detach();
         let this = cx.entity().downgrade();
@@ -356,7 +361,7 @@ impl Editor {
         if self.confirm_close {
             match key {
                 "escape" => self.confirm_close = false,
-                "enter" => self.done(window, cx),
+                "enter" => self.keep_and_close(window, cx),
                 _ => {}
             }
             cx.notify();
@@ -816,6 +821,7 @@ impl Editor {
     /// The close prompt's ways to keep the annotations: what Done does, or if it does
     /// nothing, copying or saving.
     fn prompt_actions(&self, cx: &mut Context<Self>) -> Vec<HudButton> {
+        let primary = self.button_for("keep", cx, |e, window, cx| e.keep_and_close(window, cx)).style(ButtonStyle::Accent);
         match self.done_does() {
             (false, false) => vec![
                 self.button_for("prompt-copy", cx, |e, window, cx| {
@@ -825,20 +831,21 @@ impl Editor {
                     }
                 })
                 .label("Copy"),
-                self.button_for("prompt-save", cx, |e, window, cx| {
-                    e.save(window, cx);
-                    if e.session.is_saved() && !e.closed {
-                        e.close(window, cx);
-                    }
-                })
-                .label("Save")
-                .style(ButtonStyle::Accent),
+                primary.label("Save"),
             ],
-            _ => vec![
-                self.button_for("finish", cx, |e, window, cx| e.done(window, cx))
-                    .label(self.done_says().1)
-                    .style(ButtonStyle::Accent),
-            ],
+            _ => vec![primary.label(self.done_says().1)],
+        }
+    }
+
+    /// The close prompt's main button (and Enter): keep the annotations the way Done
+    /// would, or save them if Done would only close.
+    fn keep_and_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.done_does() != (false, false) {
+            return self.done(window, cx);
+        }
+        self.save(window, cx);
+        if self.session.is_saved() && !self.closed {
+            self.close(window, cx);
         }
     }
 
