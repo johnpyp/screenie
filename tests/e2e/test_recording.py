@@ -167,8 +167,9 @@ def test_a_resized_window_is_fitted_into_the_video(session, daemon, input, home,
     first, last = video[0], video[-1]
     width, height = first.size
     assert last.size == first.size and about(first.size, (w, h))
-    # Wider now: scaled to the video's width, with bars above and below.
-    assert is_red(last.getpixel((width // 2, height // 2)))
+    # Wider now: scaled to the video's width, with bars above and below. (The pointer
+    # rests at the centre, where the window was picked.)
+    assert is_red(last.getpixel((width // 4, height // 2)))
     assert max(last.getpixel((width // 2, 20))) < 40
 
 
@@ -198,5 +199,29 @@ def test_record_window_records_the_focused_one(daemon, home, solid):
     video = frames(out, home / "frames")
     width, height = video[0].size
     assert about((width, height), (w, h))
-    assert is_red(video[-1].getpixel((width // 2, height // 2)))
+    assert is_red(video[-1].getpixel((width * 3 // 4, height * 3 // 4)))
+    daemon.assert_healthy()
+
+
+@pytest.mark.config(NO_COUNTDOWN)
+def test_the_pointer_is_drawn_over_a_recorded_window(daemon, input, home, solid):
+    target = solid("target", RED)
+    x, y, w, h = target
+    input.move(x + w / 2, y + h / 2)
+    out = home / "pointer.mp4"
+    mark = daemon.mark()
+    daemon.spawn("record", "window", "-o", str(out))
+    daemon.wait_status("recording", timeout=10)
+    daemon.wait_log(r"drawing the pointer", after=mark)
+    assert daemon.cli("record", "stop").returncode == 0
+    daemon.wait_log(r"recording saved", after=mark, timeout=15)
+    last = frames(out, home / "frames")[-1]
+    width, height = last.size
+    around = [
+        last.getpixel((width // 2 + dx, height // 2 + dy))
+        for dx in range(-16, 17)
+        for dy in range(-16, 17)
+    ]
+    assert not all(map(is_red, around)), "no pointer at the window's centre"
+    assert is_red(last.getpixel((width // 4, height // 4)))
     daemon.assert_healthy()

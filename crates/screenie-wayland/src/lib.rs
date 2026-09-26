@@ -15,25 +15,29 @@
 //!
 //! A stream's frames come in shared memory, read into [`Image`]s, or, where the consumer
 //! can take them, in GPU buffers on the compositor's GPU (see `dmabuf`), which neither
-//! side copies.
+//! side copies. A window's frames carry the pointer to draw over them (see `pointer`).
 
 mod dmabuf;
 mod focus;
+mod pointer;
 mod shm;
 mod state;
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use screenie_core::{
     Dmabuf, DmabufFormat, Frame, GpuDevice, GpuOffer, Image, Next, OutputCapture, OutputInfo,
-    Pacer, PixelRect, Pixels, Rect, Transform, WindowInfo,
+    Pacer, PixelRect, Pixels, Pointer, Rect, Transform, WindowInfo,
 };
 use wayland_client::globals::{GlobalList, registry_queue_init};
-use wayland_client::protocol::wl_output;
+use wayland_client::protocol::{wl_output, wl_pointer, wl_seat};
 use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::Options;
 
 pub use focus::focused_output;
+use pointer::{CursorFeed, Over, Report};
+pub use pointer::{Placement, Tracker};
 pub use shm::transform_image;
 use state::{
     Capture, Constraints, Gpu, InFlight, OutputState, Phase, Protocol, State, Target, ToplevelInfo,
@@ -142,6 +146,8 @@ pub struct Capturer {
     qh: QueueHandle<State>,
     state: State,
     backend: Backend,
+    /// The seat's pointer, for cursor sessions (see `pointer`).
+    seat: Option<(wl_seat::WlSeat, wl_pointer::WlPointer)>,
 }
 
 impl Capturer {
@@ -212,6 +218,7 @@ impl Capturer {
             qh,
             state,
             backend,
+            seat: None,
         })
     }
 
@@ -361,8 +368,85 @@ impl Capturer {
         self.queue.roundtrip(&mut self.state)?;
         self.queue.roundtrip(&mut self.state)?;
         let index = find_toplevel(self.state.toplevels.iter().map(|t| &t.info), window)?;
-        let slot = self.new_capture(Target::Toplevel(index), cursor, None);
-        Ok(FrameStream::new(self, slot, None))
+        // The compositor may not paint the pointer into a window's frames (wlroots
+        // doesn't): where it reports it separately, it's drawn over them instead, and
+        // not asked for in them, so it can't show twice.
+        let feeds = cursor && self.open_cursor_feeds(index);
+        let slot = self.new_capture(Target::Toplevel(index), cursor && !feeds, None);
+        let mut stream = FrameStream::new(self, slot, None);
+        if feeds {
+            stream.overlay = Some(Overlay::new(Placement::new(window.rect)));
+        }
+        Ok(stream)
+    }
+
+    /// Open cursor sessions for the pointer over `toplevel`: on the window itself, and
+    /// on every output. `false` if there's no pointer to ask about.
+    fn open_cursor_feeds(&mut self, toplevel: usize) -> bool {
+        let (Some(manager), Some(output_sources), Some(toplevel_sources)) = (
+            self.state.ext_copy.clone(),
+            self.state.ext_output_sources.clone(),
+            self.state.ext_toplevel_sources.clone(),
+        ) else {
+            return false;
+        };
+        let Ok(seat) = self
+            .globals
+            .bind::<wl_seat::WlSeat, _, _>(&self.qh, 1..=7, ())
+        else {
+            tracing::debug!("no seat: the compositor paints the pointer, if it does");
+            return false;
+        };
+        if self.queue.roundtrip(&mut self.state).is_err() || !self.state.seat_has_pointer {
+            tracing::debug!("the seat has no pointer: the compositor paints it, if it does");
+            return false;
+        }
+        let pointer = seat.get_pointer(&self.qh, ());
+        let outputs: Vec<Over> = (0..self.state.outputs.len())
+            .filter(|&i| self.state.outputs[i].wl_output.is_some())
+            .map(Over::Output)
+            .collect();
+        for over in std::iter::once(Over::Window).chain(outputs) {
+            let source = match over {
+                Over::Window => toplevel_sources.create_source(
+                    &self.state.toplevels[toplevel].handle,
+                    &self.qh,
+                    (),
+                ),
+                Over::Output(i) => output_sources.create_source(
+                    self.state.outputs[i]
+                        .wl_output
+                        .as_ref()
+                        .expect("filtered above"),
+                    &self.qh,
+                    (),
+                ),
+            };
+            let feed = self.state.cursors.len();
+            let session = manager.create_pointer_cursor_session(&source, &pointer, &self.qh, feed);
+            let slot = self.state.captures.len();
+            let capture = session.get_capture_session(&self.qh, slot);
+            self.push_capture(
+                Target::Cursor,
+                Protocol::Ext {
+                    source,
+                    session: capture,
+                    frame: None,
+                },
+                false,
+                Transform::Normal,
+            );
+            self.state.cursors.push(CursorFeed {
+                session,
+                slot,
+                report: Report::new(over),
+                failures: 0,
+            });
+        }
+        self.seat = Some((seat, pointer));
+        // Where the pointer is now, and the pictures' buffer sizes.
+        let _ = self.queue.roundtrip(&mut self.state);
+        true
     }
 
     fn new_capture(&mut self, target: Target, cursor: bool, region: Option<Rect>) -> usize {
@@ -371,8 +455,19 @@ impl Capturer {
         // ext sends each frame's transform; wlr frames come in the output's.
         let transform = match target {
             Target::Output(output) => self.state.outputs[output].transform,
-            Target::Toplevel(_) => Default::default(),
+            Target::Toplevel(_) | Target::Cursor => Default::default(),
         };
+        self.push_capture(target, protocol, cursor, transform)
+    }
+
+    fn push_capture(
+        &mut self,
+        target: Target,
+        protocol: Protocol,
+        cursor: bool,
+        transform: Transform,
+    ) -> usize {
+        let idx = self.state.captures.len();
         self.state.captures.push(Capture {
             target,
             protocol,
@@ -450,6 +545,7 @@ impl Capturer {
                             .expect("checked at connect");
                         sources.create_source(wl_output, &self.qh, ())
                     }
+                    Target::Cursor => unreachable!("cursor captures come from their session"),
                     Target::Toplevel(toplevel) => {
                         let handle = &self.state.toplevels[toplevel].handle;
                         let sources = self
@@ -559,7 +655,12 @@ impl Capturer {
             };
             (pool.wl_buffer(index).clone(), InFlight::Gpu(index))
         } else {
-            let format = shm::choose_format(&cap.constraints.formats).ok_or_else(|| {
+            let choose = if cap.target == Target::Cursor {
+                shm::choose_format_with_alpha
+            } else {
+                shm::choose_format
+            };
+            let format = choose(&cap.constraints.formats).ok_or_else(|| {
                 Error::Unsupported(format!(
                     "no supported shm format among {:?}",
                     cap.constraints.formats
@@ -669,13 +770,18 @@ impl Capturer {
 
     /// Read a ready capture out of its buffer.
     fn take_image(&mut self, slot: usize) -> Result<Image> {
+        let cursor = self.state.captures[slot].target == Target::Cursor;
         match self.take_ready(slot)? {
             Ready::Shm {
                 buffer,
                 y_invert,
                 transform,
             } => {
-                let image = buffer.to_image(y_invert, transform);
+                let image = if cursor {
+                    buffer.to_image_with_alpha(transform)
+                } else {
+                    buffer.to_image(y_invert, transform)
+                };
                 self.recycle(slot, buffer);
                 Ok(image)
             }
@@ -879,7 +985,39 @@ pub struct FrameStream {
     /// Whether frames come the right way up (wlr may flip them): GPU buffers can't be
     /// flipped on the way.
     upright: bool,
+    /// The pointer to draw over a window's frames, where the compositor reports it.
+    overlay: Option<Overlay>,
     stats: Stats,
+}
+
+/// The pointer over a window stream's frames (see `pointer`).
+struct Overlay {
+    placement: Placement,
+    /// The last frame given out, to give out again when only the pointer moves, and the
+    /// pointer on it.
+    last: Option<Frame>,
+    shown: Option<Pointer>,
+    /// When a frame last went out, and when to look again at a pointer that moved too
+    /// soon after: frames for the pointer alone come no faster than the frame rate.
+    sent: Option<Instant>,
+    wake: Option<Instant>,
+    started: Instant,
+    /// Said in the log: where the pointer comes from, or that nothing reports it.
+    told: bool,
+}
+
+impl Overlay {
+    fn new(placement: Placement) -> Self {
+        Self {
+            placement,
+            last: None,
+            shown: None,
+            sent: None,
+            wake: None,
+            started: Instant::now(),
+            told: false,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -900,7 +1038,149 @@ impl FrameStream {
             latency: Duration::ZERO,
             requested: None,
             upright: true,
+            overlay: None,
             stats: Stats::default(),
+        }
+    }
+
+    /// Where the recorded window is, for placing the pointer over it: to keep current
+    /// from compositor IPC while it moves. `None` unless the stream draws the pointer.
+    pub fn window_placement(&self) -> Option<Placement> {
+        self.overlay.as_ref().map(|o| o.placement.clone())
+    }
+
+    /// Whether frames carry the pointer to draw over them.
+    pub fn draws_pointer(&self) -> bool {
+        self.overlay.is_some()
+    }
+
+    /// Keep each cursor session's picture current: read the ones that came, and ask for
+    /// the next (which comes when the cursor's shape changes). A session that keeps
+    /// failing is given up on, not the stream.
+    fn update_cursors(&mut self) {
+        if self.overlay.is_none() {
+            return;
+        }
+        for i in 0..self.capturer.state.cursors.len() {
+            let slot = self.capturer.state.cursors[i].slot;
+            match &self.capturer.state.captures[slot].phase {
+                Phase::Ready => match self.capturer.take_image(slot) {
+                    Ok(image) => {
+                        let feed = &mut self.capturer.state.cursors[i];
+                        feed.report.image =
+                            pointer::trim(&image).map(|(image, at)| (Arc::new(image), at));
+                        feed.failures = 0;
+                    }
+                    Err(e) => tracing::debug!("reading the cursor's picture failed: {e}"),
+                },
+                Phase::Failed(reason) => {
+                    let feed = &mut self.capturer.state.cursors[i];
+                    feed.failures += 1;
+                    if feed.failures >= 5 {
+                        tracing::debug!("giving up on a cursor session: {reason}");
+                        self.capturer.state.captures[slot].phase = Phase::Stopped;
+                        continue;
+                    }
+                    self.capturer.state.captures[slot].phase = Phase::Negotiating;
+                }
+                Phase::Stopped | Phase::Suspended => continue,
+                Phase::Negotiating | Phase::Copying => {}
+            }
+            if let Err(e) = self.capturer.drive(slot) {
+                tracing::debug!("capturing the cursor's picture failed: {e}");
+                self.capturer.state.captures[slot].phase = Phase::Stopped;
+            }
+        }
+    }
+
+    /// The pointer over a `size` frame, as the cursor sessions last said.
+    fn locate_pointer(&self, size: (u32, u32)) -> Option<Pointer> {
+        let overlay = self.overlay.as_ref()?;
+        let state = &self.capturer.state;
+        let reports: Vec<&Report> = state.cursors.iter().map(|c| &c.report).collect();
+        let outputs: Vec<Option<OutputInfo>> = state
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(i, o)| o.info(i))
+            .collect();
+        pointer::locate(&reports, &outputs, overlay.placement.get(), size)
+    }
+
+    /// Put the pointer on a frame the compositor sent, and keep it to send again when only
+    /// the pointer moves.
+    fn with_pointer(&mut self, mut frame: Frame) -> Frame {
+        if self.overlay.is_none() {
+            return frame;
+        }
+        frame.pointer = self.locate_pointer(frame.size());
+        self.note_pointer(frame.pointer.is_some());
+        let overlay = self.overlay.as_mut().expect("checked above");
+        overlay.shown = frame.pointer.clone();
+        overlay.last = Some(frame.clone());
+        overlay.sent = Some(Instant::now());
+        frame
+    }
+
+    /// The last frame again, if the pointer over it has moved (or changed, or gone), and
+    /// a frame is due.
+    fn pointer_moved(&mut self) -> Option<Frame> {
+        let last = self.overlay.as_ref()?.last.as_ref()?;
+        let pointer = self.locate_pointer(last.size());
+        let interval = self.pacer.interval();
+        let overlay = self.overlay.as_mut()?;
+        overlay.wake = None;
+        if pointer == overlay.shown {
+            return None;
+        }
+        let now = Instant::now();
+        if let Some(due) = overlay
+            .sent
+            .map(|at| at + interval)
+            .filter(|due| *due > now)
+        {
+            overlay.wake = Some(due);
+            return None;
+        }
+        let frame = Frame {
+            presented: None,
+            pointer: pointer.clone(),
+            ..overlay.last.clone()?
+        };
+        overlay.shown = pointer;
+        overlay.sent = Some(now);
+        self.note_pointer(frame.pointer.is_some());
+        Some(frame)
+    }
+
+    /// Say once in the log where the pointer comes from, or that nothing reports it.
+    fn note_pointer(&mut self, found: bool) {
+        let Some(overlay) = self.overlay.as_mut() else {
+            return;
+        };
+        if overlay.told {
+            return;
+        }
+        let window = self
+            .capturer
+            .state
+            .cursors
+            .iter()
+            .any(|c| c.report.over == Over::Window && c.report.heard);
+        if found {
+            overlay.told = true;
+            tracing::info!(
+                source = if window { "the window" } else { "the output" },
+                "drawing the pointer over the window from the compositor's cursor session"
+            );
+        } else if overlay.started.elapsed() > Duration::from_secs(5)
+            && !self.capturer.state.cursors.iter().any(|c| c.report.entered)
+        {
+            overlay.told = true;
+            tracing::warn!(
+                "the compositor hasn't reported the pointer (wlroots only does for a \
+                 hardware cursor): the recording won't show it"
+            );
         }
     }
 
@@ -946,6 +1226,7 @@ impl FrameStream {
         let deadline = Instant::now() + timeout;
         loop {
             let due = self.request()?;
+            self.update_cursors();
             match self.phase() {
                 Phase::Ready => {
                     if let Some(at) = self.requested.take() {
@@ -993,17 +1274,27 @@ impl FrameStream {
                             Pixels::Gpu(buffer)
                         }
                     };
-                    return Ok(Some(Frame { pixels, presented }));
+                    return Ok(Some(self.with_pointer(Frame {
+                        pixels,
+                        presented,
+                        pointer: None,
+                    })));
                 }
                 Phase::Failed(msg) => return Err(Error::Capture(msg.clone())),
                 Phase::Stopped => return Err(Error::Stopped),
                 Phase::Negotiating | Phase::Copying | Phase::Suspended => {}
+            }
+            if let Some(frame) = self.pointer_moved() {
+                return Ok(Some(frame));
             }
             let now = Instant::now();
             if now >= deadline {
                 return Ok(None);
             }
             let mut wake = due.map_or(deadline, |due| due.min(deadline));
+            if let Some(pointer) = self.overlay.as_ref().and_then(|o| o.wake) {
+                wake = wake.min(pointer);
+            }
             if self.starved() {
                 wake = wake.min(now + Duration::from_millis(2));
             }
@@ -1160,6 +1451,10 @@ impl screenie_core::FrameSource for FrameStream {
         self.set_max_rate(fps);
     }
 
+    fn draws_pointer(&self) -> bool {
+        FrameStream::draws_pointer(self)
+    }
+
     fn gpu(&self) -> Option<GpuDevice> {
         FrameStream::gpu(self)
     }
@@ -1196,6 +1491,20 @@ impl Drop for FrameStream {
             );
         }
         self.capturer.release(self.slot);
+        for i in 0..self.capturer.state.cursors.len() {
+            let slot = self.capturer.state.cursors[i].slot;
+            self.capturer.release(slot);
+            self.capturer.state.cursors[i].session.destroy();
+        }
+        if let Some((seat, pointer)) = self.capturer.seat.take() {
+            if pointer.version() >= 3 {
+                pointer.release();
+            }
+            if seat.version() >= 5 {
+                seat.release();
+            }
+        }
+        let _ = self.capturer.conn.flush();
     }
 }
 

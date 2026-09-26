@@ -1,5 +1,6 @@
 //! Continuous frame sources, the input side of recording.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::{Dmabuf, DmabufFormat, GpuDevice, GpuOffer, Image};
@@ -22,6 +23,43 @@ pub struct Frame {
     pub pixels: Pixels,
     /// When the compositor presented this content (CLOCK_MONOTONIC), if it said.
     pub presented: Option<Duration>,
+    /// The pointer, to draw over the frame, from a source whose frames don't show it
+    /// ([`FrameSource::draws_pointer`]). `None` when it's elsewhere or hidden.
+    pub pointer: Option<Pointer>,
+}
+
+/// The mouse pointer over a frame, in the frame's pixels.
+#[derive(Debug, Clone)]
+pub struct Pointer {
+    /// The cursor's picture, premultiplied BGRA. It's shared: it only changes when the
+    /// cursor's shape does.
+    pub image: Arc<Image>,
+    /// Where its top-left corner goes. It may be partly off the frame.
+    pub x: i32,
+    pub y: i32,
+    /// The size it's drawn at: the image's, scaled when the frame is at another scale
+    /// than the cursor.
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The same picture in the same place: a frame with it looks the same.
+impl PartialEq for Pointer {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.image, &other.image)
+            && (self.x, self.y, self.width, self.height)
+                == (other.x, other.y, other.width, other.height)
+    }
+}
+
+impl Pointer {
+    /// Whether any of it is on a `width`×`height` frame.
+    pub fn over(&self, (width, height): (u32, u32)) -> bool {
+        self.x < width as i32
+            && self.y < height as i32
+            && self.x + self.width as i32 > 0
+            && self.y + self.height as i32 > 0
+    }
 }
 
 /// Where a frame's pixels are.
@@ -38,6 +76,7 @@ impl Frame {
         Self {
             pixels: Pixels::Cpu(image),
             presented: None,
+            pointer: None,
         }
     }
 
@@ -73,6 +112,14 @@ pub trait FrameSource: Send {
     /// Produce at most `fps` frames a second. Sources that can stop the compositor
     /// making more than that (rather than dropping the rest) do.
     fn pace(&mut self, _fps: u32) {}
+
+    /// Whether frames carry the pointer to draw over them ([`Frame::pointer`]), rather
+    /// than showing it themselves or not at all: a window captured by itself, from a
+    /// compositor that only reports the pointer separately. A frame comes when only the
+    /// pointer moved, too.
+    fn draws_pointer(&self) -> bool {
+        false
+    }
 
     /// The GPU frames are rendered on, where known (once a frame has come): the
     /// encoder there is the best one, even for frames that come as CPU images.

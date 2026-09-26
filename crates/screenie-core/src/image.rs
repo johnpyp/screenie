@@ -228,6 +228,50 @@ impl Image {
         }
     }
 
+    /// Draw `src` over this image, its top-left corner at `(x, y)`, clipped to this image.
+    /// `src` is premultiplied, as Wayland's buffers (a cursor's picture) are; this image's
+    /// alpha is kept as it was.
+    pub fn draw_premultiplied(&mut self, src: &Image, x: i32, y: i32) {
+        let Some(clip) = PixelRect::new(x, y, src.width, src.height).intersection(&self.bounds())
+        else {
+            return;
+        };
+        let (fmt, stride) = (self.format, self.stride);
+        let data = self.data_mut();
+        for dy in clip.y..clip.bottom() {
+            let sx = (clip.x - x) as usize;
+            let src_row = &src.row((dy - y) as u32)[sx * 4..(sx + clip.width as usize) * 4];
+            let start = dy as usize * stride + clip.x as usize * 4;
+            let dst_row = &mut data[start..start + clip.width as usize * 4];
+            for (d, &s) in dst_row
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(src_row.as_chunks::<4>().0)
+            {
+                let s = to_rgba(src.format, s);
+                match s[3] {
+                    0 => continue,
+                    255 => {
+                        let kept = d[3];
+                        *d = from_rgba(fmt, s);
+                        d[3] = kept;
+                    }
+                    a => {
+                        let under = to_rgba(fmt, *d);
+                        let over = |c: usize| {
+                            (s[c] as u32 + (under[c] as u32 * (255 - a as u32) + 127) / 255)
+                                .min(255) as u8
+                        };
+                        let kept = d[3];
+                        *d = from_rgba(fmt, [over(0), over(1), over(2), under[3]]);
+                        d[3] = kept;
+                    }
+                }
+            }
+        }
+    }
+
     /// Bilinear resample to a new size. Used when compositing outputs of different scales
     /// and for thumbnails; not meant for high-quality downscaling by large factors.
     pub fn resize(&self, width: u32, height: u32) -> Image {
@@ -400,6 +444,28 @@ fn from_rgba(format: PixelFormat, p: [u8; 4]) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn premultiplied_pixels_draw_over() {
+        // A white background, and a 2x1 cursor: opaque red, then half-transparent black
+        // (premultiplied: all zero but alpha).
+        let mut image = Image::from_raw(3, 1, 12, PixelFormat::Bgrx, vec![255; 12]);
+        let cursor = Image::from_raw(
+            2,
+            1,
+            8,
+            PixelFormat::Bgra,
+            vec![0, 0, 255, 255, 0, 0, 0, 128],
+        );
+        image.draw_premultiplied(&cursor, 1, 0);
+        assert_eq!(image.rgba_at(0, 0), [255, 255, 255, 255]);
+        assert_eq!(image.rgba_at(1, 0), [255, 0, 0, 255]);
+        assert_eq!(image.rgba_at(2, 0), [127, 127, 127, 255]);
+        // Off the edge: clipped, not a panic.
+        image.draw_premultiplied(&cursor, 2, 0);
+        image.draw_premultiplied(&cursor, -5, 3);
+        assert_eq!(image.rgba_at(2, 0), [255, 0, 0, 255]);
+    }
 
     fn gradient(w: u32, h: u32) -> Image {
         let mut data = Vec::new();

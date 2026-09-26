@@ -29,6 +29,14 @@ to grim.
     (`ext-foreign-toplevel-image-capture-source-v1`), found through
     `ext-foreign-toplevel-list-v1` by identifier, or by app id and title. Its frames
     change size with the window, and the stream ends when it closes.
+  - A window stream with `cursor` asks the compositor to paint the pointer, which
+    wlroots ignores for windows. So it also follows the pointer through
+    ext-image-copy-capture cursor sessions (`pointer`): one on the window, where the
+    compositor offers it (Hyprland), and one per output (wlroots, whenever the pointer
+    is a hardware cursor). Each frame carries the pointer's sprite and position in frame
+    pixels (`Frame::pointer`), placed with the window's rectangle (`Placement`, kept up
+    to date by the caller) and left out while the window is hidden. A pointer that moves
+    over a still window re-sends the last frame, at most once per paced interval.
 - `focused_output()` finds the output the user is on without compositor IPC: it maps a
   transparent 1×1 layer surface with no output (the compositor places it on the one the
   user last interacted with), reads `wl_surface.enter`, and removes it.

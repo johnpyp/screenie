@@ -63,6 +63,7 @@ tiny-skia = "0.12"
 gst = { package = "gstreamer", version = "0.25" }
 gst-allocators = { package = "gstreamer-allocators", version = "0.25" }
 gst-app = { package = "gstreamer-app", version = "0.25" }
+gst-base = { package = "gstreamer-base", version = "0.25" }
 gst-video = { package = "gstreamer-video", version = "0.25" }
 
 [profile.dev]

@@ -15,6 +15,7 @@ gst.workspace = true
 rustix.workspace = true
 gst-allocators.workspace = true
 gst-app.workspace = true
+gst-base.workspace = true
 gst-video.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

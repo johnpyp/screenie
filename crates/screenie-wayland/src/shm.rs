@@ -36,6 +36,14 @@ pub(crate) fn choose_format(offered: &[wl_shm::Format]) -> Option<wl_shm::Format
         .find(|f| offered.contains(f))
 }
 
+/// The same, keeping alpha where it's offered: for a cursor's picture.
+pub(crate) fn choose_format_with_alpha(offered: &[wl_shm::Format]) -> Option<wl_shm::Format> {
+    [wl_shm::Format::Argb8888, wl_shm::Format::Abgr8888]
+        .into_iter()
+        .find(|f| offered.contains(f))
+        .or_else(|| choose_format(offered))
+}
+
 /// Bytes per pixel of a supported format.
 pub(crate) fn bytes_per_pixel(format: wl_shm::Format) -> u32 {
     match format {
@@ -79,11 +87,13 @@ fn layout(format: wl_shm::Format) -> Layout {
     }
 }
 
-/// The [`PixelFormat`] of the image decoded from a buffer of this shm format.
-fn pixel_format(format: wl_shm::Format) -> PixelFormat {
-    // Screen contents are opaque even when the format carries alpha (compositors fill it
-    // with garbage or zeroes on some drivers), so treat everything as padded.
+/// The [`PixelFormat`] of the image decoded from a buffer of this shm format. Screen
+/// contents are opaque even when the format carries alpha (compositors fill it with
+/// garbage or zeroes on some drivers), so it's padding unless `alpha` (a cursor).
+fn pixel_format(format: wl_shm::Format, alpha: bool) -> PixelFormat {
     match format {
+        wl_shm::Format::Argb8888 if alpha => PixelFormat::Bgra,
+        wl_shm::Format::Abgr8888 if alpha => PixelFormat::Rgba,
         // R in the low byte: R,G,B(,x) in memory.
         wl_shm::Format::Xbgr8888 | wl_shm::Format::Abgr8888 | wl_shm::Format::Bgr888 => {
             PixelFormat::Rgbx
@@ -100,6 +110,7 @@ fn decode(
     height: u32,
     stride: usize,
     y_invert: bool,
+    alpha: bool,
 ) -> Image {
     let (w, h) = (width as usize, height as usize);
     let row_bytes = w * bytes_per_pixel(format) as usize;
@@ -136,7 +147,7 @@ fn decode(
     let out_format = if matches!(layout, Layout::Deep { .. }) {
         PixelFormat::Bgrx
     } else {
-        pixel_format(format)
+        pixel_format(format, alpha)
     };
     Image::from_raw(width, height, w * 4, out_format, data)
 }
@@ -204,11 +215,15 @@ impl ShmBuffer {
     /// Convert the buffer contents into an upright image, applying the vertical flip and
     /// output transform the compositor reported.
     pub fn to_image(&self, y_invert: bool, transform: Transform) -> Image {
-        let raw = self.read(y_invert);
-        transform_image(&raw, transform)
+        transform_image(&self.read(y_invert, false), transform)
     }
 
-    fn read(&self, y_invert: bool) -> Image {
+    /// The same, keeping the alpha channel: for a cursor's picture.
+    pub fn to_image_with_alpha(&self, transform: Transform) -> Image {
+        transform_image(&self.read(false, true), transform)
+    }
+
+    fn read(&self, y_invert: bool, alpha: bool) -> Image {
         decode(
             self.format,
             &self.map,
@@ -216,6 +231,7 @@ impl ShmBuffer {
             self.height,
             self.stride as usize,
             y_invert,
+            alpha,
         )
     }
 }
@@ -288,10 +304,10 @@ mod tests {
     fn check(format: wl_shm::Format, red: &[u8], blue: &[u8]) {
         let bpp = bytes_per_pixel(format) as usize;
         let mem = buffer(format, red, blue);
-        let image = decode(format, &mem, 2, 2, 2 * bpp + 4, false);
+        let image = decode(format, &mem, 2, 2, 2 * bpp + 4, false, false);
         assert_eq!(image.rgba_at(1, 0), RED, "{format:?} top row");
         assert_eq!(image.rgba_at(0, 1), BLUE, "{format:?} bottom row");
-        let flipped = decode(format, &mem, 2, 2, 2 * bpp + 4, true);
+        let flipped = decode(format, &mem, 2, 2, 2 * bpp + 4, true, false);
         assert_eq!(flipped.rgba_at(0, 0), BLUE, "{format:?} y-invert");
     }
 

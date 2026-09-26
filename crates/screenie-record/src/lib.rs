@@ -21,6 +21,10 @@
 //! aspect ratio, since GPU scalers' own borders vary by driver (green on radeonsi), and
 //! GPU frames switch to memory once the size changes. `recording.framerate` paces the
 //! source itself, so the compositor only copies the frames that get recorded.
+//!
+//! A window captured by itself can come without the pointer, reported beside each frame
+//! instead ([`FrameSource::draws_pointer`]). It's drawn on: in memory before the frame is
+//! pushed, on the GPU by the chain (see `encoder`).
 
 mod encoder;
 mod feed;
@@ -190,14 +194,16 @@ impl Recording {
         let fps = cap.unwrap_or(60);
         let offer = source.gpu_offer();
         let gpu = source.gpu();
+        let pointer = source.draws_pointer();
         let encoder = Encoder::choose(spec.encoder, size, gpu.as_ref()).ok_or(Error::NoEncoder)?;
         if let Some(dir) = spec.path.parent() {
             std::fs::create_dir_all(dir)?;
         }
 
         let mut first = Some(first);
-        if let Some(format) = offer.as_ref().and_then(|o| encoder.gpu_format(o)) {
-            match Pipeline::launch_gpu(source.as_mut(), &spec, &encoder, format, size, fps) {
+        if let Some(format) = offer.as_ref().and_then(|o| encoder.gpu_format(o, pointer)) {
+            match Pipeline::launch_gpu(source.as_mut(), &spec, &encoder, format, size, fps, pointer)
+            {
                 Ok(pipeline) => return Ok(Self::run(source, spec, encoder, pipeline, native, cap)),
                 Err(e) => {
                     tracing::warn!(
@@ -215,7 +221,7 @@ impl Recording {
             Some(frame) => frame,
             None => first_frame(source.as_mut())?,
         };
-        let pipeline = Pipeline::launch(&spec, &encoder, size, fps, first, false)?;
+        let pipeline = Pipeline::launch(&spec, &encoder, size, fps, first, false, pointer)?;
         Ok(Self::run(source, spec, encoder, pipeline, native, cap))
     }
 
@@ -241,6 +247,7 @@ impl Recording {
         cleanup.armed = false;
         let size = feed.size;
         let gpu = matches!(first.pixels, Pixels::Gpu(_));
+        let pointer = feed.draws_pointer;
         let clock = Clock {
             started: Instant::now(),
             paused_at: None,
@@ -257,6 +264,7 @@ impl Recording {
             path = %spec.path.display(),
             encoder = encoder.name(),
             gpu_frames = gpu,
+            pointer,
             ?native,
             ?size,
             framerate = ?spec.framerate,
@@ -529,6 +537,7 @@ impl Pipeline {
         format: DmabufFormat,
         size: (u32, u32),
         fps: u32,
+        pointer: bool,
     ) -> Result<Pipeline> {
         source
             .use_gpu(Some(format))
@@ -537,11 +546,12 @@ impl Pipeline {
         if !matches!(first.pixels, Pixels::Gpu(_)) {
             return Err(Error::Source("the first frame wasn't a GPU buffer".into()));
         }
-        Pipeline::launch(spec, encoder, size, fps, first, true)
+        Pipeline::launch(spec, encoder, size, fps, first, true, pointer)
     }
 
     /// Build and start the pipeline, and push the first frame. With `confirm`, wait for
-    /// that frame to get through the chain into the encoder.
+    /// that frame to get through the chain into the encoder. With `pointer`, GPU frames
+    /// carry a pointer for the chain to draw.
     fn launch(
         spec: &RecordSpec,
         encoder: &Encoder,
@@ -549,10 +559,11 @@ impl Pipeline {
         fps: u32,
         first: Frame,
         confirm: bool,
+        pointer: bool,
     ) -> Result<Pipeline> {
         let gpu = matches!(first.pixels, Pixels::Gpu(_));
         let temp = temp_path(&spec.path);
-        let desc = pipeline_description(spec, encoder, size, gpu)?;
+        let desc = pipeline_description(spec, encoder, size, gpu, gpu && pointer)?;
         tracing::debug!(%desc, "recording pipeline");
         let pipeline = gst::parse::launch(&desc)?
             .downcast::<gst::Pipeline>()
@@ -563,6 +574,7 @@ impl Pipeline {
                 .ok_or_else(|| Error::Gst(format!("missing {name}")))
         };
         by_name("sink")?.set_property("location", spec.path.to_string_lossy().as_ref());
+        encoder::draw_pointer(pipeline.upcast_ref());
         by_name("mux")?.set_property("faststart-file", temp.to_string_lossy().as_ref());
         if spec.audio.system {
             by_name("speakers")?.set_property("device", "@DEFAULT_MONITOR@");
@@ -596,7 +608,7 @@ impl Pipeline {
             armed: true,
         };
         let mut started = Pipeline {
-            feed: Feed::new(appsrc, fps, size),
+            feed: Feed::new(appsrc, fps, size, pointer),
             pipeline,
             shared,
             eos,
@@ -707,6 +719,7 @@ fn pipeline_description(
     encoder: &Encoder,
     size: (u32, u32),
     gpu: bool,
+    pointer: bool,
 ) -> Result<String> {
     // Generous queues: the muxer interleaves audio and video, and encoders have latency.
     const QUEUE: &str = "queue max-size-buffers=0 max-size-bytes=0 max-size-time=3000000000";
@@ -718,7 +731,7 @@ fn pipeline_description(
         "mp4mux name=mux faststart=true ! filesink name=sink \
          appsrc name=video ! queue max-size-buffers={frames} max-size-bytes=0 max-size-time=0 \
          ! {} ! {} ! h264parse ! {QUEUE} ! mux.",
-        encoder.prepare(size),
+        encoder.prepare(size, pointer),
         encoder.element()
     );
     if spec.audio.any() {
@@ -876,7 +889,11 @@ fn capture_loop(
             }
             // Damage elsewhere on the output (or a compositor that doesn't track damage)
             // yields identical frames; skipping them keeps static screens nearly free.
-            (Pixels::Cpu(a), Pixels::Cpu(b)) if same_pixels(a, b) => continue,
+            (Pixels::Cpu(a), Pixels::Cpu(b))
+                if same_pixels(a, b) && frame.pointer == last.pointer =>
+            {
+                continue;
+            }
             _ => {}
         }
         let now = Instant::now();

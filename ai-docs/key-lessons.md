@@ -69,8 +69,15 @@ real digging.
 - **Finishing a faststart MP4 can take minutes** on a long recording and slow disk.
   Wait while the file grows, and never delete data on a failed finish.
 - **wlroots window captures have no cursor.** A toplevel source is a scene-node source,
-  which ignores `paint_cursors` and offers no cursor session (only output sources do), so
-  a window recording on sway never shows the pointer, whatever the game does with it.
+  which ignores `paint_cursors` and offers no cursor session. Only output sources do, and
+  only for a hardware cursor. So we draw the pointer ourselves from the outputs' cursor
+  sessions, mapped into the window through its IPC rectangle.
+- **`gloverlaycompositor` passes through when its caps don't change**, which they never
+  do, so the overlay meta was silently ignored. Turn passthrough off on each CAPS event.
+  Asking for the meta's caps feature instead fails: `glupload` and `glcolorconvert`
+  reject it.
+- **A cursor session only reports a pointer the seat has.** In the headless session the
+  seat's pointer is wlinput's virtual one, so it exists only while wlinput runs.
 
 ## Daemon, files and clipboard
 

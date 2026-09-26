@@ -24,6 +24,10 @@ let finished = recording.stop()?; // path, duration, size, bytes, last frame
   without copying (`feed`): memory as is, GPU buffers (DMA-BUF) as DMA-BUF memory the
   converter imports, released to the source once it's done with them. Frames are stamped
   with when the compositor presented them.
+- A source that draws the pointer (`FrameSource::draws_pointer`) sends its sprite with
+  each frame. Frames in memory get it blended on the CPU. GPU frames carry it as a
+  `GstVideoOverlayCompositionMeta` that `gloverlaycompositor` draws, which puts VA-API's
+  chain through GL (`glupload ! … ! gldownload`) before `vapostproc`.
 - `RecordSpec::framerate` paces the source (`FrameSource::pace`), so the compositor
   only copies frames that get recorded. `resolution` caps the video's size.
 - The video is the first frame's size, capped. Frames of another size (a recorded

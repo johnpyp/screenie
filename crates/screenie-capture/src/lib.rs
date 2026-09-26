@@ -188,9 +188,21 @@ impl CaptureContext {
 
     /// Start a live stream of one window by itself (only `ext-image-copy-capture` can).
     /// Blocks until the first frame arrives.
+    ///
+    /// Where the stream draws the pointer over the window from where it is on an output,
+    /// the window's place on the desktop is kept current from compositor IPC for as long
+    /// as the stream lasts.
     pub fn stream_window(&self, window: &WindowInfo, cursor: bool) -> Result<Box<dyn FrameSource>> {
         let capturer = Capturer::connect_with(Some(Backend::ExtImageCopyCapture))?;
-        Ok(prime(capturer.into_window_stream(window, cursor)?)?)
+        let stream = capturer.into_window_stream(window, cursor)?;
+        if let Some(placement) = stream.window_placement() {
+            follow_window(
+                self.compositor.clone(),
+                window.id.clone(),
+                placement.tracker(),
+            );
+        }
+        Ok(prime(stream)?)
     }
 
     /// Connector name of the output the user is on: from the compositor's IPC, or else
@@ -241,6 +253,29 @@ fn auto_order(support: &Support, region: bool, working: Option<Backend>) -> Vec<
     all
 }
 
+/// Keep a recorded window's place current from compositor IPC, until its stream is gone.
+/// A window that isn't shown (on another workspace) has none: the pointer isn't over it.
+fn follow_window(compositor: Arc<dyn Compositor>, id: String, tracker: screenie_wayland::Tracker) {
+    const EVERY: Duration = Duration::from_millis(250);
+    let spawned = std::thread::Builder::new()
+        .name("screenie-window".into())
+        .spawn(move || {
+            while let Some(placement) = tracker.placement() {
+                match compositor.windows() {
+                    Ok(windows) => {
+                        placement.set(windows.iter().find(|w| w.id == id).map(|w| w.rect));
+                    }
+                    Err(e) => tracing::debug!("where the recorded window is: {e}"),
+                }
+                drop(placement);
+                std::thread::sleep(EVERY);
+            }
+        });
+    if let Err(e) = spawned {
+        tracing::warn!("can't follow the recorded window: {e}");
+    }
+}
+
 /// Wait for `stream`'s first frame, proving the protocol can actually deliver.
 fn prime(
     mut stream: screenie_wayland::FrameStream,
@@ -275,6 +310,10 @@ impl FrameSource for Primed {
 
     fn pace(&mut self, fps: u32) {
         self.stream.set_max_rate(fps);
+    }
+
+    fn draws_pointer(&self) -> bool {
+        self.stream.draws_pointer()
     }
 
     fn gpu(&self) -> Option<GpuDevice> {

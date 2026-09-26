@@ -26,6 +26,11 @@
 //! limits (VA-API: 128 to 4096 pixels a side), read from their pad templates, so a tiny
 //! region or a native ultrawide goes to one that takes it.
 //!
+//! A window's GPU frames can carry the pointer to draw over them (`Frame::pointer`, as an
+//! overlay composition meta), which GL draws (`gloverlaycompositor`): in the GL chain
+//! before scaling, and in VA-API's by a detour through GL, handed back as DMA-BUF.
+//! Frames in memory have it drawn before they're pushed (see `feed`).
+//!
 //! `SCREENIE_ENCODER=factory[:va|gl|cpu]` forces one, for troubleshooting.
 
 use std::collections::{HashMap, HashSet};
@@ -116,7 +121,7 @@ impl Encoder {
             return;
         }
         if let Some(encoder) = Encoder::choose(preference, (1920, 1080), gpu)
-            && let Some(importer) = encoder.importer()
+            && let Some(importer) = encoder.importer(false)
         {
             importable(&importer);
         }
@@ -179,19 +184,19 @@ impl Encoder {
     /// The GPU buffer format to take frames in from `offer`, if this encoder can: it runs
     /// on the offer's GPU, its chain imports one of the formats offered, and crops them
     /// if they're a part of their buffers. Only the layouts (modifiers) both sides take
-    /// are kept.
-    pub fn gpu_format(&self, offer: &GpuOffer) -> Option<DmabufFormat> {
+    /// are kept. With `pointer`, frames carry a pointer to draw, which goes through GL.
+    pub fn gpu_format(&self, offer: &GpuOffer, pointer: bool) -> Option<DmabufFormat> {
         if !self.runs_on(&offer.device) || gst::version() < (1, 24, 0, 0) {
             return None;
         }
-        if offer.cropped && !self.chain.crops() {
+        if offer.cropped && (pointer || !self.chain.crops()) {
             tracing::info!(
                 "{} can't crop GPU frames; taking the region's through memory",
                 self.name()
             );
             return None;
         }
-        let importer = self.importer()?;
+        let importer = self.importer(pointer)?;
         let importable = importable(&importer);
         GPU_FORMATS.iter().map(fourcc).find_map(|code| {
             let offered = offer.formats.iter().find(|f| f.fourcc == code)?;
@@ -208,9 +213,11 @@ impl Encoder {
         })
     }
 
-    /// The first element of its chain, if it can import GPU buffers.
-    fn importer(&self) -> Option<String> {
+    /// The first element of its chain, if it can import GPU buffers. GL's, for frames
+    /// with a `pointer` to draw.
+    fn importer(&self, pointer: bool) -> Option<String> {
         match (&self.family, self.chain) {
+            (Family::Va { .. }, Chain::Va) if pointer => Some("glupload".into()),
             (Family::Va { prefix }, Chain::Va) => Some(format!("{prefix}postproc")),
             (_, Chain::Gl) => Some("glupload".into()),
             _ => None,
@@ -265,7 +272,7 @@ impl Encoder {
         let desc = format!(
             "videotestsrc num-buffers=3 ! video/x-raw,format=BGRx,width=640,height=360,framerate=30/1 \
              ! {} ! {} ! h264parse ! fakesink",
-            self.prepare(PROBE),
+            self.prepare(PROBE, false),
             self.element()
         );
         let Ok(pipeline) = gst::parse::launch(&desc) else {
@@ -297,20 +304,36 @@ impl Encoder {
     /// The elements between the frames (screen pixels in memory or GPU buffers, of any
     /// size and the video's aspect ratio) and the encoder: scaled to `width`×`height` and
     /// converted to its input format. On the CPU, scaling comes first so the conversion
-    /// has fewer pixels to do.
-    pub(crate) fn prepare(&self, (width, height): (u32, u32)) -> String {
+    /// has fewer pixels to do. With `pointer`, GPU frames carry a pointer, drawn by GL
+    /// at the frames' own size (before scaling, like the rest of the picture).
+    pub(crate) fn prepare(&self, (width, height): (u32, u32), pointer: bool) -> String {
         let format = self.input_format();
+        // gloverlaycompositor only draws onto RGBA textures (see `draw_pointer`).
+        const DRAW_POINTER: &str = "glcolorconvert ! video/x-raw(memory:GLMemory),format=RGBA \
+             ! gloverlaycompositor name=pointer";
         match (&self.family, self.chain) {
             (Family::Va { prefix }, Chain::Va) => format!(
-                "{prefix}postproc \
-                 ! video/x-raw(memory:VAMemory),format={format},width={width},height={height},pixel-aspect-ratio=1/1"
+                "{}{prefix}postproc \
+                 ! video/x-raw(memory:VAMemory),format={format},width={width},height={height},pixel-aspect-ratio=1/1",
+                if pointer {
+                    format!(
+                        "glupload ! {DRAW_POINTER} ! gldownload ! video/x-raw(memory:DMABuf) ! "
+                    )
+                } else {
+                    String::new()
+                }
             ),
             // GL scales RGB only: scale, then convert. Encoders other than NVENC take
             // the result from memory.
             (family, Chain::Gl) => format!(
-                "glupload ! glcolorscale \
+                "glupload{} ! glcolorscale \
                  ! video/x-raw(memory:GLMemory),width={width},height={height},pixel-aspect-ratio=1/1 \
                  ! glcolorconvert ! video/x-raw(memory:GLMemory),format={format}{}",
+                if pointer {
+                    format!(" ! {DRAW_POINTER}")
+                } else {
+                    String::new()
+                },
                 if *family == Family::Nvenc {
                     ""
                 } else {
@@ -453,6 +476,34 @@ impl Chain {
             Chain::Gl | Chain::Cpu => false,
         }
     }
+}
+
+/// Make the chain's `gloverlaycompositor` (named `pointer`, see [`Encoder::prepare`])
+/// draw the pointer, if there is one.
+///
+/// It only draws when it's negotiated into a conversion: the overlay meta's caps feature
+/// on its input and not on its output. Otherwise, as here, where the elements before it
+/// can't carry that feature, it passes everything through, meta and all, for something
+/// downstream that never draws it. So passthrough is turned off whenever caps settle
+/// (setting caps turns it back on). Frames without a pointer still pass straight through.
+pub(crate) fn draw_pointer(pipeline: &gst::Bin) {
+    let Some(element) = pipeline.by_name("pointer") else {
+        return;
+    };
+    let Some(pad) = element.static_pad("src") else {
+        return;
+    };
+    let Ok(transform) = element.downcast::<gst_base::BaseTransform>() else {
+        return;
+    };
+    pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_, info| {
+        if let Some(gst::PadProbeData::Event(event)) = &info.data
+            && event.type_() == gst::EventType::Caps
+        {
+            gst_base::prelude::BaseTransformExt::set_passthrough(&transform, false);
+        }
+        gst::PadProbeReturn::Ok
+    });
 }
 
 /// A bitrate for encoders without constant quality: a bits-per-pixel budget.
@@ -768,7 +819,7 @@ mod tests {
         let desc = format!(
             "appsrc name=src format=time caps=video/x-raw,format=BGRx,width={width},height={height},framerate=30/1 \
              ! {} ! appsink name=out sync=false",
-            encoder.prepare((16, 16))
+            encoder.prepare((16, 16), false)
         );
         let pipeline = gst::parse::launch(&desc)
             .ok()?
@@ -837,6 +888,108 @@ mod tests {
                 chain_crops(&encoder),
                 Some(true),
                 "{} would scale whole frames into a region's video",
+                encoder.name()
+            );
+        }
+    }
+
+    /// Whether GL runs here (it needs a display).
+    fn gl_runs() -> bool {
+        gst::parse::launch("videotestsrc num-buffers=1 ! glupload ! gldownload ! fakesink")
+            .is_ok_and(|p| runs(&p))
+    }
+
+    /// The luma at `(x, y)` of a white 64×32 frame with an opaque red 8×8 pointer at
+    /// (40, 8), sent through `encoder`'s chain for GPU frames with a pointer.
+    fn drawn_luma(encoder: &Encoder, points: &[(usize, usize)]) -> Option<Vec<u8>> {
+        let (width, height) = (64u32, 32u32);
+        let desc = format!(
+            "appsrc name=src format=time caps=video/x-raw,format=BGRx,width={width},height={height},framerate=30/1 \
+             ! {} ! appsink name=out sync=false",
+            encoder.prepare((width, height), true)
+        );
+        let pipeline = gst::parse::launch(&desc)
+            .ok()?
+            .downcast::<gst::Pipeline>()
+            .ok()?;
+        draw_pointer(pipeline.upcast_ref());
+        let src = pipeline
+            .by_name("src")?
+            .downcast::<gst_app::AppSrc>()
+            .ok()?;
+        let out = pipeline
+            .by_name("out")?
+            .downcast::<gst_app::AppSink>()
+            .ok()?;
+        let mut buffer = gst::Buffer::from_mut_slice(vec![255u8; (width * height * 4) as usize]);
+        {
+            let buffer = buffer.get_mut().unwrap();
+            buffer.set_pts(gst::ClockTime::ZERO);
+            let mut red = gst::Buffer::from_mut_slice([0u8, 0, 255, 255].repeat(64));
+            gst_video::VideoMeta::add(
+                red.get_mut().unwrap(),
+                gst_video::VideoFrameFlags::empty(),
+                gst_video::VideoFormat::Bgra,
+                8,
+                8,
+            )
+            .unwrap();
+            let rectangle = gst_video::VideoOverlayRectangle::new_raw(
+                &red,
+                40,
+                8,
+                8,
+                8,
+                gst_video::VideoOverlayFormatFlags::PREMULTIPLIED_ALPHA,
+            );
+            let composition = gst_video::VideoOverlayComposition::new(Some(&rectangle)).unwrap();
+            gst_video::VideoOverlayCompositionMeta::add(buffer, &composition);
+        }
+        pipeline.set_state(gst::State::Playing).ok()?;
+        let sample = src
+            .push_buffer(buffer)
+            .ok()
+            .and_then(|_| src.end_of_stream().ok())
+            .and_then(|_| out.try_pull_sample(gst::ClockTime::from_seconds(5)));
+        let luma = sample.and_then(|sample| {
+            let info = gst_video::VideoInfo::from_caps(sample.caps()?).ok()?;
+            let frame =
+                gst_video::VideoFrameRef::from_buffer_ref_readable(sample.buffer()?, &info).ok()?;
+            let stride = frame.plane_stride()[0] as usize;
+            let y = frame.plane_data(0).ok()?;
+            Some(points.iter().map(|&(px, py)| y[py * stride + px]).collect())
+        });
+        let _ = pipeline.set_state(gst::State::Null);
+        luma
+    }
+
+    /// A window's GPU frames carry the pointer as an overlay composition, which the GPU
+    /// chains draw (GL, and VA-API through GL): red where it is, white elsewhere.
+    #[test]
+    fn gpu_chains_draw_the_pointer() {
+        gst::init().unwrap();
+        if !gl_runs() {
+            eprintln!("skipped: GL doesn't run here (no display)");
+            return;
+        }
+        let gl = Encoder {
+            factory: "x264enc".into(),
+            family: Family::X264,
+            chain: Chain::Gl,
+            device: None,
+        };
+        let chains = std::iter::once(gl).chain(
+            discover()
+                .into_iter()
+                .filter(|e| e.chain == Chain::Va && e.works()),
+        );
+        for encoder in chains {
+            let luma = drawn_luma(&encoder, &[(44, 12), (10, 10)])
+                .unwrap_or_else(|| panic!("{} can't draw the pointer", encoder.name()));
+            // Red is luma 81, white 235 (limited range).
+            assert!(
+                luma[0] < 120 && luma[1] > 200,
+                "{}: {luma:?}",
                 encoder.name()
             );
         }

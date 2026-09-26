@@ -37,6 +37,7 @@ use wayland_protocols_wlr::screencopy::v1::client::{
 };
 
 use crate::dmabuf::{Allocator, Pool};
+use crate::pointer::CursorFeed;
 use crate::shm::ShmBuffer;
 
 #[derive(Default)]
@@ -56,6 +57,9 @@ pub(crate) struct State {
     pub toplevel_list: Option<ExtForeignToplevelListV1>,
     pub toplevels: Vec<Toplevel>,
     pub captures: Vec<Capture>,
+    /// Bound only to draw the pointer over a window (see `pointer`).
+    pub seat_has_pointer: bool,
+    pub cursors: Vec<CursorFeed>,
 }
 
 pub(crate) struct Toplevel {
@@ -252,6 +256,8 @@ pub(crate) enum Target {
     Output(usize),
     /// A window, by index into [`State::toplevels`].
     Toplevel(usize),
+    /// The cursor's picture, for a cursor session.
+    Cursor,
 }
 
 pub(crate) struct Capture {

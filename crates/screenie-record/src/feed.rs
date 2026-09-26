@@ -7,6 +7,9 @@
 //!
 //! Each frame is stamped with when the compositor presented it, so the video's timing is
 //! the screen's, however unevenly frames reach us.
+//!
+//! A frame's pointer ([`Frame::pointer`]) is drawn onto a copy of a frame in memory, and
+//! attached to a GPU frame as an overlay composition for the chain to draw.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -15,7 +18,7 @@ use std::time::Duration;
 
 use gst::prelude::*;
 use gst_allocators::prelude::*;
-use screenie_core::{Dmabuf, Frame, Image, PixelFormat, Pixels};
+use screenie_core::{Dmabuf, Frame, Image, PixelFormat, Pixels, Pointer};
 
 use crate::encoder::drm_format_string;
 use crate::{even_size, letterbox};
@@ -31,6 +34,10 @@ pub(crate) struct Feed {
     caps: Option<gst::Caps>,
     pub pushed: u64,
     pub pushed_gpu: u64,
+    /// Whether frames carry a pointer to draw.
+    pub draws_pointer: bool,
+    /// The pointer's picture as the chain takes it, made once per picture.
+    sprite: Option<(Arc<Image>, gst::Buffer)>,
     last_pts: Option<gst::ClockTime>,
     /// DMA-BUF memories per capture buffer, made once: importers cache what they made
     /// of a memory (VA surfaces, GL textures), so the same buffer imports once.
@@ -39,7 +46,7 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
-    pub fn new(appsrc: gst_app::AppSrc, fps: u32, size: (u32, u32)) -> Self {
+    pub fn new(appsrc: gst_app::AppSrc, fps: u32, size: (u32, u32), draws_pointer: bool) -> Self {
         Self {
             appsrc,
             fps,
@@ -47,6 +54,8 @@ impl Feed {
             caps: None,
             pushed: 0,
             pushed_gpu: 0,
+            draws_pointer,
+            sprite: None,
             last_pts: None,
             memories: HashMap::new(),
             allocator: None,
@@ -60,9 +69,18 @@ impl Feed {
 
     pub fn push(&mut self, frame: &Frame) {
         let pts = self.timestamp(frame.presented);
+        let pointer = frame.pointer.as_ref().filter(|p| p.over(frame.size()));
         let buffer = match &frame.pixels {
-            Pixels::Cpu(image) => self.cpu_buffer(image),
-            Pixels::Gpu(dmabuf) => self.gpu_buffer(dmabuf),
+            Pixels::Cpu(image) => match pointer {
+                Some(pointer) => self.cpu_buffer(&with_pointer(image, pointer)),
+                None => self.cpu_buffer(image),
+            },
+            Pixels::Gpu(dmabuf) => self.gpu_buffer(dmabuf).map(|mut buffer| {
+                if let Some(pointer) = pointer {
+                    self.attach_pointer(buffer.get_mut().expect("fresh buffer"), pointer);
+                }
+                buffer
+            }),
         };
         let Some(mut buffer) = buffer else { return };
         buffer.get_mut().expect("fresh buffer").set_pts(pts);
@@ -214,6 +232,69 @@ impl Feed {
         self.pushed_gpu += 1;
         Some(buffer)
     }
+}
+
+impl Feed {
+    /// Attach `pointer` to a GPU frame, for `gloverlaycompositor` to draw.
+    fn attach_pointer(&mut self, buffer: &mut gst::BufferRef, pointer: &Pointer) {
+        let pixels = match &self.sprite {
+            Some((image, pixels)) if Arc::ptr_eq(image, &pointer.image) => pixels.clone(),
+            _ => match sprite_buffer(&pointer.image) {
+                Some(pixels) => {
+                    self.sprite = Some((pointer.image.clone(), pixels.clone()));
+                    pixels
+                }
+                None => return,
+            },
+        };
+        let rectangle = gst_video::VideoOverlayRectangle::new_raw(
+            &pixels,
+            pointer.x,
+            pointer.y,
+            pointer.width,
+            pointer.height,
+            gst_video::VideoOverlayFormatFlags::PREMULTIPLIED_ALPHA,
+        );
+        let composition = gst_video::VideoOverlayComposition::new(Some(&rectangle));
+        match composition {
+            Ok(composition) => {
+                gst_video::VideoOverlayCompositionMeta::add(buffer, &composition);
+            }
+            Err(e) => tracing::debug!("cannot attach the pointer: {e}"),
+        }
+    }
+}
+
+/// A frame in memory with `pointer` drawn on, scaled to the size it's drawn at.
+fn with_pointer(image: &Image, pointer: &Pointer) -> Image {
+    let sprite = &pointer.image;
+    let scaled;
+    let sprite = if (sprite.width(), sprite.height()) == (pointer.width, pointer.height) {
+        sprite.as_ref()
+    } else {
+        scaled = sprite.resize(pointer.width, pointer.height);
+        &scaled
+    };
+    let mut image = image.clone();
+    image.draw_premultiplied(sprite, pointer.x, pointer.y);
+    image
+}
+
+/// A pointer's picture as an overlay rectangle's pixels: premultiplied BGRA (what
+/// overlay compositions call ARGB), described by a video meta.
+fn sprite_buffer(image: &Image) -> Option<gst::Buffer> {
+    let bgra = image.convert(PixelFormat::Bgra);
+    let mut buffer = gst::Buffer::from_slice(bgra.data().to_vec());
+    gst_video::VideoMeta::add(
+        buffer.get_mut().expect("fresh buffer"),
+        gst_video::VideoFrameFlags::empty(),
+        gst_video::VideoFormat::Bgra,
+        bgra.width(),
+        bgra.height(),
+    )
+    .map_err(|e| tracing::debug!("cannot describe the pointer's picture: {e}"))
+    .ok()?;
+    Some(buffer)
 }
 
 /// Keep the capture buffer out of the pool until the pipeline lets go of `buffer`: when

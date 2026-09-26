@@ -6486,6 +6486,7 @@ dependencies = [
  "gstreamer",
  "gstreamer-allocators",
  "gstreamer-app",
+ "gstreamer-base",
  "gstreamer-video",
  "rustix",
  "screenie-capture",
