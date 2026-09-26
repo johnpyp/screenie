@@ -257,7 +257,7 @@ impl Editor {
     }
 
     /// Apply the configured copy / save and close. With nothing to apply, it's closing,
-    /// and asks first if annotations would be lost (see `confirm_on_unsaved`).
+    /// and asks first if annotations would be lost (see `confirm_discard`).
     fn done(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.done_does() == (false, false) {
             return self.request_close(window, cx);
@@ -290,7 +290,7 @@ impl Editor {
     /// Closing now would lose annotations and the user wants to be asked first.
     fn must_confirm_close(&mut self) -> bool {
         self.session.commit_text();
-        self.setup.confirm_on_unsaved && self.session.has_unsaved_work() && !self.closed
+        self.setup.confirm_discard && self.session.has_unsaved_work() && !self.closed
     }
 
     /// Close, asking first if annotations would be lost.

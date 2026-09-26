@@ -189,19 +189,18 @@ impl Ctx<'_> {
                     if let Some(path) = rounded_rect(*rect, (w as f64 * 0.75).min(rect.width.min(rect.height) / 2.0)) {
                         target.fill_path(&path, &solid(color), FillRule::Winding, transform, None);
                     }
-                } else if let Some(r) = skia_rect(*rect) {
-                    let path = PathBuilder::from_rect(r);
+                } else if let Some(path) = outline(*rect, PathBuilder::from_rect) {
                     let stroke = Stroke { width: w, line_join: LineJoin::Round, ..Default::default() };
                     target.stroke_path(&path, &solid(color), &stroke, transform, None);
                 }
             }
             Kind::Ellipse { rect } => {
-                if let Some(path) = skia_rect(*rect).and_then(PathBuilder::from_oval) {
-                    if shape.style.fill {
+                if shape.style.fill {
+                    if let Some(path) = skia_rect(*rect).filter(|_| !rect.is_empty()).and_then(PathBuilder::from_oval) {
                         target.fill_path(&path, &solid(color), FillRule::Winding, transform, None);
-                    } else {
-                        target.stroke_path(&path, &solid(color), &round_stroke(w), transform, None);
                     }
+                } else if let Some(path) = outline(*rect, PathBuilder::from_oval) {
+                    target.stroke_path(&path, &solid(color), &round_stroke(w), transform, None);
                 }
             }
             Kind::Pen { points } => stroke_points(target, points, &solid(color), w, transform),
@@ -272,6 +271,16 @@ fn skia_rect(r: Rect) -> Option<tiny_skia::Rect> {
     tiny_skia::Rect::from_xywh(r.x as f32, r.y as f32, r.width as f32, r.height as f32)
 }
 
+/// A box shape's path (`PathBuilder::from_rect` or `from_oval`). A flat one still
+/// strokes, as a line, but a point has no outline and tiny-skia fails on it (as on a
+/// drag's first frame).
+fn outline<P: Into<Option<Path>>>(r: Rect, path: impl FnOnce(tiny_skia::Rect) -> P) -> Option<Path> {
+    if r.width <= 0.0 && r.height <= 0.0 {
+        return None;
+    }
+    skia_rect(r).and_then(|r| path(r).into())
+}
+
 /// A freehand stroke, smoothed by running quadratic curves through the midpoints.
 fn stroke_points(target: &mut Pixmap, points: &[Point], paint: &Paint, width: f32, transform: Transform) {
     let Some(first) = points.first() else { return };
@@ -294,7 +303,12 @@ fn stroke_points(target: &mut Pixmap, points: &[Point], paint: &Paint, width: f3
     }
 }
 
+/// A filled box's path; none if it has no area (tiny-skia can't fill it, and there'd be
+/// nothing to see).
 pub(crate) fn rounded_rect(r: Rect, radius: f64) -> Option<Path> {
+    if r.is_empty() {
+        return None;
+    }
     let radius = radius.min(r.width / 2.0).min(r.height / 2.0).max(0.0) as f32;
     let (x0, y0, x1, y1) = (r.x as f32, r.y as f32, r.right() as f32, r.bottom() as f32);
     if radius < 0.5 {
@@ -398,6 +412,31 @@ mod tests {
     }
 
     #[test]
+    fn box_outlines_stroke_unless_a_point() {
+        // Stroked and then filled, as tiny-skia does: both must succeed.
+        let strokes = |w, h, oval: bool| {
+            let r = Rect::new(10.0, 10.0, w, h);
+            let path = if oval { outline(r, PathBuilder::from_oval) } else { outline(r, PathBuilder::from_rect) };
+            path.and_then(|p| p.stroke(&round_stroke(4.0), 1.0)).is_some_and(|p| {
+                let b = p.bounds();
+                b.width() > 1.0 && b.height() > 1.0
+            })
+        };
+        for oval in [false, true] {
+            assert!(strokes(30.0, 20.0, oval) && strokes(30.0, 0.0, oval) && strokes(0.0, 20.0, oval));
+        }
+        assert!(outline(Rect::new(10.0, 10.0, 0.0, 0.0), PathBuilder::from_rect).is_none());
+        assert!(outline(Rect::new(10.0, 10.0, 0.0, 0.0), PathBuilder::from_oval).is_none());
+    }
+
+    #[test]
+    fn empty_boxes_have_nothing_to_fill() {
+        assert!(rounded_rect(Rect::new(10.0, 10.0, 30.0, 20.0), 4.0).is_some());
+        assert!(rounded_rect(Rect::new(10.0, 10.0, 30.0, 0.0), 4.0).is_none());
+        assert!(rounded_rect(Rect::new(10.0, 10.0, 0.0, 0.0), 0.0).is_none());
+    }
+
+    #[test]
     fn shapes_cast_a_shadow() {
         let mut doc = Document::new(&white(100, 100), 1.0);
         add(&mut doc, Kind::Line { from: Point::new(10.0, 50.0), to: Point::new(90.0, 50.0) }, Style::default());
@@ -464,3 +503,4 @@ mod tests {
         assert_eq!(out.rgba_at(10, 10), out.rgba_at(0, 0));
     }
 }
+
