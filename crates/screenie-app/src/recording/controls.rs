@@ -23,7 +23,8 @@ use screenie_ui_kit::{Icon, LayerSpec, Tip, layer_options, ui};
 use crate::daemon::Daemon;
 
 /// Pill size in logical pixels (fixed, so it can be placed before it's laid out).
-const PILL: Size = Size { width: 196.0, height: 40.0 };
+/// As tall as a panel of buttons, so the buttons in it sit concentric with its corners.
+const PILL: Size = Size { width: 196.0, height: 38.0 };
 /// Space between the region and the chrome.
 const GAP: f64 = 12.0;
 /// The border ring sits this far outside the region.
@@ -302,7 +303,7 @@ impl Controls {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .rounded(ui(9.))
+                        .rounded(hud::inner_radius())
                         .bg(color::record())
                         .hover(|s| s.bg(color::record_hover()))
                         .cursor_pointer()

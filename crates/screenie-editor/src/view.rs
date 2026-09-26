@@ -733,7 +733,7 @@ impl Editor {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(ui(9.))
+                    .rounded(hud::inner_radius())
                     .cursor_pointer()
                     .when(fill, |d| d.bg(color::selected()))
                     .hover(|d| d.bg(color::hover()))

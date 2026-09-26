@@ -5,7 +5,7 @@ Screenie's GPUI look and feel, shared by every window.
 - **`assets`**: an `AssetSource` serving bundled Lucide icons (`Icon` enum) and Inter,
   layered over gpui-component's assets. `load_fonts` registers the fonts.
 - **`hud`**: the translucent dark HUD language: `color` tokens, `panel()`, `pill()`,
-  `keycap()`, `separator()`, and `HudButton` (icon or label, tooltip, selected,
+  `keycap()`, `separator()`, `inner_radius()` (concentric with a panel's corners), and `HudButton` (icon or label, tooltip, selected,
   accent/record styles).
 - **`tip`**: `Tip`, the one tooltip look: a title, its shortcut as keycaps
   (`.key("Ctrl+Shift+Z")`, more than one are alternatives), related actions under it

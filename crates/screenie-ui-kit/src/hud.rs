@@ -4,7 +4,7 @@
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, BoxShadow, ClickEvent, Div, ElementId, FontWeight, Hsla, SharedString, Stateful, Window, div,
+    AnyElement, App, BoxShadow, ClickEvent, Div, ElementId, FontWeight, Hsla, Rems, SharedString, Stateful, Window, div,
     point, px, rgba,
 };
 
@@ -84,6 +84,18 @@ pub fn panel_shadow() -> Vec<BoxShadow> {
     ]
 }
 
+/// A panel's corner radius, and the padding between its edge and the controls in it.
+const PANEL_RADIUS: f32 = 14.0;
+const PANEL_PADDING: f32 = 3.0;
+
+/// The corner radius of a control sitting in a [`panel`]: the panel's radius less the gap
+/// between the two edges (padding and the 1px border), so both corners share a centre
+/// and the gap stays even around the curve. (The border doesn't scale with the interface,
+/// so away from scale 1 this is a fraction of a pixel off.)
+pub fn inner_radius() -> Rems {
+    ui(PANEL_RADIUS - PANEL_PADDING - 1.0)
+}
+
 /// A floating HUD panel (flex row by default). It swallows the pointer, so clicks on
 /// its gaps never reach whatever is drawn underneath (e.g. the selector canvas).
 pub fn panel() -> Div {
@@ -93,8 +105,8 @@ pub fn panel() -> Div {
         .flex_row()
         .items_center()
         .gap_0p5()
-        .p_1()
-        .rounded(ui(14.))
+        .p(ui(PANEL_PADDING))
+        .rounded(ui(PANEL_RADIUS))
         .bg(color::panel())
         .border_1()
         .border_color(color::hairline())
@@ -241,7 +253,7 @@ impl RenderOnce for HudButton {
             .justify_center()
             .gap_1p5()
             .h(ui(30.))
-            .rounded(ui(9.))
+            .rounded(inner_radius())
             .text_color(fg)
             .text_size(ui(13.))
             .font_weight(if self.style == ButtonStyle::Plain { FontWeight::MEDIUM } else { FontWeight::SEMIBOLD });
