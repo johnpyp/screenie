@@ -10,6 +10,12 @@ second of any change, whether it was made by hand or by the settings window
 Sections: `screenshot`, `recording`, `preview`, `selector`, `editor`, `advanced`. See
 `crates/screenie-config/src/schema.rs` for every key with its doc comment.
 
+`screenshot.directory` and `recording.directory` expand `~`, `$VAR` and `${VAR}`
+(`$XDG_PICTURES_DIR` and `$XDG_VIDEOS_DIR` work even when only `user-dirs.dirs` sets
+them), and a relative path is relative to the home directory. A variable that isn't set
+falls back to the default directory, with a warning in the log. The daemon runs from
+`/`, so it never holds the directory it was started from busy.
+
 ## Interface scale
 
 `ui_scale` sizes the interface: bars, buttons, text, handles, the loupe and preview

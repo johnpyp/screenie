@@ -10,6 +10,7 @@ serde.workspace = true
 serde-saphyr.workspace = true
 chrono.workspace = true
 directories.workspace = true
+shellexpand.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

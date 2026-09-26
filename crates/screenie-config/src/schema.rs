@@ -89,7 +89,8 @@ impl Default for AfterCapture {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ScreenshotConfig {
-    /// Where screenshots are saved. Empty means `$XDG_PICTURES_DIR/Screenshots`.
+    /// Where screenshots are saved. Empty means `$XDG_PICTURES_DIR/Screenshots`. `~` and
+    /// `$VAR` expand, and a relative path is relative to the home directory.
     pub directory: PathBuf,
     /// File name template, without extension: strftime codes, plus `{app}` and
     /// `{title}` for window captures (dropped, with a separator, otherwise).
@@ -245,7 +246,8 @@ pub enum EncoderPreference {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RecordingConfig {
-    /// Where recordings are saved. Empty means `$XDG_VIDEOS_DIR/Screencasts`.
+    /// Where recordings are saved. Empty means `$XDG_VIDEOS_DIR/Screencasts`. Written
+    /// like `screenshot.directory`.
     pub directory: PathBuf,
     pub filename: String,
     pub framerate: Framerate,

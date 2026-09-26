@@ -200,6 +200,9 @@ fn spawn_daemon() -> Result<()> {
     let log = std::fs::File::create(&log_path)?;
     let mut cmd = Command::new(exe);
     cmd.arg("daemon")
+        // It outlives the shell that started it: it mustn't keep that shell's directory
+        // busy (an unmount would fail) or resolve anything against it.
+        .current_dir("/")
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);

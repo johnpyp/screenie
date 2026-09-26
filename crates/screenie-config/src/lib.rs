@@ -91,14 +91,14 @@ impl Config {
         std::fs::rename(&tmp, path).map_err(werr)
     }
 
-    /// The directory screenshots are saved to, with defaults and `~` resolved.
+    /// The directory screenshots are saved to (see [`paths::expand_user_path`]).
     pub fn screenshot_dir(&self) -> PathBuf {
         resolve_dir(&self.screenshot.directory, || {
             Paths::get().pictures_dir().join("Screenshots")
         })
     }
 
-    /// The directory recordings are saved to, with defaults and `~` resolved.
+    /// The directory recordings are saved to (see [`paths::expand_user_path`]).
     pub fn recording_dir(&self) -> PathBuf {
         resolve_dir(&self.recording.directory, || {
             Paths::get().videos_dir().join("Screencasts")
@@ -118,11 +118,16 @@ fn parse(text: &str) -> Result<Config, serde_saphyr::Error> {
     }
 }
 
+/// A configured directory, or `default` when it's unset or names a variable that isn't.
 fn resolve_dir(configured: &Path, default: impl FnOnce() -> PathBuf) -> PathBuf {
     if configured.as_os_str().is_empty() {
         return default();
     }
-    paths::expand_home(configured)
+    paths::expand_user_path(configured).unwrap_or_else(|e| {
+        let default = default();
+        tracing::warn!("{e}; using {}", default.display());
+        default
+    })
 }
 
 #[cfg(test)]

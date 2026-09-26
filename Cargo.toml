@@ -36,6 +36,7 @@ serde-saphyr = "1"
 clap = { version = "4", features = ["derive"] }
 chrono = "0.4"
 directories = "6"
+shellexpand = { version = "3", default-features = false, features = ["base-0"] }
 async-channel = "2"
 rustix = { version = "1", features = ["fs", "shm", "mm", "process", "event"] }
 gbm = { version = "0.18", default-features = false }

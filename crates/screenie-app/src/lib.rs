@@ -21,6 +21,9 @@ use screenie_config::{Config, Paths};
 
 /// Run the daemon until asked to quit. `commit` describes the build (for `status`).
 pub fn run(commit: &'static str) -> anyhow::Result<()> {
+    // However it was started, the daemon lives on its own: it holds no directory busy,
+    // and nothing it does depends on one (the CLI sends absolute paths).
+    std::env::set_current_dir("/")?;
     let socket = Paths::get().socket();
     let listener = screenie_ipc::bind_listener(&socket)?;
     tracing::info!(socket = %socket.display(), "daemon listening");

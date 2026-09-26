@@ -102,11 +102,62 @@ impl Paths {
     }
 }
 
-/// Expand a leading `~` to the home directory.
-pub fn expand_home(path: &Path) -> PathBuf {
-    match path.strip_prefix("~") {
-        Ok(rest) => Paths::get().home().join(rest),
-        Err(_) => path.to_path_buf(),
+/// A directory as the user wrote it in the config: `~` and `$VAR` / `${VAR}` expand, and a
+/// relative path is relative to the home directory, never to wherever the daemon was
+/// started from. `$XDG_PICTURES_DIR` and `$XDG_VIDEOS_DIR` work even when they're only
+/// set in `user-dirs.dirs`, not in the environment.
+pub fn expand_user_path(path: &Path) -> Result<PathBuf, String> {
+    let paths = Paths::get();
+    expand_with(path, paths.home(), |var| match std::env::var(var) {
+        Ok(value) => Some(value),
+        Err(_) => match var {
+            "XDG_PICTURES_DIR" => Some(paths.pictures_dir().display().to_string()),
+            "XDG_VIDEOS_DIR" => Some(paths.videos_dir().display().to_string()),
+            _ => None,
+        },
+    })
+}
+
+fn expand_with(
+    path: &Path,
+    home: &Path,
+    var: impl Fn(&str) -> Option<String>,
+) -> Result<PathBuf, String> {
+    // A path that isn't UTF-8 can't hold anything to expand.
+    let expanded = match path.to_str() {
+        Some(text) => PathBuf::from(
+            shellexpand::full_with_context(
+                text,
+                || home.to_str(),
+                |name| var(name).map(Some).ok_or(()),
+            )
+            .map_err(|e| format!("{}: ${} isn't set", path.display(), e.var_name))?
+            .as_ref(),
+        ),
+        None => path.to_path_buf(),
+    };
+    Ok(home.join(expanded))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn expand(path: &str) -> Result<PathBuf, String> {
+        expand_with(Path::new(path), Path::new("/home/me"), |var| {
+            (var == "SHOTS").then(|| "/data/shots".to_string())
+        })
+    }
+
+    #[test]
+    fn user_paths_expand_and_are_relative_to_home() {
+        assert_eq!(expand("~/Shots"), Ok("/home/me/Shots".into()));
+        assert_eq!(expand("~"), Ok("/home/me".into()));
+        assert_eq!(expand("Shots"), Ok("/home/me/Shots".into()));
+        assert_eq!(expand("/srv/shots"), Ok("/srv/shots".into()));
+        assert_eq!(expand("$SHOTS/today"), Ok("/data/shots/today".into()));
+        assert_eq!(expand("${SHOTS}/today"), Ok("/data/shots/today".into()));
+        assert!(expand("$NOT_SET/today").is_err());
     }
 }
 
