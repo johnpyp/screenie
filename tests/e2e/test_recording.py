@@ -131,7 +131,7 @@ def test_a_resized_window_is_fitted_into_the_video(session, daemon, input, home,
 
     def during():
         resize(session, "target", 1000, 300)
-        daemon.wait_log(r"recorded frames changed size")
+        daemon.wait_log(r"recorded frames changed")
 
     record_and_stop(daemon, input, target, out, during, "window")
     video = frames(out, home / "frames")

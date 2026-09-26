@@ -11,6 +11,7 @@ wayland-client.workspace = true
 wayland-protocols.workspace = true
 wayland-protocols-wlr.workspace = true
 rustix.workspace = true
+gbm.workspace = true
 memmap2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

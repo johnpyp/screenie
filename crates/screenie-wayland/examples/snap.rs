@@ -28,7 +28,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut got = 0;
         while got < n && t.elapsed().as_secs() < 10 {
             if let Some(f) = stream.next_frame(std::time::Duration::from_millis(500))? {
-                println!("  frame {} {}x{} presented {:?} at {:?}", f.sequence, f.image.width(), f.image.height(), f.presented, t.elapsed());
+                let (w, h) = f.size();
+                println!("  frame {got} {w}x{h} presented {:?} at {:?}", f.presented, t.elapsed());
                 got += 1;
             } else {
                 println!("  (no new frame)");

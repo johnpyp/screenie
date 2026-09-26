@@ -11,10 +11,16 @@ The vocabulary every other crate shares. It has no Wayland or GUI dependencies.
 - **`desktop`**: `OutputInfo`, `WindowInfo`, and `Snapshot` (every output's pixels plus
   the window list at one instant). `Snapshot::render_region` turns any logical rect into
   an image. It crops natively when the rect is on one output and composites at the
-  highest scale when it spans several.
+  highest scale when it spans several. `WindowInfo::toplevel` carries the window's
+  `ext-foreign-toplevel-list` identifier where the compositor's IPC reports it.
 - **`stream`**: the `FrameSource` trait, a live view of the screen or of one window
   that yields frames as it changes (`Next::Frame`), nothing (`Unchanged`), or `Ended`.
   The recorder consumes it; screencopy (and later PipeWire) implement it. `pace(fps)`
-  asks a source for fewer frames, and `Pacer` is the fixed clock both sides tick on.
-  `WindowInfo::toplevel` carries the window's `ext-foreign-toplevel-list` identifier
-  where the compositor's IPC reports it.
+  asks a source for fewer frames, and `Pacer` is the fixed clock both sides tick on. A
+  `Frame` is `Pixels` (an `Image`, or a `Dmabuf` on the GPU) and when it was presented.
+  `gpu_offer()` / `use_gpu(format)` switch a source to GPU buffers, and `snapshot()`
+  gets its picture in memory.
+- **`gpu`**: `GpuDevice` (which GPU a device number is, from sysfs: render node,
+  vendor, driver, bus), so frames and encoders are matched by device, not vendor.
+  `DmabufFormat` (a DRM fourcc and its modifiers), `GpuOffer`, and `Dmabuf`, a frame in
+  GPU memory whose buffer goes back to its source when the last clone is dropped.

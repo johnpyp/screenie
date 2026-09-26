@@ -38,6 +38,7 @@ chrono = "0.4"
 directories = "6"
 async-channel = "2"
 rustix = { version = "1", features = ["fs", "shm", "mm", "process", "event"] }
+gbm = { version = "0.18", default-features = false }
 memmap2 = "0.9"
 png = "0.18"
 wayland-client = "0.31"
@@ -52,6 +53,7 @@ gpui = { package = "gpui-pre", version = "=0.3.6" }
 gpui-kit = { version = "=0.6.6", default-features = false, features = ["component", "assets"] }
 tiny-skia = "0.12"
 gst = { package = "gstreamer", version = "0.25" }
+gst-allocators = { package = "gstreamer-allocators", version = "0.25" }
 gst-app = { package = "gstreamer-app", version = "0.25" }
 gst-video = { package = "gstreamer-video", version = "0.25" }
 

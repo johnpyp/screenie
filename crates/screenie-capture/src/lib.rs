@@ -9,7 +9,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use screenie_compositor::Compositor;
 use screenie_config::CaptureBackend;
-use screenie_core::{FrameSource, Image, Next, OutputInfo, Rect, Snapshot, SourceError, WindowInfo};
+use screenie_core::{
+    DmabufFormat, Frame, FrameSource, GpuOffer, Image, Next, OutputInfo, Rect, Snapshot, SourceError, WindowInfo,
+};
 use screenie_wayland::{Backend, Capturer, Support};
 
 #[derive(Debug, thiserror::Error)]
@@ -186,7 +188,7 @@ fn prime(mut stream: screenie_wayland::FrameStream) -> Result<Box<dyn FrameSourc
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         if let Some(frame) = stream.next_frame(Duration::from_millis(250))? {
-            return Ok(Box::new(Primed { first: Some(frame.image), stream }));
+            return Ok(Box::new(Primed { first: Some(frame), stream }));
         }
         if Instant::now() >= deadline {
             return Err(screenie_wayland::Error::Timeout);
@@ -196,7 +198,7 @@ fn prime(mut stream: screenie_wayland::FrameStream) -> Result<Box<dyn FrameSourc
 
 /// A stream whose first frame was already pulled (to prove the protocol works).
 struct Primed {
-    first: Option<Image>,
+    first: Option<Frame>,
     stream: screenie_wayland::FrameStream,
 }
 
@@ -210,6 +212,18 @@ impl FrameSource for Primed {
 
     fn pace(&mut self, fps: u32) {
         self.stream.set_max_rate(fps);
+    }
+
+    fn gpu_offer(&self) -> Option<GpuOffer> {
+        self.stream.gpu_offer()
+    }
+
+    fn use_gpu(&mut self, format: Option<DmabufFormat>) -> Result<(), SourceError> {
+        Ok(self.stream.use_gpu(format)?)
+    }
+
+    fn snapshot(&mut self) -> Option<Image> {
+        FrameSource::snapshot(&mut self.stream)
     }
 }
 

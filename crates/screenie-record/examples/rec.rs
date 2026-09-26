@@ -15,7 +15,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.first().map(String::as_str) == Some("encoders") {
         gst::init()?;
         for (encoder, ok) in Encoder::survey() {
-            println!("{:14} {:8} {}", encoder.factory, if encoder.hardware { "hardware" } else { "software" }, ok);
+            let device = encoder.device.as_ref().map(|d| d.describe()).unwrap_or_default();
+            let kind = if encoder.hardware() { "hardware" } else { "software" };
+            println!("{:28} {kind:8} {ok:5} {device}", encoder.name());
         }
         return Ok(());
     }
@@ -42,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio: AudioSources { system: flag("audio"), microphone: flag("mic") },
     };
     let recording = Recording::start(source, spec)?;
-    println!("recording with {}", recording.encoder().factory);
+    println!("recording with {}", recording.encoder().name());
     if flag("pause") {
         std::thread::sleep(Duration::from_secs_f64(seconds / 2.0));
         recording.set_paused(true)?;

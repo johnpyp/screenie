@@ -5,7 +5,9 @@ it (needs the weston package), records it with a throwaway daemon, and prints th
 count and every gap in the video's timestamps. Usage (the session from tools/session.sh
 must be running):
 
-    uv run --project tests/e2e tools/rec_stress.py [window|screen] [seconds] [recording settings] [GST_DEBUG]
+    uv run --project tests/e2e tools/rec_stress.py [window|screen|region] [seconds] [recording settings] [GST_DEBUG]
+
+`region` records an odd-sized part of the output around the demo, which exercises cropping.
 
 e.g. `... screen 6 "resolution: native, framerate: native"`, or `... screen 4 "" appsrc:5`
 to see GStreamer's view in the daemon log.
@@ -54,6 +56,10 @@ def record(big: str) -> Daemon:
             o = session.outputs()[big].rect
             input.click(o.x + o.width / 2, o.y + o.height / 2)
             input.keys("return")
+        elif mode == "region":
+            o = session.outputs()[big].rect
+            region = f"{o.x + o.width // 4 + 1},{o.y + o.height // 4 + 1} {o.width // 2 + 1}x{o.height // 2 + 1}"
+            daemon.spawn("record", "--region", region, "-o", str(out))
         else:
             daemon.spawn("record", "screen", "-o", str(out))
         daemon.wait_status("recording", timeout=10)

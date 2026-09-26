@@ -2,24 +2,65 @@
 
 use std::time::{Duration, Instant};
 
-use crate::Image;
+use crate::{Dmabuf, DmabufFormat, GpuOffer, Image};
 
 pub type SourceError = Box<dyn std::error::Error + Send + Sync>;
 
 /// What a [`FrameSource`] had within the wait.
 #[derive(Debug, Clone)]
 pub enum Next {
-    Frame(Image),
+    Frame(Frame),
     /// Nothing changed in time.
     Unchanged,
     /// The source is gone for good, as when a recorded window closes.
     Ended,
 }
 
-/// A live view of (part of) the screen, or of one window, that yields a new [`Image`]
+/// One frame of a stream.
+#[derive(Debug, Clone)]
+pub struct Frame {
+    pub pixels: Pixels,
+    /// When the compositor presented this content (CLOCK_MONOTONIC), if it said.
+    pub presented: Option<Duration>,
+}
+
+/// Where a frame's pixels are.
+#[derive(Debug, Clone)]
+pub enum Pixels {
+    /// In memory, upright.
+    Cpu(Image),
+    /// On the GPU that rendered them.
+    Gpu(Dmabuf),
+}
+
+impl Frame {
+    pub fn cpu(image: Image) -> Self {
+        Self { pixels: Pixels::Cpu(image), presented: None }
+    }
+
+    /// The size of what's recorded of it.
+    pub fn size(&self) -> (u32, u32) {
+        match &self.pixels {
+            Pixels::Cpu(image) => (image.width(), image.height()),
+            Pixels::Gpu(buf) => buf.crop.map_or((buf.width, buf.height), |c| (c.width, c.height)),
+        }
+    }
+
+    pub fn image(&self) -> Option<&Image> {
+        match &self.pixels {
+            Pixels::Cpu(image) => Some(image),
+            Pixels::Gpu(_) => None,
+        }
+    }
+}
+
+/// A live view of (part of) the screen, or of one window, that yields a new [`Frame`]
 /// whenever the content changes. Frames can change size along the way (a window being
 /// resized). Implemented by the Wayland screencopy stream, and by the portal's PipeWire
 /// stream where native capture is unavailable.
+///
+/// Frames come as CPU images, unless the consumer switches to GPU buffers it can take
+/// ([`FrameSource::gpu_offer`], [`FrameSource::use_gpu`]).
 pub trait FrameSource: Send {
     /// Wait up to `timeout` for the next frame.
     fn next_frame(&mut self, timeout: Duration) -> Result<Next, SourceError>;
@@ -27,6 +68,26 @@ pub trait FrameSource: Send {
     /// Produce at most `fps` frames a second. Sources that can stop the compositor
     /// making more than that (rather than dropping the rest) do.
     fn pace(&mut self, _fps: u32) {}
+
+    /// The GPU buffers frames could come in instead, known once a frame has come.
+    fn gpu_offer(&self) -> Option<GpuOffer> {
+        None
+    }
+
+    /// From the next frame on, deliver frames in GPU buffers of `format` (its fourcc,
+    /// and the modifiers acceptable of those offered), or as CPU images (`None`).
+    fn use_gpu(&mut self, format: Option<DmabufFormat>) -> Result<(), SourceError> {
+        match format {
+            None => Ok(()),
+            Some(_) => Err("this source only delivers CPU images".into()),
+        }
+    }
+
+    /// What it shows right now, as an image, even if nothing has changed since the
+    /// last frame (whose pixels may be on a GPU).
+    fn snapshot(&mut self) -> Option<Image> {
+        None
+    }
 }
 
 /// Ticks on a fixed clock of `interval`: a tick that comes late doesn't push the ones
@@ -43,6 +104,11 @@ impl Pacer {
     pub fn new(fps: Option<u32>) -> Self {
         let interval = fps.map_or(Duration::ZERO, |fps| Duration::from_secs_f64(1.0 / fps.max(1) as f64));
         Self { interval, next: None }
+    }
+
+    /// The time between ticks (zero when unpaced).
+    pub fn interval(&self) -> Duration {
+        self.interval
     }
 
     /// When the next tick is due, if not yet at `now`.

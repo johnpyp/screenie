@@ -1,7 +1,7 @@
 //! Wayland protocol state: bound globals, output bookkeeping, and the per-capture state
 //! machines for both capture protocols. Everything here is driven by [`crate::Capturer`].
 
-use screenie_core::{OutputInfo, Rect, Transform};
+use screenie_core::{DmabufFormat, OutputInfo, Rect, Transform};
 use wayland_client::globals::GlobalListContents;
 use wayland_client::protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum, delegate_noop, event_created_child};
@@ -19,6 +19,9 @@ use wayland_protocols::ext::image_copy_capture::v1::client::{
     ext_image_copy_capture_manager_v1::ExtImageCopyCaptureManagerV1,
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
+use wayland_protocols::wp::linux_dmabuf::zv1::client::{
+    zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
+};
 use wayland_protocols::xdg::xdg_output::zv1::client::{
     zxdg_output_manager_v1::ZxdgOutputManagerV1,
     zxdg_output_v1::{self, ZxdgOutputV1},
@@ -28,6 +31,7 @@ use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
 
+use crate::dmabuf::{Allocator, Pool};
 use crate::shm::ShmBuffer;
 
 #[derive(Default)]
@@ -38,6 +42,8 @@ pub(crate) struct State {
     pub ext_output_sources: Option<ExtOutputImageCaptureSourceManagerV1>,
     pub ext_toplevel_sources: Option<ExtForeignToplevelImageCaptureSourceManagerV1>,
     pub wlr_screencopy: Option<ZwlrScreencopyManagerV1>,
+    /// For GPU buffers (see `dmabuf`).
+    pub linux_dmabuf: Option<ZwpLinuxDmabufV1>,
     pub outputs: Vec<OutputState>,
     /// Bound only to capture a window: listing them is otherwise wasted traffic.
     pub toplevel_list: Option<ExtForeignToplevelListV1>,
@@ -128,7 +134,24 @@ pub(crate) struct Constraints {
     pub formats: Vec<wl_shm::Format>,
     /// wlr-screencopy dictates the stride per format.
     pub strides: Vec<(wl_shm::Format, u32)>,
+    /// The GPU the compositor renders with, when it takes GPU buffers (ext only).
+    pub dmabuf_device: Option<u64>,
+    pub dmabuf_formats: Vec<DmabufFormat>,
     pub done: bool,
+}
+
+/// A capture's GPU buffers: in the format the consumer asked for, allocated once the
+/// compositor has said which GPU and size.
+pub(crate) struct Gpu {
+    pub format: DmabufFormat,
+    pub allocator: Option<Allocator>,
+    pub pool: Option<Pool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InFlight {
+    Shm,
+    Gpu(usize),
 }
 
 /// What a capture copies.
@@ -145,7 +168,14 @@ pub(crate) struct Capture {
     pub protocol: Protocol,
     pub cursor: bool,
     pub constraints: Constraints,
+    /// The shared-memory buffer the next copy goes into, and a second one to copy the
+    /// next frame into while this one is read.
     pub buffer: Option<ShmBuffer>,
+    pub spare: Option<ShmBuffer>,
+    /// GPU buffers instead, when the consumer asked for them.
+    pub gpu: Option<Gpu>,
+    /// Which buffer the frame in flight (or ready) went into.
+    pub in_flight: Option<InFlight>,
     pub phase: Phase,
     pub transform: Transform,
     pub y_invert: bool,
@@ -264,6 +294,19 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, usize> for State {
                 cap.constraints = Constraints { size: Some((width, height)), ..Default::default() };
             }
             Event::ShmFormat { format } => cap.constraints.formats.extend(shm_format(format)),
+            Event::DmabufDevice { device } => {
+                // A dev_t, in native byte order.
+                cap.constraints.dmabuf_device = device.try_into().ok().map(u64::from_ne_bytes);
+            }
+            Event::DmabufFormat { format, modifiers } => {
+                let modifiers = modifiers
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .map(|m| u64::from_ne_bytes(*m))
+                    .collect();
+                cap.constraints.dmabuf_formats.push(DmabufFormat { fourcc: format, modifiers });
+            }
             Event::Done => cap.constraints.done = true,
             Event::Stopped => cap.phase = Phase::Stopped,
             _ => {}
@@ -407,6 +450,8 @@ impl Dispatch<ExtForeignToplevelHandleV1, ()> for State {
 }
 
 delegate_noop!(State: ignore wl_shm::WlShm);
+delegate_noop!(State: ignore ZwpLinuxDmabufV1);
+delegate_noop!(State: ignore ZwpLinuxBufferParamsV1);
 delegate_noop!(State: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(State: ignore wl_buffer::WlBuffer);
 delegate_noop!(State: ZxdgOutputManagerV1);
