@@ -1,5 +1,7 @@
 //! The floating preview stack: a card per fresh capture at the edge of the screen
-//! (`preview.position`: a corner or the middle of an edge), with quick actions on hover. Cards slide away on their own unless the pointer is on them.
+//! (`preview.position`: a corner or the middle of an edge), with quick actions on hover.
+//! Cards slide away on their own unless the pointer is on them, or an overlay editor is
+//! open: then they wait for it to close.
 //!
 //! A recording's card appears the moment it's stopped, with a spinner while the file is
 //! finished (which can take a moment), and gets its file actions once it's written.
@@ -8,7 +10,8 @@
 //! copied or saved. What's done shows as a "✓ Copied & Saved" pill in the corner, hovered
 //! or not. Show in folder and Delete appear once there's a file.
 //!
-//! All cards share one transparent layer surface along the edge. Only the cards take
+//! The cards on an output share one transparent layer surface along the edge (a stack;
+//! each output has its own). Only the cards take
 //! input (see [`Hover`]), and the keyboard only while the pointer is on one: then its
 //! keys (Esc dismisses, Ctrl+C copies…) go to the card rather than the app beneath.
 
