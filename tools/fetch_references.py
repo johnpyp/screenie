@@ -3,7 +3,9 @@
 # requires-python = ">=3.11"
 # ///
 """
-Sync the reference repos listed in `references/manifest.toml` into `references/<name>/`.
+Sync the reference repos listed in `references/manifest.toml` into `references/<name>/`,
+along with those in `references/manifest.local.toml`: the same format, but gitignored, for
+references that stay out of the repo.
 
 References are read-only material to learn from, so each one is a shallow (depth 1)
 checkout of its tracked ref, and syncing hard-resets it to the latest upstream commit.
@@ -12,7 +14,7 @@ Checkouts with local modifications are skipped unless `--force` is given.
 Usage:
     tools/fetch_references.py              # clone missing refs, update existing ones
     tools/fetch_references.py screendrop   # sync only the named refs
-    tools/fetch_references.py --list       # show manifest entries and local status
+    tools/fetch_references.py --list       # show both manifests' entries and checkout status
 """
 
 from __future__ import annotations
@@ -28,8 +30,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 REFERENCES_DIR = ROOT / "references"
 MANIFEST = REFERENCES_DIR / "manifest.toml"
-# Files in references/ that are part of this repo rather than checkouts.
-TRACKED_FILES = {"manifest.toml", ".gitkeep"}
+LOCAL_MANIFEST = REFERENCES_DIR / "manifest.local.toml"  # optional, gitignored
+# Files in references/ that aren't checkouts.
+MANIFEST_FILES = {MANIFEST.name, LOCAL_MANIFEST.name, ".gitkeep"}
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class Reference:
     url: str
     ref: str | None
     notes: str
+    local: bool
 
     @property
     def path(self) -> Path:
@@ -45,19 +49,25 @@ class Reference:
 
 
 def load_manifest() -> list[Reference]:
-    data = tomllib.loads(MANIFEST.read_text())
-    refs = [
-        Reference(
-            name=entry["name"],
-            url=entry["url"],
-            ref=entry.get("ref"),
-            notes=entry.get("notes", "").strip(),
-        )
-        for entry in data.get("repo", [])
-    ]
+    """The shared manifest's references, then the local one's."""
+    refs = []
+    for manifest in (MANIFEST, LOCAL_MANIFEST):
+        if manifest is LOCAL_MANIFEST and not manifest.exists():
+            continue
+        data = tomllib.loads(manifest.read_text())
+        refs += [
+            Reference(
+                name=entry["name"],
+                url=entry["url"],
+                ref=entry.get("ref"),
+                notes=entry.get("notes", "").strip(),
+                local=manifest is LOCAL_MANIFEST,
+            )
+            for entry in data.get("repo", [])
+        ]
     names = [r.name for r in refs]
     if dupes := {n for n in names if names.count(n) > 1}:
-        sys.exit(f"duplicate reference names in manifest: {', '.join(sorted(dupes))}")
+        sys.exit(f"duplicate reference names across the manifests: {', '.join(sorted(dupes))}")
     return refs
 
 
@@ -125,7 +135,8 @@ def list_references(refs: list[Reference]) -> None:
                 status += " (modified)"
         else:
             status = "not fetched"
-        print(f"{ref.name}  [{ref.url}{'@' + ref.ref if ref.ref else ''}]")
+        local = "  (local)" if ref.local else ""
+        print(f"{ref.name}  [{ref.url}{'@' + ref.ref if ref.ref else ''}]{local}")
         print(f"  status: {status}")
         for line in ref.notes.splitlines():
             print(f"  {line}")
@@ -133,10 +144,10 @@ def list_references(refs: list[Reference]) -> None:
 
 
 def warn_unmanaged(refs: list[Reference]) -> None:
-    known = {r.name for r in refs} | TRACKED_FILES
+    known = {r.name for r in refs} | MANIFEST_FILES
     for entry in sorted(REFERENCES_DIR.iterdir()):
         if entry.name not in known:
-            print(f"note: references/{entry.name} is not in the manifest", file=sys.stderr)
+            print(f"note: references/{entry.name} is in neither manifest", file=sys.stderr)
 
 
 def main() -> int:

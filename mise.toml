@@ -3,7 +3,7 @@ rust = { version = "stable", mr_boxington = true }
 uv = "latest"
 
 [tasks.refs]
-description = "Clone/update reference repos from references/manifest.toml"
+description = "Clone/update reference repos from references/manifest.toml and manifest.local.toml"
 run = "uv run --script tools/fetch_references.py"
 
 [tasks."test:e2e"]

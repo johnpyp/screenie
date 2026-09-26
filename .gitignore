@@ -1,6 +1,7 @@
 /target
 /.cache
 
+# Reference checkouts, and the local manifest (tools/fetch_references.py).
 references/*
 !references/manifest.toml
 

@@ -368,7 +368,8 @@ mise run test:e2e                 # or: mise run test:e2e -- -k save_as -x
 ```
 
 Reference projects (Screendrop, gpui-component…) are
-cloned into `references/` with `mise run refs`.
+cloned into `references/` with `mise run refs`, along with any listed in your own
+`references/manifest.local.toml` (gitignored).
 
 The screenshots and the tour above come from [`tools/demo`](tools/demo/README.md): a
 headless demo desktop, a scripted run through the features, and a renderer for the video.
