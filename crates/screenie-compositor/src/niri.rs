@@ -58,13 +58,18 @@ pub(crate) fn visible_windows(
     workspaces: &Value,
     outputs: &Value,
 ) -> Vec<WindowInfo> {
-    // Active workspace id -> origin of its output in the global layout.
-    let origin_of = |workspace_id: u64| -> Option<(f64, f64)> {
+    // Active workspace id -> its output's rect in the global layout.
+    let output_of = |workspace_id: u64| -> Option<Rect> {
         let ws = workspaces.as_array()?.iter().find(|w| {
             w["id"].as_u64() == Some(workspace_id) && w["is_active"].as_bool() == Some(true)
         })?;
         let logical = &outputs[ws["output"].as_str()?]["logical"];
-        Some((logical["x"].as_f64()?, logical["y"].as_f64()?))
+        Some(Rect::new(
+            logical["x"].as_f64()?,
+            logical["y"].as_f64()?,
+            logical["width"].as_f64()?,
+            logical["height"].as_f64()?,
+        ))
     };
 
     // Floating windows above tiled ones, then most recently focused first.
@@ -74,7 +79,7 @@ pub(crate) fn visible_windows(
         .into_iter()
         .flatten()
         .filter_map(|w| {
-            let (ox, oy) = origin_of(w["workspace_id"].as_u64()?)?;
+            let output = output_of(w["workspace_id"].as_u64()?)?;
             let layout = &w["layout"];
             // Tiles scrolled out of view have no position.
             let tile = &layout["tile_pos_in_workspace_view"];
@@ -86,11 +91,14 @@ pub(crate) fn visible_windows(
             );
             let size = &layout["window_size"];
             let rect = Rect::new(
-                ox + tx + dx,
-                oy + ty + dy,
+                output.x + tx + dx,
+                output.y + ty + dy,
                 size[0].as_f64()?,
                 size[1].as_f64()?,
             );
+            // niri draws a window only on its workspace's output: a column scrolled
+            // partly past the edge is cut off there, not continued on the next monitor.
+            let rect = rect.intersection(&output)?;
             let floating = w["is_floating"].as_bool().unwrap_or(false);
             let focused = w["is_focused"].as_bool().unwrap_or(false);
             let ts = &w["focus_timestamp"];
@@ -136,5 +144,23 @@ mod tests {
         let found = visible_windows(&windows, &workspaces, &outputs);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].rect, Rect::new(1940.0, 20.0, 600.0, 400.0));
+    }
+
+    #[test]
+    fn windows_are_cut_off_at_their_output() {
+        let outputs = serde_json::json!({
+            "DP-1": {"logical": {"x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0}},
+            "DP-2": {"logical": {"x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0}}
+        });
+        let workspaces = serde_json::json!([{"id": 1, "output": "DP-1", "is_active": true}]);
+        let tile = |id: u64, x: f64| {
+            serde_json::json!({"id": id, "title": "t", "workspace_id": 1, "is_floating": false,
+             "layout": {"tile_pos_in_workspace_view": [x, 0.0], "window_offset_in_tile": [0.0, 0.0], "window_size": [600, 400]}})
+        };
+        // Half scrolled past the right edge, and entirely past it.
+        let windows = serde_json::json!([tile(1, 1820.0), tile(2, 1960.0)]);
+        let found = visible_windows(&windows, &workspaces, &outputs);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rect, Rect::new(1820.0, 0.0, 100.0, 400.0));
     }
 }
