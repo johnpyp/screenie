@@ -27,6 +27,7 @@ mod feed;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -56,6 +57,9 @@ pub enum Error {
     Ended,
     #[error("the region is too small to record")]
     TooSmall,
+    /// Finishing the file failed. Nothing was deleted: `kept` holds what was recorded.
+    #[error("finishing the file failed ({reason}); what was recorded is kept in {}", kept.display())]
+    Unfinished { reason: String, kept: PathBuf },
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -337,22 +341,25 @@ impl Recording {
         Ok(())
     }
 
-    /// Finish the file. Blocks until the muxer has written everything.
+    /// Finish the file. Blocks until the muxer has written everything, however long
+    /// that takes while it's still writing. If it fails, nothing is deleted:
+    /// [`Error::Unfinished`] says where what was recorded is.
     pub fn stop(mut self) -> Result<Finished> {
         self.stop_capture();
         let last = self.latest_frame();
-        if self.is_paused() {
-            self.set_paused(false)?;
+        if self.is_paused()
+            && let Err(e) = self.set_paused(false)
+        {
+            tracing::warn!("cannot resume the pipeline to finish the file: {e}");
         }
         let duration = self.elapsed();
         self.pipeline.send_event(gst::event::Eos::new());
-        let result = match self.eos.recv_timeout(Duration::from_secs(20)) {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => Err(Error::Gst(e)),
-            Err(_) => Err(Error::Gst("timed out finishing the file".into())),
-        };
-        self.teardown();
-        result?;
+        let finished = self.finish();
+        self.shut_down();
+        if let Err(reason) = finished {
+            return Err(self.keep(reason));
+        }
+        let _ = std::fs::remove_file(&self.temp);
         let bytes = std::fs::metadata(&self.path)?.len();
         tracing::info!(path = %self.path.display(), ?duration, bytes, "recording saved");
         Ok(Finished {
@@ -367,8 +374,8 @@ impl Recording {
     /// Stop and delete the file.
     pub fn cancel(mut self) {
         self.stop_capture();
-        self.teardown();
-        let _ = std::fs::remove_file(&self.path);
+        self.shut_down();
+        self.remove_files();
         tracing::info!(path = %self.path.display(), "recording cancelled");
     }
 
@@ -384,10 +391,68 @@ impl Recording {
         let _ = capture.join();
     }
 
-    fn teardown(&mut self) {
+    /// Wait for the end of stream, which comes once the muxer has written the file.
+    /// With the index up front, that's after it has copied all the media data from the
+    /// scratch file behind the index: minutes for a long recording on a slow disk. So
+    /// it waits as long as the files keep growing, and gives up only once nothing has
+    /// been written for [`FINISH_STALL`].
+    fn finish(&self) -> Result<(), String> {
+        let mut progress = Progress::new(Instant::now());
+        loop {
+            match self.eos.recv_timeout(Duration::from_millis(500)) {
+                Ok(result) => return result,
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err("the pipeline stopped before the end".into());
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    let written = [&self.path, &self.temp]
+                        .iter()
+                        .filter_map(|p| std::fs::metadata(p).ok())
+                        .map(|m| m.len())
+                        .sum();
+                    if progress.stalled(written, Instant::now()) {
+                        return Err(format!(
+                            "nothing was written for {} s",
+                            FINISH_STALL.as_secs()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// After a failed finish: keep everything, and say where the recording is. The
+    /// scratch file holds all the media data if the muxer got that far, so it's made
+    /// visible next to the output rather than left hidden.
+    fn keep(&self, reason: String) -> Error {
+        let kept = match std::fs::metadata(&self.temp) {
+            Ok(m) if m.len() > 0 => {
+                let visible = unfinished_path(&self.path);
+                // Never over an earlier one.
+                if !visible.exists() && std::fs::rename(&self.temp, &visible).is_ok() {
+                    visible
+                } else {
+                    self.temp.clone()
+                }
+            }
+            _ => self.path.clone(),
+        };
+        tracing::error!(
+            output = %self.path.display(),
+            kept = %kept.display(),
+            "finishing the recording failed ({reason}); nothing was deleted"
+        );
+        Error::Unfinished { reason, kept }
+    }
+
+    fn shut_down(&mut self) {
         let _ = self.pipeline.set_state(gst::State::Null);
-        let _ = std::fs::remove_file(&self.temp);
         self.finished = true;
+    }
+
+    fn remove_files(&self) {
+        let _ = std::fs::remove_file(&self.path);
+        let _ = std::fs::remove_file(&self.temp);
     }
 }
 
@@ -395,9 +460,36 @@ impl Drop for Recording {
     fn drop(&mut self) {
         if !self.finished {
             self.stop_capture();
-            self.teardown();
-            let _ = std::fs::remove_file(&self.path);
+            self.shut_down();
+            self.remove_files();
         }
+    }
+}
+
+/// How long finishing a file may go without writing anything before it's given up on.
+const FINISH_STALL: Duration = Duration::from_secs(30);
+
+/// Whether a finish is still getting somewhere: when the bytes written last changed.
+struct Progress {
+    written: Option<u64>,
+    since: Instant,
+}
+
+impl Progress {
+    fn new(now: Instant) -> Self {
+        Self {
+            written: None,
+            since: now,
+        }
+    }
+
+    /// Note `written` bytes at `now`: whether nothing has changed for [`FINISH_STALL`].
+    fn stalled(&mut self, written: u64, now: Instant) -> bool {
+        if self.written != Some(written) {
+            self.written = Some(written);
+            self.since = now;
+        }
+        now.duration_since(self.since) >= FINISH_STALL
     }
 }
 
@@ -598,11 +690,19 @@ fn fit((width, height): (u32, u32), bounds: Option<(u32, u32)>) -> (u32, u32) {
 /// so the file streams in browsers and chat apps). Next to the output, not in /tmp,
 /// which is often RAM.
 fn temp_path(path: &Path) -> PathBuf {
-    let name = path
-        .file_name()
+    path.with_file_name(format!(".{}.part", file_name(path)))
+}
+
+/// Where the scratch file goes when the file couldn't be finished: next to the output,
+/// visible, so what was recorded can be recovered.
+fn unfinished_path(path: &Path) -> PathBuf {
+    path.with_file_name(format!("{}.part", file_name(path)))
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    path.with_file_name(format!(".{name}.part"))
+        .unwrap_or_default()
 }
 
 fn pipeline_description(
@@ -822,6 +922,25 @@ mod tests {
             temp_path(Path::new("/v/Rec 1.mp4")),
             PathBuf::from("/v/.Rec 1.mp4.part")
         );
+        assert_eq!(
+            unfinished_path(Path::new("/v/Rec 1.mp4")),
+            PathBuf::from("/v/Rec 1.mp4.part")
+        );
+    }
+
+    #[test]
+    fn a_finish_fails_only_once_it_stops_writing() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut progress = Progress::new(t0);
+        // A long copy: slow, but always writing.
+        for s in 0..120 {
+            assert!(!progress.stalled(s * 1_000_000, at(s)));
+        }
+        // Then nothing.
+        assert!(!progress.stalled(120_000_000, at(120)));
+        assert!(!progress.stalled(120_000_000, at(149)));
+        assert!(progress.stalled(120_000_000, at(150)));
     }
 
     #[test]

@@ -9,8 +9,13 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
   documents a float rule for the app id.
 
 - **A killed daemon loses its running recording.** On SIGTERM/SIGKILL (logout, OOM)
-  the faststart MP4 is never finalized. `screenie quit` saves properly. Options:
-  handle SIGTERM by stopping, or mux with mp4mux's robust (moov-reserving) mode.
+  the faststart MP4 is never finalized: the media data is in the hidden scratch file
+  (`.NAME.mp4.part`), without an index. `screenie quit` saves properly. Options: handle
+  SIGTERM by stopping, or record fragmented MP4 and remux to faststart after stopping,
+  keeping the fragmented file until the remux succeeds. mp4mux's robust
+  (moov-reserving) mode needs its index space reserved up front for the longest
+  recording at the highest frame rate (tens of MB at the head of every clip) and fails
+  when it runs out, so it isn't a free swap.
 - **The recording border and pill can't be excluded from capture.** Screencopy
   includes every surface, so they are placed outside the region. A full-screen
   recording of the only output therefore has no pill.

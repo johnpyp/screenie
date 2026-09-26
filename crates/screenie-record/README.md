@@ -34,8 +34,10 @@ let finished = recording.stop()?; // path, duration, size, bytes, last frame
   keep up.
 - `stop_capture()` ends the video there (its length and last frame are final, see
   `latest_frame()`), so the caller can show a preview before `stop()` finishes the
-  file. `stop()` blocks until the file is finalized. `cancel()` or dropping the recording
-  deletes it. `failure()` reports a broken pipeline so the caller can salvage the file,
+  file. `stop()` blocks until the file is finalized, however long that takes while it's
+  still being written; a finish that fails or stalls deletes nothing, and
+  `Error::Unfinished` says where the recording was kept. `cancel()` or dropping the
+  recording deletes it. `failure()` reports a broken pipeline so the caller can salvage the file,
   and `ended()` a source that went away (a recorded window closed).
 
 See [docs/features/recording.md](../../docs/features/recording.md) for the design.

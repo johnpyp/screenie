@@ -169,6 +169,11 @@ Settings:
   as AAC (`avenc_aac` → `fdkaacenc` → `voaacenc`), or Opus if there's no AAC encoder.
 - **File**: MP4 with the index up front (faststart). Its scratch file lives next to the
   output, not in `/tmp`. Quitting the daemon saves a running recording first.
+  Finishing copies the media data from the scratch file behind the index, which for a
+  long recording on a slow disk takes minutes: stopping waits as long as the file keeps
+  growing, and gives up only after 30 s without a byte written. A failed finish deletes
+  nothing. The scratch file, which holds all the media data, is renamed to
+  `NAME.mp4.part` next to the output, and the error says where it is.
 
 Try it without the daemon:
 
