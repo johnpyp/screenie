@@ -1,14 +1,14 @@
 //! Drawing documents with tiny-skia. The editor and export share this code, so what you
 //! see is exactly what you get.
 //!
-//! Everything draws into a pixmap that covers some image-space area starting at
-//! `origin`: the whole image for export, a small tile around a shape being dragged in the
-//! editor.
+//! Everything draws into a pixmap that covers some image-space area: the whole image (or
+//! the crop) for export, one tile of the canvas in the editor. [`render_area`] draws any
+//! area the way the export draws it, so tiles put together match it.
 
 use screenie_core::{Image, PixelFormat, Point, Rect};
 use tiny_skia::{
     BlendMode, FillRule, IntRect, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap,
-    PixmapPaint, PremultipliedColorU8, Stroke, Transform,
+    Stroke, Transform,
 };
 
 use crate::Color;
@@ -26,7 +26,11 @@ const SPOTLIGHT_DIM: f32 = 0.55;
 
 /// How far a shadow reaches beyond its shape, in image pixels.
 pub fn shadow_margin(scale: f32) -> f64 {
-    ((SHADOW_BLUR * 3.0 + SHADOW_OFFSET) * scale).ceil() as f64
+    effects::shadow_reach(SHADOW_BLUR * scale, shadow_offset(scale)) as f64
+}
+
+fn shadow_offset(scale: f32) -> i32 {
+    (SHADOW_OFFSET * scale).round() as i32
 }
 
 /// Premultiplied pixels of `image`.
@@ -49,58 +53,103 @@ pub fn pixmap_from_image(image: &Image) -> Pixmap {
 
 /// Straight-alpha RGBA copy of `pixmap`.
 pub fn image_from_pixmap(pixmap: &Pixmap) -> Image {
-    let data = pixmap.pixels().iter().flat_map(|p| {
-        let c = p.demultiply();
-        [c.red(), c.green(), c.blue(), c.alpha()]
-    });
+    let mut data = pixmap.data().to_vec();
+    for (px, p) in data.as_chunks_mut::<4>().0.iter_mut().zip(pixmap.pixels()) {
+        // Opaque pixels, most of a screenshot, are the same either way.
+        if p.alpha() != 255 {
+            let c = p.demultiply();
+            *px = [c.red(), c.green(), c.blue(), c.alpha()];
+        }
+    }
     let (w, h) = (pixmap.width(), pixmap.height());
-    Image::from_raw(w, h, w as usize * 4, PixelFormat::Rgba, data.collect())
+    Image::from_raw(w, h, w as usize * 4, PixelFormat::Rgba, data)
 }
 
 impl Document {
     /// The finished image: every shape drawn, cropped.
     pub fn export(&self) -> Image {
         let area = self.visible().round();
-        let mut pixmap = Pixmap::new(area.width.max(1.0) as u32, area.height.max(1.0) as u32)
-            .expect("non-empty");
-        render(self, &mut pixmap, (area.x as i32, area.y as i32), |_| true);
-        image_from_pixmap(&pixmap)
+        let area = IntRect::from_xywh(
+            area.x as i32,
+            area.y as i32,
+            area.width.max(1.0) as u32,
+            area.height.max(1.0) as u32,
+        )
+        .expect("non-empty");
+        image_from_pixmap(&render_area(self, area, |_| true))
     }
 }
 
-/// Draw the image and the shapes `include` accepts into `target`, whose top-left is image
-/// pixel `origin`.
-pub fn render(
-    doc: &Document,
-    target: &mut Pixmap,
-    origin: (i32, i32),
-    include: impl Fn(&Shape) -> bool,
-) {
-    draw_base(doc, target, origin);
+/// The image and the shapes `include` accepts, in `area` (image pixels). Redactions read
+/// around what they cover, beyond `area` where they need to, so tiles put together match
+/// the export (up to tiny-skia antialiasing a path a hair differently where it's cut
+/// off). The spotlight dim is the document's: it's there whenever the document has a
+/// spotlight, with holes for the included ones.
+pub fn render_area(doc: &Document, area: IntRect, include: impl Fn(&Shape) -> bool) -> Pixmap {
     let shapes: Vec<&Shape> = doc.shapes().iter().filter(|s| include(s)).collect();
-    draw_shapes(doc, &shapes, target, origin);
-}
-
-/// Copy the underlying image into `target`.
-pub fn draw_base(doc: &Document, target: &mut Pixmap, origin: (i32, i32)) {
-    let paint = PixmapPaint {
-        blend_mode: BlendMode::Source,
-        ..Default::default()
+    // One redaction reads what those under it made of their surroundings, so the reaches
+    // of overlapping ones add up.
+    let reads = |s: &&Shape| reads_around(s, doc.scale());
+    let all: i32 = shapes.iter().map(reads).sum();
+    let near = |s: &&&Shape| {
+        let b = s.bounds(doc.scale()).inset(-all as f64);
+        b.x < area.right() as f64
+            && b.right() > area.x() as f64
+            && b.y < area.bottom() as f64
+            && b.bottom() > area.y() as f64
     };
-    target.draw_pixmap(
-        -origin.0,
-        -origin.1,
-        (**doc.base()).as_ref(),
-        &paint,
-        Transform::identity(),
-        None,
-    );
+    let margin: i32 = shapes.iter().filter(near).map(reads).sum();
+    let (w, h) = (doc.width() as i32, doc.height() as i32);
+    let outer = IntRect::from_ltrb(
+        area.left().min((area.left() - margin).max(0)),
+        area.top().min((area.top() - margin).max(0)),
+        area.right().max((area.right() + margin).min(w)),
+        area.bottom().max((area.bottom() + margin).min(h)),
+    )
+    .expect("contains area");
+    let mut pixmap = Pixmap::new(outer.width(), outer.height()).expect("non-empty");
+    draw_under(doc, &shapes, &mut pixmap, (outer.x(), outer.y()));
+    if outer != area {
+        let inner = IntRect::from_xywh(
+            area.x() - outer.x(),
+            area.y() - outer.y(),
+            area.width(),
+            area.height(),
+        );
+        pixmap = inner
+            .and_then(|inner| pixmap.clone_rect(inner))
+            .expect("area is inside");
+    }
+    // The rest goes onto `area` itself, as the editor draws a shape being dragged over its
+    // tile, so letting go of it changes nothing.
+    draw_over(doc, &shapes, &mut pixmap, (area.x(), area.y()));
+    pixmap
 }
 
-/// Draw `shapes` over whatever `target` holds. Redactions go first (they hide what was
-/// captured, not the annotations), then spotlights as one dimmed layer, then the rest,
-/// each group in document order.
-pub fn draw_shapes(doc: &Document, shapes: &[&Shape], target: &mut Pixmap, origin: (i32, i32)) {
+/// Draw `shapes` over `target` (whose top-left is image pixel `origin`), which already
+/// holds everything under them. Only for shapes that go over the rest: redactions and
+/// spotlights go under everything, so they're skipped.
+pub fn draw_over(doc: &Document, shapes: &[&Shape], target: &mut Pixmap, origin: (i32, i32)) {
+    let mut ctx = Ctx {
+        doc,
+        origin,
+        scale: doc.scale(),
+    };
+    for shape in shapes.iter().filter(|s| goes_over(s)) {
+        ctx.shape(shape, target);
+    }
+}
+
+/// Whether a shape is drawn over the rest, rather than into the image under them like
+/// redactions and spotlights.
+pub fn goes_over(shape: &Shape) -> bool {
+    !matches!(shape.kind, Kind::Redact { .. } | Kind::Spotlight { .. })
+}
+
+/// What's under the shapes that go over: the image, then redactions (they hide what was
+/// captured, not the annotations), then the spotlight dim.
+fn draw_under(doc: &Document, shapes: &[&Shape], target: &mut Pixmap, origin: (i32, i32)) {
+    copy_base(doc, target, origin);
     let mut ctx = Ctx {
         doc,
         origin,
@@ -112,25 +161,62 @@ pub fn draw_shapes(doc: &Document, shapes: &[&Shape], target: &mut Pixmap, origi
     {
         ctx.redact(shape, target);
     }
-    let spots: Vec<Rect> = shapes
+    if doc
+        .shapes()
         .iter()
-        .filter_map(|s| {
-            if let Kind::Spotlight { rect } = s.kind {
-                Some(rect)
-            } else {
-                None
-            }
-        })
-        .collect();
-    if !spots.is_empty() {
+        .any(|s| matches!(s.kind, Kind::Spotlight { .. }))
+    {
+        let spots: Vec<Rect> = shapes
+            .iter()
+            .filter_map(|s| {
+                if let Kind::Spotlight { rect } = s.kind {
+                    Some(rect)
+                } else {
+                    None
+                }
+            })
+            .collect();
         ctx.spotlight(&spots, target);
     }
-    for shape in shapes
-        .iter()
-        .filter(|s| !matches!(s.kind, Kind::Redact { .. } | Kind::Spotlight { .. }))
-    {
-        ctx.shape(shape, target);
+}
+
+/// Copy the image into `target`, whose top-left is image pixel `origin`.
+fn copy_base(doc: &Document, target: &mut Pixmap, origin: (i32, i32)) {
+    let base = doc.base();
+    let (bw, tw) = (base.width() as i32, target.width() as i32);
+    let (x0, x1) = (origin.0.max(0), (origin.0 + tw).min(bw));
+    let (y0, y1) = (
+        origin.1.max(0),
+        (origin.1 + target.height() as i32).min(base.height() as i32),
+    );
+    if x0 >= x1 {
+        return;
     }
+    let len = (x1 - x0) as usize;
+    let pixels = target.pixels_mut();
+    for y in y0..y1 {
+        let src = &base.pixels()[(y * bw + x0) as usize..][..len];
+        pixels[((y - origin.1) * tw + x0 - origin.0) as usize..][..len].copy_from_slice(src);
+    }
+}
+
+/// How far around itself a shape reads what's under it.
+fn reads_around(shape: &Shape, scale: f32) -> i32 {
+    match shape.kind {
+        Kind::Redact {
+            mode: Redaction::Pixelate,
+            ..
+        } => pixel_block(shape, scale) as i32 - 1,
+        Kind::Redact {
+            mode: Redaction::Blur,
+            ..
+        } => effects::blur_reach(shape.style.blur_radius() * scale),
+        _ => 0,
+    }
+}
+
+fn pixel_block(shape: &Shape, scale: f32) -> u32 {
+    (shape.style.pixel_block() * scale).round().max(2.0) as u32
 }
 
 struct Ctx<'a> {
@@ -140,32 +226,21 @@ struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
-    /// The pixel rectangle of `target` covering image-space `r`.
-    fn local(&self, r: Rect, target: &Pixmap) -> Option<IntRect> {
-        let r = r.round();
-        let rect = IntRect::from_xywh(
-            r.x as i32 - self.origin.0,
-            r.y as i32 - self.origin.1,
-            r.width.max(1.0) as u32,
-            r.height.max(1.0) as u32,
-        )?;
-        rect.intersect(&IntRect::from_xywh(0, 0, target.width(), target.height())?)
-    }
-
     fn redact(&mut self, shape: &Shape, target: &mut Pixmap) {
         let Kind::Redact { rect, mode } = shape.kind else {
             return;
         };
-        let Some(area) = self.local(rect, target) else {
+        let r = rect.round();
+        let (x, y) = (r.x as i32 - self.origin.0, r.y as i32 - self.origin.1);
+        let Some(rect) =
+            IntRect::from_xywh(x, y, r.width.max(1.0) as u32, r.height.max(1.0) as u32)
+        else {
             return;
         };
         match mode {
-            Redaction::Pixelate => {
-                // Block alignment follows the shape, not the tile, so tiles match export.
-                let block = (shape.style.pixel_block() * self.scale).round().max(2.0) as u32;
-                effects::pixelate(target, area, block);
-            }
-            Redaction::Blur => effects::blur(target, area, shape.style.blur_radius() * self.scale),
+            // Blocks align to the shape, not the tile, so tiles match export.
+            Redaction::Pixelate => effects::pixelate(target, rect, pixel_block(shape, self.scale)),
+            Redaction::Blur => effects::blur(target, rect, shape.style.blur_radius() * self.scale),
         }
     }
 
@@ -197,34 +272,37 @@ impl Ctx<'_> {
             self.draw(shape, target, self.transform());
             return;
         }
-        let Some(area) = self.local(shape.paint_bounds(self.scale), target) else {
+        // The layer takes in the parts of the shape just outside the target too, whose
+        // shadow falls on it.
+        let reach = shadow_margin(self.scale);
+        let (x, y) = (self.origin.0 as f64 - reach, self.origin.1 as f64 - reach);
+        let around = Rect::new(
+            x,
+            y,
+            target.width() as f64 + 2.0 * reach,
+            target.height() as f64 + 2.0 * reach,
+        );
+        let Some(area) = shape.paint_bounds(self.scale).intersection(&around) else {
             return;
         };
-        let Some(mut layer) = Pixmap::new(area.width(), area.height()) else {
+        let (x0, y0) = (area.x.floor() as i32, area.y.floor() as i32);
+        let (x1, y1) = (area.right().ceil() as i32, area.bottom().ceil() as i32);
+        let Some(mut layer) = Pixmap::new((x1 - x0) as u32, (y1 - y0) as u32) else {
             return;
         };
-        let transform = Transform::from_translate(
-            -(self.origin.0 + area.x()) as f32,
-            -(self.origin.1 + area.y()) as f32,
+        self.draw(
+            shape,
+            &mut layer,
+            Transform::from_translate(-x0 as f32, -y0 as f32),
         );
-        self.draw(shape, &mut layer, transform);
-        let shadow = shadow_of(&layer, self.scale);
-        let dy = (SHADOW_OFFSET * self.scale).round() as i32;
-        target.draw_pixmap(
-            area.x(),
-            area.y() + dy,
-            shadow.as_ref(),
-            &PixmapPaint::default(),
-            Transform::identity(),
-            None,
-        );
-        target.draw_pixmap(
-            area.x(),
-            area.y(),
-            layer.as_ref(),
-            &PixmapPaint::default(),
-            Transform::identity(),
-            None,
+        let at = (x0 - self.origin.0, y0 - self.origin.1);
+        effects::draw_with_shadow(
+            target,
+            &layer,
+            at,
+            SHADOW_BLUR * self.scale,
+            shadow_offset(self.scale),
+            SHADOW_ALPHA,
         );
     }
 
@@ -488,19 +566,6 @@ pub(crate) fn arrow_path(from: Point, to: Point, w: f64, scale: f64) -> Option<P
     pb.finish()
 }
 
-/// A soft black shadow shaped like `layer`'s alpha.
-fn shadow_of(layer: &Pixmap, scale: f32) -> Pixmap {
-    let (w, h) = (layer.width() as usize, layer.height() as usize);
-    let mut mask: Vec<f32> = layer.pixels().iter().map(|p| p.alpha() as f32).collect();
-    effects::blur_mask(&mut mask, w, h, SHADOW_BLUR * scale);
-    let mut shadow = Pixmap::new(layer.width(), layer.height()).expect("same size as layer");
-    for (dst, a) in shadow.pixels_mut().iter_mut().zip(mask) {
-        let a = (a * SHADOW_ALPHA).round().clamp(0.0, 255.0) as u8;
-        *dst = PremultipliedColorU8::from_rgba(0, 0, 0, a).expect("black is valid premultiplied");
-    }
-    shadow
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,34 +708,187 @@ mod tests {
         assert_eq!(doc.export().rgba_at(50, 20), [255, 204, 0, 255]);
     }
 
-    #[test]
-    fn a_tile_matches_the_export() {
-        let mut doc = Document::new(&white(120, 80), 1.0);
-        add(
-            &mut doc,
-            Kind::Arrow {
-                from: Point::new(10.0, 10.0),
-                to: Point::new(100.0, 60.0),
-            },
-            Style::default(),
+    /// A patterned image with every kind of shape on it, several crossing each other.
+    fn busy(scale: f32) -> Document {
+        let (w, h) = (160, 120);
+        let data = (0..w * h).flat_map(|i| {
+            let (x, y) = (i % w, i / w);
+            [
+                (x * 7 % 256) as u8,
+                (y * 5 % 256) as u8,
+                if (x / 3 + y / 3) % 2 == 0 { 255 } else { 40 },
+                255,
+            ]
+        });
+        let mut doc = Document::new(
+            &Image::from_raw(w, h, w as usize * 4, PixelFormat::Rgba, data.collect()),
+            scale,
         );
-        add(
-            &mut doc,
-            Kind::Step {
-                center: Point::new(40.0, 50.0),
-            },
-            Style::default(),
-        );
+        let s = Style::default();
+        let p = Point::new;
+        let r = Rect::new;
+        for (kind, style) in [
+            (
+                Kind::Redact {
+                    rect: r(10.0, 10.0, 50.0, 40.0),
+                    mode: Redaction::Blur,
+                },
+                s,
+            ),
+            (
+                Kind::Redact {
+                    rect: r(40.0, 30.0, 45.0, 37.0),
+                    mode: Redaction::Blur,
+                },
+                Style { size: 8.0, ..s },
+            ),
+            (
+                Kind::Redact {
+                    rect: r(95.0, 5.0, 53.0, 41.0),
+                    mode: Redaction::Pixelate,
+                },
+                s,
+            ),
+            (
+                Kind::Spotlight {
+                    rect: r(20.0, 60.0, 70.0, 50.0),
+                },
+                s,
+            ),
+            (
+                Kind::Arrow {
+                    from: p(5.0, 115.0),
+                    to: p(150.0, 8.0),
+                },
+                s,
+            ),
+            (
+                Kind::Line {
+                    from: p(3.0, 50.0),
+                    to: p(157.0, 53.0),
+                },
+                Style { size: 8.0, ..s },
+            ),
+            (
+                Kind::Rectangle {
+                    rect: r(30.0, 20.0, 100.0, 80.0),
+                },
+                s,
+            ),
+            (
+                Kind::Ellipse {
+                    rect: r(60.0, 40.0, 70.0, 50.0),
+                },
+                Style { fill: true, ..s },
+            ),
+            (
+                Kind::Pen {
+                    points: (0..30)
+                        .map(|i| p(10.0 + i as f64 * 5.0, 90.0 + (i as f64 / 3.0).sin() * 20.0))
+                        .collect(),
+                },
+                s,
+            ),
+            (
+                Kind::Highlighter {
+                    points: vec![p(5.0, 70.0), p(150.0, 75.0)],
+                },
+                Style {
+                    color: Color::rgb(255, 204, 0),
+                    ..s
+                },
+            ),
+            (
+                Kind::Text {
+                    origin: p(70.0, 60.0),
+                    text: "Tiles".into(),
+                },
+                s,
+            ),
+            (
+                Kind::Step {
+                    center: p(100.0, 100.0),
+                },
+                s,
+            ),
+        ] {
+            let kind = match kind {
+                Kind::Pen { points } => Kind::Pen {
+                    points: points
+                        .into_iter()
+                        .map(|q| p(q.x * scale as f64, q.y * scale as f64))
+                        .collect(),
+                },
+                other => other,
+            };
+            add(&mut doc, kind, style);
+        }
+        doc
+    }
+
+    /// Render `doc` in `size`px tiles and list the pixels that differ from the export by
+    /// more than rounding: where, and by how much.
+    fn tile_differences(doc: &Document, size: u32) -> Vec<(u32, u32, u8)> {
         let full = doc.export();
-        let mut tile = Pixmap::new(50, 40).unwrap();
-        render(&doc, &mut tile, (60, 30), |_| true);
-        let tile = image_from_pixmap(&tile);
-        for (x, y) in [(10, 10), (30, 20), (35, 25), (45, 35)] {
-            assert_eq!(
-                tile.rgba_at(x, y),
-                full.rgba_at(x + 60, y + 30),
-                "at {x},{y}"
-            );
+        let mut differences = Vec::new();
+        for y in (0..full.height()).step_by(size as usize) {
+            for x in (0..full.width()).step_by(size as usize) {
+                let (w, h) = (size.min(full.width() - x), size.min(full.height() - y));
+                let rect = IntRect::from_xywh(x as i32, y as i32, w, h).unwrap();
+                let tile = image_from_pixmap(&render_area(doc, rect, |_| true));
+                for (ty, tx) in (0..h).flat_map(|ty| (0..w).map(move |tx| (ty, tx))) {
+                    let (a, b) = (tile.rgba_at(tx, ty), full.rgba_at(x + tx, y + ty));
+                    let diff = a.iter().zip(b).map(|(a, b)| a.abs_diff(b)).max().unwrap();
+                    if diff > 2 {
+                        differences.push((x + tx, y + ty, diff));
+                    }
+                }
+            }
+        }
+        differences
+    }
+
+    #[test]
+    fn tiles_put_together_match_the_export() {
+        // Shadows, redactions reading around themselves (one over another) and the
+        // spotlight dim: everything tiling itself is responsible for. Straight edges and
+        // text rasterize the same however they're cut.
+        let mut doc = busy(1.0);
+        doc.state_mut().shapes.retain(|s| {
+            matches!(
+                s.kind,
+                Kind::Redact { .. }
+                    | Kind::Spotlight { .. }
+                    | Kind::Rectangle { .. }
+                    | Kind::Text { .. }
+            )
+        });
+        for size in [16, 37, 64] {
+            assert_eq!(tile_differences(&doc, size), [], "{size}px tiles");
+        }
+    }
+
+    #[test]
+    fn tiles_differ_from_the_export_only_in_antialiasing() {
+        // tiny-skia antialiases a path a little differently where a tile cuts it off: a
+        // few edge pixels may be off a little (and the shadows they cast, a hair).
+        // Anything missing or misplaced would be off a lot, or across many pixels.
+        for scale in [1.0, 2.0] {
+            let doc = busy(scale);
+            let pixels = (doc.width() * doc.height()) as usize;
+            for size in [16, 37, 64] {
+                let off = tile_differences(&doc, size);
+                let worst = off.iter().max_by_key(|d| d.2);
+                assert!(
+                    worst.is_none_or(|d| d.2 <= 64),
+                    "{size}px tiles at scale {scale}: {worst:?}"
+                );
+                let noticeable = off.iter().filter(|d| d.2 > 4).count();
+                assert!(
+                    noticeable * 200 < pixels,
+                    "{size}px tiles at scale {scale}: {noticeable} pixels off"
+                );
+            }
         }
     }
 

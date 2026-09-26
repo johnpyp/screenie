@@ -24,9 +24,10 @@ if screenie_editor::overlay_busy("Finish this one first", cx) { /* … */ }
   by unit tests.
 - **`Tool`** lists the tools with their names, keys, icons, and which style controls
   apply to each.
-- **`raster`** keeps redraws cheap. It keeps a composite of every settled shape and
-  re-renders only the live shape into a small tile, handing GPUI images and evicting
-  the replaced ones from the atlas.
+- **`raster`** keeps redraws cheap. The canvas is a grid of tiles, each a GPUI image,
+  and a change re-renders (in parallel) only the tiles it reaches: settled shapes into
+  the composite, and the live shape over the composite's tiles it crosses. Replaced
+  tiles are evicted from GPUI's atlas.
 - **`view::Editor`** is the GPUI view. It has the canvas: in place as an overlay,
   otherwise fitted and never beyond logical 1:1. It also has the selection and crop
   chrome, the bars (hanging off the capture in an overlay, along the edges in a

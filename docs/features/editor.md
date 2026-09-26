@@ -148,13 +148,19 @@ starts from `editor.default_color` and `editor.stroke_width`.
 - `screenie-annotate` has no UI. It holds the `Document` (base image, shapes, crop,
   and undo history as whole-state snapshots, capped at 200), hit testing, handles, and
   the **tiny-skia** renderer. The editor and export share that renderer, so the file
-  matches the canvas exactly. Text uses cosmic-text.
+  matches the canvas (up to tiny-skia antialiasing a path a hair differently where a
+  tile cuts it off). Text uses cosmic-text.
 - `screenie-editor` holds the `Session`, which is the interaction model: tools,
   gestures, text editing, crop and the Esc cascade. It's plain Rust with unit tests.
   The GPUI view around it translates events into image coordinates.
-- The canvas redraws cheaply. Settled shapes are rendered once into a full-size
-  composite. The shape being drawn, dragged or typed into is re-rendered alone into a
-  small tile over it (all spotlights together, when one of them moves).
+- The canvas redraws cheaply. It's a grid of 256px tiles, each its own GPU image, and a
+  change re-renders only the tiles the shape crosses (`Shape::touches`), in parallel:
+  dragging a corner-to-corner arrow on a 4K capture takes about a millisecond per
+  move, not its whole bounding box. Settled shapes are rendered into the composite
+  as they change. The shape being drawn, dragged or typed into is drawn over the
+  composite's tiles it crosses; a stroke being drawn redraws only the tiles around its
+  end. Shadows are blurred only near what casts them. `cargo run --release -p
+  screenie-annotate --example bench` times it.
 
 ## Later
 

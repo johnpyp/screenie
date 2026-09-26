@@ -10,3 +10,6 @@ screenie-core.workspace = true
 tiny-skia.workspace = true
 cosmic-text = "0.19"
 tracing.workspace = true
+
+[dev-dependencies]
+rayon.workspace = true

@@ -98,13 +98,11 @@ impl Viewport {
         )
     }
 
+    /// From its corners, so rectangles that share an edge (the canvas's tiles) meet exactly.
     fn rect(self, r: Rect) -> Bounds<Pixels> {
-        Bounds::new(
+        Bounds::from_corners(
             self.to_window(r.origin()),
-            size(
-                px(r.width as f32 * self.zoom),
-                px(r.height as f32 * self.zoom),
-            ),
+            self.to_window(Point::new(r.right(), r.bottom())),
         )
     }
 
@@ -628,16 +626,13 @@ impl Editor {
                 &[shadow(0x00000080, 10.0, 36.0), shadow(0x00000066, 1.0, 3.0)],
             );
         }
-        let (composite, tile) = self.raster.update(&self.session);
-        let tile = tile.map(|t| (t.image.clone(), t.rect));
-        let _ = window.paint_image(shown, full, px(0.).into(), composite, 0, false);
-        if let Some((image, rect)) = tile {
-            let tile_bounds = vp.rect(rect);
+        for tile in self.raster.update(self.session.doc(), self.session.live()) {
+            let cell = shown.intersect(&vp.rect(tile.cell));
             let _ = window.paint_image(
-                shown.intersect(&tile_bounds),
-                tile_bounds,
+                cell,
+                vp.rect(tile.rect),
                 px(0.).into(),
-                image,
+                tile.image.clone(),
                 0,
                 false,
             );

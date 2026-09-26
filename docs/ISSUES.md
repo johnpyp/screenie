@@ -4,11 +4,6 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 
 ## Open
 
-- **The editor redraws its composite on the CPU.** Every settled change (a finished
-  stroke, undo, a style change) re-renders the full-size image with tiny-skia and
-  re-uploads it. That takes tens of milliseconds on a 4K capture. Moving a spotlight
-  re-renders a full-size tile per frame. Fine so far; if it isn't, render
-  the composite on a background thread or split it into tiles.
 - **Editor windows tile on tiling compositors** (`editor.mode = "window"` only; the
   default overlay doesn't). Wayland has no "please float" hint for toplevels. The README
   documents a float rule for the app id.

@@ -6369,6 +6369,7 @@ name = "screenie-annotate"
 version = "0.1.0"
 dependencies = [
  "cosmic-text",
+ "rayon",
  "screenie-core",
  "tiny-skia 0.12.0",
  "tracing",
@@ -6455,6 +6456,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "image",
+ "rayon",
  "screenie-annotate",
  "screenie-core",
  "screenie-ui-kit",

@@ -265,6 +265,12 @@ impl Shape {
 
     /// Everything the shape may paint, including stroke, arrowhead and shadow.
     pub fn paint_bounds(&self, scale: f32) -> Rect {
+        self.bounds(scale).inset(-self.paint_margin(scale))
+    }
+
+    /// How far past its geometry the shape paints: stroke, arrowhead, shadow, and a pixel
+    /// of antialiasing.
+    fn paint_margin(&self, scale: f32) -> f64 {
         let w = self.stroke(scale);
         let margin = match &self.kind {
             Kind::Arrow { .. } => w * 4.0 + 8.0 * scale as f64,
@@ -281,7 +287,65 @@ impl Shape {
         } else {
             0.0
         };
-        self.bounds(scale).inset(-(margin + shadow + 1.0))
+        margin + shadow + 1.0
+    }
+
+    /// Whether drawing the shape may change a pixel in `area`. It errs towards yes (an
+    /// area just past what the shape paints may count; one it paints on always does) and
+    /// is cheap, so a redraw can skip the parts of a long diagonal arrow's bounds it
+    /// doesn't cross. A spotlight counts where its hole is: the dim around it is the
+    /// document's.
+    pub fn touches(&self, area: &Rect, scale: f32) -> bool {
+        if self.paint_bounds(scale).intersection(area).is_none() {
+            return false;
+        }
+        let m = self.paint_margin(scale);
+        match &self.kind {
+            Kind::Arrow { from, to } | Kind::Line { from, to } => {
+                segment_within(*from, *to, area, m)
+            }
+            Kind::Pen { points } | Kind::Highlighter { points } => {
+                // Strokes curve through their points' midpoints, bulging off the polyline
+                // at sharp turns.
+                let bulge = points
+                    .windows(3)
+                    .map(|w| {
+                        Point::new(
+                            w[0].x + w[2].x - 2.0 * w[1].x,
+                            w[0].y + w[2].y - 2.0 * w[1].y,
+                        )
+                        .distance(Point::default())
+                    })
+                    .fold(0.0, f64::max)
+                    / 8.0;
+                match points.as_slice() {
+                    [only] => segment_within(*only, *only, area, m),
+                    _ => points
+                        .windows(2)
+                        .any(|w| segment_within(w[0], w[1], area, m + bulge)),
+                }
+            }
+            Kind::Rectangle { rect } if !self.style.fill => !rect.inset(m).contains_rect(area),
+            Kind::Ellipse { rect } => {
+                // Near the outline (a 64-gon, give or take its sagging off the curve), or
+                // inside it when filled.
+                let (rx, ry, c) = (rect.width / 2.0, rect.height / 2.0, rect.center());
+                let n = 64;
+                let at = |i: usize| {
+                    let t = i as f64 / n as f64 * std::f64::consts::TAU;
+                    Point::new(c.x + rx * t.cos(), c.y + ry * t.sin())
+                };
+                let sag = rx.max(ry) * (1.0 - (std::f64::consts::PI / n as f64).cos());
+                let inside = |p: Point| {
+                    rx > 0.0
+                        && ry > 0.0
+                        && ((p.x - c.x) / rx).powi(2) + ((p.y - c.y) / ry).powi(2) <= 1.0
+                };
+                (0..n).any(|i| segment_within(at(i), at(i + 1), area, m + sag))
+                    || (self.style.fill && inside(area.center()))
+            }
+            _ => true,
+        }
     }
 
     /// Whether `p` is on the shape, within `tolerance` image pixels.
@@ -447,6 +511,58 @@ pub(crate) fn segment_distance(p: Point, a: Point, b: Point) -> f64 {
     p.distance(Point::new(a.x + t * dx, a.y + t * dy))
 }
 
+/// Whether segment `a`–`b` comes within `d` of `r`.
+fn segment_within(a: Point, b: Point, r: &Rect, d: f64) -> bool {
+    let (x0, x1, y0, y1) = (a.x.min(b.x), a.x.max(b.x), a.y.min(b.y), a.y.max(b.y));
+    let near = x1 >= r.x - d && x0 <= r.right() + d && y1 >= r.y - d && y0 <= r.bottom() + d;
+    near && segment_rect_distance(a, b, r) <= d
+}
+
+/// How close segment `a`–`b` comes to `r`: zero if it crosses it.
+fn segment_rect_distance(a: Point, b: Point, r: &Rect) -> f64 {
+    // Clip the segment to the rectangle (Liang–Barsky); anything left crosses it.
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    let crosses = [
+        (-dx, a.x - r.x),
+        (dx, r.right() - a.x),
+        (-dy, a.y - r.y),
+        (dy, r.bottom() - a.y),
+    ]
+    .into_iter()
+    .all(|(p, q)| {
+        if p == 0.0 {
+            return q >= 0.0;
+        }
+        let t = q / p;
+        if p < 0.0 {
+            t0 = t0.max(t)
+        } else {
+            t1 = t1.min(t)
+        }
+        t0 <= t1
+    });
+    if crosses {
+        return 0.0;
+    }
+    // Otherwise the closest points are an end of the segment or a corner of the rectangle.
+    let outside = |p: Point| {
+        let dx = (r.x - p.x).max(p.x - r.right()).max(0.0);
+        let dy = (r.y - p.y).max(p.y - r.bottom()).max(0.0);
+        dx.hypot(dy)
+    };
+    let corners = [
+        Point::new(r.x, r.y),
+        Point::new(r.right(), r.y),
+        Point::new(r.x, r.bottom()),
+        Point::new(r.right(), r.bottom()),
+    ];
+    corners
+        .into_iter()
+        .map(|c| segment_distance(c, a, b))
+        .fold(outside(a).min(outside(b)), f64::min)
+}
+
 fn polyline_distance(p: Point, points: &[Point]) -> f64 {
     match points {
         [] => f64::INFINITY,
@@ -529,6 +645,107 @@ mod tests {
         assert!(arrow.hit(Point::new(50.0, 4.0), 3.0, 1.0));
         assert!(!arrow.hit(Point::new(50.0, 12.0), 3.0, 1.0));
         assert!(!arrow.hit(Point::new(120.0, 0.0), 3.0, 1.0));
+    }
+
+    #[test]
+    fn a_diagonal_arrow_touches_only_the_cells_along_it() {
+        let arrow = shape(Kind::Arrow {
+            from: Point::new(10.0, 10.0),
+            to: Point::new(990.0, 990.0),
+        });
+        let cell = |x: f64, y: f64| Rect::new(x, y, 100.0, 100.0);
+        assert!(arrow.touches(&cell(500.0, 500.0), 1.0));
+        assert!(
+            arrow.touches(&cell(400.0, 500.0), 1.0),
+            "diagonal neighbours are within the arrow's reach"
+        );
+        assert!(!arrow.touches(&cell(800.0, 100.0), 1.0));
+        assert!(!arrow.touches(&cell(100.0, 800.0), 1.0));
+
+        let outline = shape(Kind::Rectangle {
+            rect: Rect::new(0.0, 0.0, 1000.0, 1000.0),
+        });
+        assert!(outline.touches(&cell(0.0, 400.0), 1.0));
+        assert!(!outline.touches(&cell(400.0, 400.0), 1.0));
+        let mut filled = outline.clone();
+        filled.style.fill = true;
+        assert!(filled.touches(&cell(400.0, 400.0), 1.0));
+
+        let ring = shape(Kind::Ellipse {
+            rect: Rect::new(0.0, 0.0, 1000.0, 1000.0),
+        });
+        assert!(ring.touches(&cell(450.0, 0.0), 1.0));
+        assert!(!ring.touches(&cell(450.0, 450.0), 1.0));
+        assert!(
+            !ring.touches(&cell(0.0, 0.0), 1.0),
+            "the bounds' corner is outside the ellipse"
+        );
+    }
+
+    #[test]
+    fn everything_a_shape_paints_it_touches() {
+        use crate::Document;
+        use screenie_core::{Image, PixelFormat};
+        // Draw each shape alone over white and check every changed pixel's 4px cell is touched.
+        let white = Image::from_raw(200, 150, 800, PixelFormat::Rgba, vec![255; 200 * 150 * 4]);
+        let zigzag: Vec<Point> = (0..12)
+            .map(|i| {
+                Point::new(
+                    20.0 + i as f64 * 14.0,
+                    if i % 2 == 0 { 30.0 } else { 120.0 },
+                )
+            })
+            .collect();
+        let kinds = [
+            Kind::Arrow {
+                from: Point::new(20.0, 130.0),
+                to: Point::new(180.0, 20.0),
+            },
+            Kind::Line {
+                from: Point::new(20.0, 20.0),
+                to: Point::new(180.0, 130.0),
+            },
+            Kind::Rectangle {
+                rect: Rect::new(30.0, 30.0, 140.0, 90.0),
+            },
+            Kind::Ellipse {
+                rect: Rect::new(30.0, 30.0, 140.0, 90.0),
+            },
+            Kind::Pen {
+                points: zigzag.clone(),
+            },
+            Kind::Highlighter { points: zigzag },
+            Kind::Step {
+                center: Point::new(100.0, 75.0),
+            },
+        ];
+        for scale in [1.0, 2.0] {
+            for kind in &kinds {
+                for size in [4.0, 16.0] {
+                    let mut doc = Document::new(&white, scale);
+                    let s = doc.make(
+                        kind.clone(),
+                        Style {
+                            size,
+                            ..Style::default()
+                        },
+                    );
+                    doc.add(s.clone());
+                    let out = doc.export();
+                    for (x, y) in
+                        (0..out.height()).flat_map(|y| (0..out.width()).map(move |x| (x, y)))
+                    {
+                        if out.rgba_at(x, y) != [255; 4] {
+                            let cell = Rect::new((x / 4 * 4) as f64, (y / 4 * 4) as f64, 4.0, 4.0);
+                            assert!(
+                                s.touches(&cell, scale),
+                                "{kind:?} at scale {scale}, size {size}: {x},{y}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
