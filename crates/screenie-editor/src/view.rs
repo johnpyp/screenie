@@ -51,8 +51,10 @@ const CENTRED_FIT: f32 = 0.8;
 /// the screen edges.
 const BAR_GAP: f32 = 10.0;
 const SCREEN_MARGIN: f32 = 8.0;
-/// How much the overlay dims the screen around the capture.
+/// How much the overlay dims the screen around the capture: in place, and centred
+/// (darker, so a capture of the screen doesn't blend into the screen behind it).
 const OVERLAY_DIM: f32 = 0.5;
+const CENTRED_DIM: f32 = 0.7;
 
 fn workspace() -> Hsla {
     rgba(0x141416ff).into()
@@ -443,10 +445,21 @@ impl Editor {
         let full = vp.rect(doc.bounds());
         let shown = if crop_edit.is_some() { full } else { vp.rect(doc.visible()) };
 
-        window.paint_drop_shadows(shown, px(2.).into(), &[
-            shadow(0x00000080, 10.0, 36.0),
-            shadow(0x00000066, 1.0, 3.0),
-        ]);
+        // Centred over the dimmed screen, the capture (often of that very screen) needs a
+        // clear edge: a deeper shadow lifts it, and a dark outer and light inner hairline
+        // keep the edge visible whatever the capture's colours.
+        let floating = self.overlay() && self.placement(bounds.size).is_none();
+        if floating {
+            window.paint_drop_shadows(shown, px(0.).into(), &[
+                shadow(0x000000a6, 18.0, 56.0),
+                shadow(0x00000080, 2.0, 8.0),
+            ]);
+        } else {
+            window.paint_drop_shadows(shown, px(2.).into(), &[
+                shadow(0x00000080, 10.0, 36.0),
+                shadow(0x00000066, 1.0, 3.0),
+            ]);
+        }
         let (composite, tile) = self.raster.update(&self.session);
         let tile = tile.map(|t| (t.image.clone(), t.rect));
         let _ = window.paint_image(shown, full, px(0.).into(), composite, 0, false);
@@ -454,7 +467,13 @@ impl Editor {
             let tile_bounds = vp.rect(rect);
             let _ = window.paint_image(shown.intersect(&tile_bounds), tile_bounds, px(0.).into(), image, 0, false);
         }
-        window.paint_quad(quad(shown, px(2.), gpui::transparent_black(), px(1.), rgba(0xffffff14), BorderStyle::Solid));
+        if floating {
+            let outer = Bounds::new(shown.origin - point(px(1.), px(1.)), shown.size + size(px(2.), px(2.)));
+            window.paint_quad(quad(outer, px(0.), gpui::transparent_black(), px(1.), rgba(0x000000b3), BorderStyle::Solid));
+            window.paint_quad(quad(shown, px(0.), gpui::transparent_black(), px(1.), rgba(0xffffff4d), BorderStyle::Solid));
+        } else {
+            window.paint_quad(quad(shown, px(2.), gpui::transparent_black(), px(1.), rgba(0xffffff14), BorderStyle::Solid));
+        }
 
         let doc = self.session.doc();
         if let Some(crop) = crop_edit {
@@ -811,7 +830,11 @@ impl Render for Editor {
             .id("editor")
             .size_full()
             .relative()
-            .bg(if self.overlay() { color::scrim(OVERLAY_DIM) } else { workspace() })
+            .bg(match (self.overlay(), self.placement(window.viewport_size()).is_some()) {
+                (true, true) => color::scrim(OVERLAY_DIM),
+                (true, false) => color::scrim(CENTRED_DIM),
+                (false, _) => workspace(),
+            })
             .font_family(screenie_ui_kit::FONT)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))

@@ -20,7 +20,10 @@ drawing) and CleanShot X.
   Otherwise it's centred at its on-screen size: when picked up later from a preview
   card, for `screenie edit FILE`, or if it isn't wholly on one screen. A centred
   capture over 95% of the screen's width or height is shrunk to within 80% of both, so
-  it can't be mistaken for the screen itself.
+  it can't be mistaken for the screen itself. Centred captures also get a stronger dim
+  behind them (70%), a deeper shadow, and a dark outer and light inner hairline. That
+  way the edge shows on light and dark captures alike, even over a screen that looks
+  just like them.
   The overlay takes the keyboard until you're done. On compositors without layer-shell
   (GNOME) it's a fullscreen window.
 - **`window`**: a regular, resizable window (app id `dev.johnpyp.Screenie`).
