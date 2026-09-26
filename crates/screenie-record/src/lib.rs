@@ -58,7 +58,7 @@ pub enum Error {
     #[error("the region is too small to record")]
     TooSmall,
     /// Finishing the file failed. Nothing was deleted: `kept` holds what was recorded.
-    #[error("finishing the file failed ({reason}); what was recorded is kept in {}", kept.display())]
+    #[error("{reason}; what was recorded is kept in {}", kept.display())]
     Unfinished { reason: String, kept: PathBuf },
     #[error(transparent)]
     Io(#[from] std::io::Error),
