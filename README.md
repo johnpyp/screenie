@@ -7,7 +7,7 @@ X. Press a key, pick what to capture, and it lands in a preview card, ready to c
 or annotate.
 
 ```sh
-screenie          # screenshot an area, a window or a screen
+screenie shot     # screenshot an area, a window or a screen
 screenie record   # record one
 ```
 
@@ -74,12 +74,12 @@ Bind screenie to keys in your compositor:
 
 ```sh
 # Hyprland
-bind = , Print, exec, screenie
+bind = , Print, exec, screenie shot
 bind = SHIFT, Print, exec, screenie shot screen
 bind = ALT, Print, exec, screenie record
 
 # Sway
-bindsym Print exec screenie
+bindsym Print exec screenie shot
 bindsym Shift+Print exec screenie shot screen
 bindsym Alt+Print exec screenie record
 ```
@@ -90,7 +90,7 @@ copy, save, annotate or dismiss the capture.
 ## Screenshots
 
 ```sh
-screenie                           # pick an area, a window or a screen
+screenie shot                      # pick an area, a window or a screen
 screenie shot window               # pick a window
 screenie shot screen               # the focused screen, right away
 screenie shot screen --output-name DP-1
@@ -382,12 +382,12 @@ detail is in [the compositor matrix](crates/screenie-compositor/README.md#compos
 
 ## Troubleshooting
 
-The log is at `~/.local/state/screenie/daemon.log`. For more detail, restart the daemon
-with debug logging:
+The log is at `~/.local/state/screenie/daemon.log`. For more detail, run the daemon in a
+terminal with debug logging:
 
 ```sh
 screenie quit
-SCREENIE_LOG=debug screenie
+SCREENIE_LOG=debug screenie daemon
 ```
 
 ## License

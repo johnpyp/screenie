@@ -2,7 +2,7 @@
 
 The `screenie` binary: a thin clap CLI that sends a request to the daemon (starting it
 if needed) and turns the response into stdout output and an exit code. `screenie daemon`
-runs the daemon in the foreground.
+runs the daemon in the foreground, and `screenie` alone prints help.
 
 Exit codes are 0 for done, 1 for cancelled and 2 for errors. Commands that produce a
 file print its path on stdout (`screenie record` prints the path it's recording to).
@@ -11,7 +11,7 @@ file print its path on stdout (`screenie record` prints the path it's recording 
 
 | Command | What happens |
 | --- | --- |
-| `screenie` / `screenie shot` | Freeze all outputs, show the selector in area mode. |
+| `screenie shot` / `screenie shot pick` | Freeze all outputs, show the selector in area mode. |
 | `screenie shot window` | Selector in window mode (click a window). |
 | `screenie shot pick-screen` | Selector in screen mode (click a screen). |
 | `screenie shot screen` | Focused output, no UI. `--output-name DP-1` picks one. |

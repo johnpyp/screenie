@@ -4,7 +4,7 @@
 //! you like to keys in your compositor, e.g. for Hyprland:
 //!
 //! ```text
-//! bind = , Print, exec, screenie
+//! bind = , Print, exec, screenie shot
 //! bind = SHIFT, Print, exec, screenie shot screen
 //! bind = ALT, Print, exec, screenie record
 //! ```
@@ -30,15 +30,20 @@ const VERSION: &str = concat!(
 );
 
 #[derive(Parser)]
-#[command(name = "screenie", version = VERSION, about = "Screenshots and screen recordings for Wayland")]
+#[command(
+    name = "screenie",
+    version = VERSION,
+    about = "Screenshots and screen recordings for Wayland",
+    arg_required_else_help = true
+)]
 struct Cli {
     #[command(subcommand)]
-    command: Option<Command>,
+    command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Take a screenshot (the default command).
+    /// Take a screenshot.
     #[command(visible_alias = "screenshot")]
     Shot(ShotArgs),
     /// Start a screen recording, or stop the running one.
@@ -68,7 +73,7 @@ enum Command {
 enum ShotTarget {
     /// Drag an area, click a window, or press Enter to capture the whole screen.
     #[default]
-    Area,
+    Pick,
     /// Pick a window.
     Window,
     /// Pick a screen interactively.
@@ -155,7 +160,7 @@ struct ShotArgs {
 enum RecordTarget {
     /// Pick an area, window or screen, then press Record.
     #[default]
-    Area,
+    Pick,
     Window,
     /// The focused screen, immediately.
     Screen,
@@ -189,24 +194,7 @@ fn parse_rect(s: &str) -> Result<Rect, String> {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    let command = cli.command.unwrap_or(Command::Shot(ShotArgs {
-        target: ShotTarget::Area,
-        region: None,
-        output_name: None,
-        delay: 0,
-        cursor: false,
-        stdout: false,
-        delivery: Delivery {
-            copy: false,
-            no_copy: false,
-            save: false,
-            no_save: false,
-            no_preview: false,
-            edit: false,
-            output: None,
-        },
-    }));
+    let command = Cli::parse().command;
 
     if let Command::Daemon = command {
         let commit = env!("SCREENIE_COMMIT");
@@ -310,7 +298,7 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
         Command::Record(args) => {
             let target = match (args.region, args.target) {
                 (Some(rect), _) => Target::Region { rect },
-                (None, RecordTarget::Area) => Target::Select {
+                (None, RecordTarget::Pick) => Target::Select {
                     mode: SelectMode::Area,
                 },
                 (None, RecordTarget::Window) => Target::Select {
@@ -386,7 +374,7 @@ fn shot(args: ShotArgs) -> anyhow::Result<ExitCode> {
         (Some(rect), _) => Target::Region { rect },
         (None, Some(name)) => Target::Screen { output: Some(name) },
         (None, None) => match args.target {
-            ShotTarget::Area => Target::Select {
+            ShotTarget::Pick => Target::Select {
                 mode: SelectMode::Area,
             },
             ShotTarget::Window => Target::Select {
