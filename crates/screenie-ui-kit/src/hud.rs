@@ -93,7 +93,7 @@ const PANEL_PADDING: f32 = 3.0;
 /// concentric corner reads tighter than the straight sides. A rounder inner corner
 /// pulls back from the panel's, opening the gap across the corner by about 0.4px per
 /// pixel of radius (as type designers overshoot round letters).
-const OPTICAL_CORRECTION: f32 = 1.0;
+const OPTICAL_CORRECTION: f32 = 0.5;
 
 /// The corner radius of a control sitting in a [`panel`]: the panel's radius less the gap
 /// between the two edges (padding and the 1px border), so both corners share a centre,
