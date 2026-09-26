@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use anyhow::Context as _;
 use gpui::{App, AsyncApp};
@@ -16,7 +15,6 @@ use screenie_ipc::CaptureKind;
 use crate::clipboard;
 use crate::daemon::Daemon;
 use crate::deliver::{Actions, Capture, encode_png, screenshot_path, write_atomic};
-use crate::preview::{self, PreviewItem};
 
 /// Why a second editor can't open.
 const ALREADY_EDITING: &str = "Already editing a capture: finish this one first";
@@ -31,8 +29,8 @@ pub(crate) fn ensure_free(cx: &mut App) -> anyhow::Result<()> {
 }
 
 /// Open a capture for editing. `path` is where it's saved, if it is: Save and Done
-/// write back there. `actions` decide what Done does (copy, save, preview card); an
-/// already-saved capture is always saved back.
+/// write back there. `actions` decide what Done does (copy, save); an already-saved
+/// capture is always saved back. Done ends the capture's journey: no preview card follows.
 pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx: &mut App) -> anyhow::Result<()> {
     ensure_free(cx)?;
     let d = Daemon::get(cx);
@@ -66,7 +64,7 @@ pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx
             .and_then(|name| d.capture.outputs().ok()?.into_iter().find(|o| o.name == name)),
         placement: capture.placement,
         on_disk,
-        on_done: OnDone { copy: actions.copy, save: actions.save, preview: actions.preview },
+        on_done: OnDone { copy: actions.copy, save: actions.save },
         exit_on_copy: config.exit_on_copy,
         exit_on_save: config.exit_on_save,
     };
@@ -151,39 +149,26 @@ fn handle(
             // Whatever was already copied or saved exactly like this isn't done again.
             let save = (actions.save || target.borrow().is_some()) && !saved;
             let path = (save || saved).then(|| save_target(target, capture, cx));
-            let (copy, preview) = (actions.copy && !copied, actions.preview);
+            let copy = actions.copy && !copied;
             Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Screenshot, path.clone()));
-            let mut edited = Capture { image: image.clone(), ..capture.clone() };
-            cx.spawn(async move |cx| {
-                let file = path.clone();
-                let result = cx
-                    .background_executor()
+            if save || copy {
+                cx.background_executor()
                     .spawn(async move {
-                        let png = encode_png(&image)?;
-                        if save && let Some(file) = &file {
-                            write_atomic(file, &png).with_context(|| format!("saving {}", file.display()))?;
+                        let result = encode_png(&image).and_then(|png| {
+                            if save && let Some(file) = &path {
+                                write_atomic(file, &png).with_context(|| format!("saving {}", file.display()))?;
+                            }
+                            if copy {
+                                clipboard::copy(clipboard::Content::Image { png, file: path.as_deref() })?;
+                            }
+                            Ok(())
+                        });
+                        if let Err(e) = result {
+                            tracing::error!("{e:#}");
                         }
-                        if copy
-                            && let Err(e) =
-                                clipboard::copy(clipboard::Content::Image { png: png.clone(), file: file.as_deref() })
-                        {
-                            tracing::warn!("{e:#}");
-                        }
-                        anyhow::Ok(png)
                     })
-                    .await;
-                match result {
-                    Ok(png) if preview => {
-                        let output = edited.output.take();
-                        // On the clipboard if Done copied it, or it was copied as-is before.
-                        let item = PreviewItem::screenshot(edited, Arc::new(png), path, copy || copied, cx).await;
-                        cx.update(|cx| preview::show(item, output, cx));
-                    }
-                    Ok(_) => {}
-                    Err(e) => tracing::error!("{e:#}"),
-                }
-            })
-            .detach();
+                    .detach();
+            }
             Ok(None)
         }
         Output::Closed { style } => {

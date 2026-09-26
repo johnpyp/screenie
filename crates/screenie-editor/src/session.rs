@@ -338,7 +338,6 @@ impl Session {
         *self.doc.state() != self.pristine && !self.is_copied() && !self.is_saved()
     }
 
-    /// The finished image. Commits any text being typed first.
     /// The finished image. Handing it out (copy, save) also settles the editor: typing
     /// is committed and the selection dropped, so one Esc afterwards closes.
     pub fn export(&mut self) -> screenie_core::Image {

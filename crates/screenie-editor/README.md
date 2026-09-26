@@ -34,5 +34,5 @@ if screenie_editor::overlay_busy("Finish this one first", cx) { /* … */ }
   As, an overlay closes and reopens from a clone of the session so the portal dialog
   isn't hidden underneath it.
 
-What happens to the result (clipboard, files, preview cards) is the caller's job; see
+What happens to the result (clipboard, files) is the caller's job; see
 `screenie-app`'s `editor` module.

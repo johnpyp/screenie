@@ -256,7 +256,12 @@ impl Editor {
         cx.notify();
     }
 
+    /// Apply the configured copy / save and close. With nothing to apply, it's closing,
+    /// and asks first if annotations would be lost.
     fn done(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.done_does() == (false, false) {
+            return self.request_close(window, cx);
+        }
         let image = self.session.export();
         let (copied, saved) = (self.session.is_copied(), self.session.is_saved());
         if self.emit(Output::Done { image, copied, saved }, cx) {
@@ -264,18 +269,20 @@ impl Editor {
         }
     }
 
-    /// What Done will do, as a sentence and as a button label: only what's configured
-    /// and not already done for the image as it is.
-    fn done_says(&self) -> (&'static str, &'static str) {
+    /// Whether Done will (save, copy): only what's configured and not already done for
+    /// the image as it is.
+    fn done_does(&self) -> (bool, bool) {
         let on_done = self.setup.on_done;
         let has_file = on_done.save || self.path.is_some() || self.session.has_file();
-        let save = has_file && !self.session.is_saved();
-        let copy = on_done.copy && !self.session.is_copied();
-        match (save, copy) {
+        (has_file && !self.session.is_saved(), on_done.copy && !self.session.is_copied())
+    }
+
+    /// What Done will do, as a sentence and as a button label.
+    fn done_says(&self) -> (&'static str, &'static str) {
+        match self.done_does() {
             (true, true) => ("Save, copy and close", "Save & copy"),
             (true, false) => ("Save and close", "Save"),
             (false, true) => ("Copy and close", "Copy"),
-            (false, false) if on_done.preview => ("Close", "Keep"),
             (false, false) => ("Close", "Done"),
         }
     }
@@ -780,6 +787,35 @@ impl Editor {
             )
     }
 
+    /// The close prompt's ways to keep the annotations: what Done does, or if it does
+    /// nothing, copying or saving.
+    fn prompt_actions(&self, cx: &mut Context<Self>) -> Vec<HudButton> {
+        match self.done_does() {
+            (false, false) => vec![
+                self.button_for("prompt-copy", cx, |e, window, cx| {
+                    e.copy(window, cx);
+                    if e.session.is_copied() && !e.closed {
+                        e.close(window, cx);
+                    }
+                })
+                .label("Copy"),
+                self.button_for("prompt-save", cx, |e, window, cx| {
+                    e.save(window, cx);
+                    if e.session.is_saved() && !e.closed {
+                        e.close(window, cx);
+                    }
+                })
+                .label("Save")
+                .style(ButtonStyle::Accent),
+            ],
+            _ => vec![
+                self.button_for("finish", cx, |e, window, cx| e.done(window, cx))
+                    .label(self.done_says().1)
+                    .style(ButtonStyle::Accent),
+            ],
+        }
+    }
+
     fn close_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let card = div()
             .occlude()
@@ -809,11 +845,7 @@ impl Editor {
                     .gap_1()
                     .child(self.button_for("discard", cx, |e, window, cx| e.close(window, cx)).label("Discard"))
                     .child(self.button_for("keep-editing", cx, |e, _, _| e.confirm_close = false).label("Cancel"))
-                    .child(
-                        self.button_for("finish", cx, |e, window, cx| e.done(window, cx))
-                            .label(self.done_says().1)
-                            .style(ButtonStyle::Accent),
-                    ),
+                    .children(self.prompt_actions(cx)),
             );
         div().absolute().inset_0().bg(color::scrim(0.45)).flex().items_center().justify_center().child(card)
     }

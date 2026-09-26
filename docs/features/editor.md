@@ -125,17 +125,17 @@ Bold, with system fonts as fallback for emoji and CJK.
 - **Save** overwrites the capture's file, or picks a new screenshot name if the
   capture was never saved.
 - **Save As** uses the portal file chooser. An overlay steps aside for it.
-- **Done** applies the after-capture settings and closes. With the defaults it neither
-  copies nor saves: it hands the result to a preview card, which can do either. It
-  saves only if `save` is on or the capture already has a file (opened from one, given
-  `-o`, or saved in the editor), and copies only if `copy` is on. Anything already
-  copied or saved exactly as it is now isn't done again. Done's tooltip says what it
-  will do: "Close", "Copy and close" or "Save, copy and close".
+- **Done** applies the after-capture settings and closes. It saves only if `save` is
+  on or the capture already has a file (opened from one, given `-o`, or saved in the
+  editor), and copies only if `copy` is on. Anything already copied or saved exactly as
+  it is now isn't done again. Done's tooltip says what it will do: "Copy and close",
+  "Save, copy and close", or just "Close". Editing ends there: no preview card follows.
 - `editor.exit_on_copy` / `editor.exit_on_save` close the editor right after a copy
   or save.
 - Closing asks "Keep your annotations?" only if the current annotations were neither
-  copied nor saved. Its main button does what Done would (Keep as a card, Copy, Save,
-  or Save & copy).
+  copied nor saved. Its main button does what Done would (Copy, Save, or Save & copy).
+  When Done would only close (the defaults), Done asks too, and the prompt offers Copy
+  and Save instead.
 
 The last colour and size are remembered for the next editor while the daemon runs.
 
