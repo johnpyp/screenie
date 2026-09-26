@@ -147,6 +147,10 @@ enum Phase {
     Drawing {
         anchor: Point,
         current: Point,
+        /// The selection being adjusted when this press began. A click (or a drag too
+        /// small to be a region) gives it back rather than picking what's underneath:
+        /// missing a handle by a few pixels mustn't throw away a careful selection.
+        prior: Option<Selection>,
     },
     Editing {
         selection: Selection,
@@ -255,7 +259,18 @@ impl Model {
     /// The rectangle to show as selected: the one being drawn or edited.
     pub fn selection_rect(&self) -> Option<Rect> {
         match &self.phase {
-            Phase::Drawing { anchor, current } => {
+            Phase::Drawing {
+                anchor,
+                current,
+                prior,
+            } => {
+                // Until the press turns into a drag, keep showing the selection a click
+                // would give back, so a stray click doesn't flash it away.
+                if let Some(prior) = prior
+                    && anchor.distance(*current) < CLICK_SLOP
+                {
+                    return Some(self.visible(prior.rect()));
+                }
                 let r = self.constrain(*anchor, *current);
                 (!r.is_empty()).then_some(r)
             }
@@ -393,19 +408,17 @@ impl Model {
     pub fn pointer_moved(&mut self, p: Point) -> Outcome {
         let previous = self.cursor.replace(p);
         let snapped = self.snap(p);
-        match &self.phase {
-            Phase::Drawing { anchor, .. } => {
-                let mut anchor = *anchor;
+        match &mut self.phase {
+            Phase::Drawing {
+                anchor, current, ..
+            } => {
                 if self.space_held
                     && let Some(prev) = previous
                 {
                     // Space-drag moves the whole selection instead of resizing it.
-                    anchor = anchor.offset(p.x - prev.x, p.y - prev.y);
+                    *anchor = anchor.offset(p.x - prev.x, p.y - prev.y);
                 }
-                self.phase = Phase::Drawing {
-                    anchor,
-                    current: snapped,
-                };
+                *current = snapped;
             }
             Phase::Editing {
                 grab: Some(grab), ..
@@ -456,17 +469,24 @@ impl Model {
                     return Outcome::Redraw;
                 }
                 if self.mode == Mode::Area {
+                    let prior = Some(selection.clone());
                     self.phase = Phase::Drawing {
                         anchor: snapped,
                         current: snapped,
+                        prior,
                     };
                 }
                 Outcome::Redraw
             }
             Phase::Idle | Phase::Drawing { .. } if self.mode == Mode::Area => {
+                let prior = match &mut self.phase {
+                    Phase::Drawing { prior, .. } => prior.take(),
+                    _ => None,
+                };
                 self.phase = Phase::Drawing {
                     anchor: snapped,
                     current: snapped,
+                    prior,
                 };
                 Outcome::Redraw
             }
@@ -483,12 +503,25 @@ impl Model {
         };
         let is_click = press.distance(p) < CLICK_SLOP;
         match std::mem::replace(&mut self.phase, Phase::Idle) {
-            Phase::Drawing { anchor, current } => {
+            Phase::Drawing {
+                anchor,
+                current,
+                prior,
+            } => {
+                let rect = self.constrain(anchor, current);
+                let region = !is_click && rect.width >= 1.0 && rect.height >= 1.0;
+                if !region && let Some(selection) = prior {
+                    // A stray click (or a line of a drag) while adjusting: keep adjusting.
+                    self.phase = Phase::Editing {
+                        selection,
+                        grab: None,
+                    };
+                    return Outcome::Redraw;
+                }
                 if is_click {
                     return self.click(p);
                 }
-                let rect = self.constrain(anchor, current);
-                if rect.width < 1.0 || rect.height < 1.0 {
+                if !region {
                     return Outcome::Redraw;
                 }
                 self.choose(Selection::Region(rect), self.capture_on_release)
@@ -817,6 +850,39 @@ mod tests {
         assert_eq!(
             m.key_pressed(Key::Enter, NO_MODS),
             Outcome::Confirm(Selection::Region(Rect::new(0.0, 0.0, 80.0, 60.0)))
+        );
+    }
+
+    /// With `capture_on_release` off, reaching for an edge and missing its handle must
+    /// neither capture the window underneath nor lose the selection.
+    #[test]
+    fn a_click_that_misses_the_handles_keeps_the_selection() {
+        let mut m = model(Purpose::Screenshot).with_capture_on_release(false);
+        m.pressed(Point::new(150.0, 150.0));
+        m.pointer_moved(Point::new(300.0, 250.0));
+        assert_eq!(m.released(Point::new(300.0, 250.0)), Outcome::Redraw);
+        let selected = Rect::new(150.0, 150.0, 150.0, 100.0);
+        // 12px right of the right edge, over the "top" window, released where pressed.
+        m.pressed(Point::new(312.0, 200.0));
+        assert_eq!(
+            m.selection_rect(),
+            Some(selected),
+            "shown throughout the click"
+        );
+        assert_eq!(m.released(Point::new(313.0, 200.0)), Outcome::Redraw);
+        assert_eq!(m.editing(), Some(&Selection::Region(selected)));
+        // A drag that makes no area (a straight line) gives it back too.
+        m.pressed(Point::new(400.0, 400.0));
+        m.pointer_moved(Point::new(450.0, 400.0));
+        m.released(Point::new(450.0, 400.0));
+        assert_eq!(m.editing(), Some(&Selection::Region(selected)));
+        // A real drag still replaces it.
+        m.pressed(Point::new(400.0, 400.0));
+        m.pointer_moved(Point::new(450.0, 440.0));
+        m.released(Point::new(450.0, 440.0));
+        assert_eq!(
+            m.editing(),
+            Some(&Selection::Region(Rect::new(400.0, 400.0, 50.0, 40.0)))
         );
     }
 

@@ -83,7 +83,9 @@ blurring. A region spanning mixed-DPI outputs is rendered at the highest scale.
 | M | Toggle the magnifier. |
 
 With `selector.capture_on_release = false`, a drawn region stays editable. It has
-handles, can be dragged, and Enter or the toolbar button confirms. The loupe shows a
+handles, can be dragged, and Enter or the toolbar button confirms. Dragging elsewhere
+draws a new region, but a click that misses the handles keeps the selection: it never
+picks the window underneath. The loupe shows a
 15×15 pixel neighbourhood, the hex colour and coordinates, or the size while drawing.
 
 The interaction logic is a pure state machine (`screenie-selector/src/model.rs`) with
