@@ -6,7 +6,7 @@ Decisions for you from the simulated QA pass (2026-09-26).
 
 Six agents each invented 8–14 realistic scenarios for one area, and traced them through the code. The scenarios varied people, goals, apps and setups: your gaming desktop, a laptop at 1.25 scaling, mixed monitors, Hyprland/niri/KDE. A skeptic then checked every finding against the code and weighed whether it was worth doing.
 
-- **Bugs:** clear bugs with one right answer are being fixed separately; see the end of this doc.
+- **Bugs:** clear bugs with one right answer were fixed directly (54 of them). The calls made while fixing them are in [section 9](#9-calls-made-while-fixing-bugs), for you to veto.
 - **This doc:** the judgement calls.
 
 Each item gives:
@@ -180,7 +180,7 @@ With copy and save off, an unsaved capture lives only in its card, and letting i
 
 `cli-ux-9`, `rec-14`, `input-14`
 
-A second `shot` while the screenshot selector is up is being fixed as a bug; see the fix report. For recording:
+For screenshots this is done (see [9.1](#91-screenshots)): the same shortcut again closes the selector. For recording:
 - **Now:** pressing the record shortcut while the *record* selector is open fails silently, though it toggles at every other stage.
 - **Recommendation:** a repeat of the same command closes its selector, after a ~300 ms debounce so a double-tap doesn't cancel. `stop` and `cancel` close an open record selector too. Switching modes with a different command is optional.
 
@@ -377,7 +377,7 @@ A second `shot` while the screenshot selector is up is being fixed as a bug; see
 **Now:**
 - Ctrl+Shift+S closes the overlay and opens the portal's file chooser, which can land behind a fullscreen app.
 - The editor stays parked until the portal answers, and nothing on screen says so.
-- With no FileChooser portal installed, Save As can't work at all. The missing error message is being fixed as a bug.
+- With no FileChooser portal installed, Save As can't work at all. It now at least says so, and names the portal packages.
 
 **Options:**
 - a) A save sheet inside the overlay:
@@ -479,18 +479,19 @@ A second `shot` while the screenshot selector is up is being fixed as a bug; see
 
 `rec-8`, `input-18`
 
-**Now:**
-- Cards from the previous take sit on the recorded output and are recorded.
-- A screenshot taken during a region recording records the selector's dim and toolbar, then the new card.
+**Now (after the fixes):**
+- Cards on the recorded output are hidden while an area or screen recording runs. Cards already seen keep expiring as usual; a card from a screenshot taken during the recording waits until it's been seen.
+- They're not hidden for window recordings, which only capture the window.
+- A screenshot taken during a region recording still records the selector's dim and toolbar.
 
-Hiding cards *during a screenshot* is being fixed; this is about recordings.
+What's left to decide is the shape of it.
 
 **Options:**
 - a) When the countdown starts, hide the card stack on the recorded output and pause its timers. Bring it back after stop, with the new recording's card joining it. Cards from screenshots taken during the recording are queued until it stops.
 - b) Move the cards to another output. You said no second-monitor shenanigans.
 - c) Place cards clear of the recorded region, reusing the pill-placement logic.
 
-**Recommendation:** (a) for screen and window recordings, and (c) for region recordings.
+**Recommendation:** keep what's there for screen recordings, and (c) for region recordings, so the cards stay usable beside what's being recorded.
 
 ### 7.2 Keys on the recording pill
 
@@ -706,3 +707,59 @@ A probe for the output under the pointer is being added as a bug fix. If it isn'
 **Recommendation:**
 - Fix them.
 - Extend the README config test to assert the documented `after_capture` defaults against `Config::default()`.
+
+---
+
+## 9. Calls made while fixing bugs
+
+The fix agents had to pick a behaviour in a few places. Each is live on `main` now; veto any of them.
+
+### 9.1 Screenshots
+
+- **PNG compression is now "fast".** A 4K encode takes about 35 ms instead of 0.3–0.6 s, so the card and clipboard come sooner. Files come out somewhat larger; the size difference on a real desktop wasn't measured.
+- **The shortcut again while the selector is up:**
+  - The same mode again (`shot area` twice) cancels it; both requests exit 1.
+  - A different mode (`shot area`, then `shot window`) switches the open selector to it.
+  - `shot screen` takes the frozen snapshot the selector already has, and closes it.
+- **Hiding screenie from its own captures** makes its surfaces fully transparent rather than unmapping them, so there's no Hyprland fade and cards keep their state. The catch: a Hyprland layerrule that blurs `screenie-*` without `ignorezero` would still show blur for that frame.
+- **The window-mode editor** is an ordinary window, so it isn't hidden from screenshots. The overlay editor is.
+- **`-o`:** an explicit file is overwritten, as before. A directory (or a path ending in `/`) gets a new, uniquely named file, and a name with no extension gets `.png`.
+- **While `--delay` counts down**, status says `idle`, not a countdown state (see 8.3).
+
+### 9.2 Preview cards
+
+- **An open overlay editor pauses the cards' timers.** Each card gets its full time back when the editor closes. The cards are also raised above the editor, so they stay visible and clickable during the edit, pencil hidden. Check that this doesn't cover the part of a full-screen capture you're editing.
+- **One stack per monitor.** Cards stay on the output they were taken on. A capture on another monitor no longer clears them.
+- **Too many cards for the screen:** the oldest go first (never a hovered or saving one). There's no "+N" pile.
+- **The card's hover layout** is now three rows. The size caption moved to the top, between dismiss and edit, so it can't collide with the Copied/Saved pill.
+- **Dropped, per your call:** upgrades waiting for cards with unsaved screenshots.
+
+### 9.3 Editor
+
+- **`shot --edit` now waits for the edit.** It prints the saved path. It exits 0 after Done, or if anything was copied or saved, and 1 if the editor closed any other way with nothing kept.
+- **Done still closes at once**, without waiting for its copy or save. If that fails, it's logged and reported to a waiting `shot --edit`, but the editor doesn't come back.
+- **Save As always writes PNG.** `bug` becomes `bug.png`, and `shot.jpg` becomes `shot.png` rather than being encoded as JPEG.
+- **A crop you're still adjusting** counts as unsaved work, and applies when you copy, save or switch tools. Only Esc or Cancel drops it.
+- **Held keys:** typing, arrows, Backspace/Delete, `[` `]`, and undo/redo repeat. Everything else acts once per press.
+
+### 9.4 Recording
+
+- **Region recordings prefer wlr-screencopy** over ext-image-copy-capture on every GPU, since it copies just the region. This is what fixed the NVIDIA squash while keeping zero-copy. On AMD it moves region recordings off ext plus GPU cropping, which also worked.
+- **Finishing a recording** waits as long as the file keeps growing, and gives up only after 30 s with nothing written. Then the data is kept as `NAME.mp4.part` beside the output, and the error says where.
+- **A "Starting…" state on the pill** shows while the encoder is chosen. Stop during it cancels, since nothing has been recorded yet.
+- **The pill and ring leave a window that goes fullscreen** over the recorded output, and come back when it leaves. It's a once-a-second poll, so they can linger up to a second.
+- **A killed daemon still loses a running recording** (logout, OOM). Options are in ISSUES.
+
+### 9.5 CLI and daemon
+
+- **Exit codes:** `cancel` exits 0 after discarding. `stop`, `pause` and `cancel` with no daemon exit 2, without starting one. `stop` during the countdown exits 1, since nothing was recorded.
+- **Config directories** expand `~`, `$VAR` and `${VAR}`, and relative paths are relative to home. An unset variable falls back to the default folder, with a warning.
+- **Config reload** compares file contents rather than the modification time.
+- **A new daemon waits up to 3 s** for one that's quitting, then refuses to start a second.
+- **`state.yaml`** keeps the last region and captures under a `last:` section.
+- **`--watch`** shows a state it doesn't know (from a newer daemon) as `unknown`, and counts it as busy, so an older CLI doesn't replace a newer daemon mid-task. Any command whose reader has gone away exits 0 quietly.
+
+### 9.6 Not fixed
+
+- **The clipboard empties when an upgrade replaces the daemon** (ISSUES has options).
+- **A card appearing under a game's locked pointer grabs the keyboard on the next click** (`input-2`). This belongs with the overlay keyboard redesign, together with the stuck-Tab bug from Deadlock.
