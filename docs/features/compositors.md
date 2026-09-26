@@ -16,6 +16,11 @@ for window snapping and "active window".
 Without IPC, window mode has no windows to pick, so clicks select screens. Area and screen
 modes work everywhere.
 
+Recording a window by itself needs `ext-foreign-toplevel-image-capture-source-v1` and
+`ext-foreign-toplevel-list-v1` (sway 1.11+ and other wlroots 0.19+ compositors). Sway's
+IPC reports each window's toplevel identifier, so the match is exact. Elsewhere it's by
+app id and title. Without the protocol, a window is recorded as its area of the screen.
+
 ## Adding a compositor
 
 Implement `screenie_compositor::Compositor` (`windows`, `focused_output`) and detect it

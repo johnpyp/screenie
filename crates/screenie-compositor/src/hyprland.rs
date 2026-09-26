@@ -87,6 +87,7 @@ pub(crate) fn visible_windows(monitors: &Value, clients: &Value) -> Vec<WindowIn
                 rect,
                 focused: history == 0,
                 floating,
+                toplevel: None,
             };
             (layer, history, info)
         })

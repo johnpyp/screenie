@@ -6,6 +6,9 @@
 //! it, or onto another output. When the region fills the only output, there's no pill and
 //! the recording is stopped with the same shortcut (or `screenie stop`). The countdown
 //! says so.
+//!
+//! A window recorded by itself sees none of this, and can move away from where it was:
+//! it gets no border, and the pill may go over it.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -30,6 +33,15 @@ const GAP: f64 = 12.0;
 /// The border ring sits this far outside the region.
 const BORDER_OFFSET: f64 = 3.0;
 
+/// What the recording captures, which decides what chrome it can have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Chrome {
+    /// A fixed part of the screen, chrome included.
+    Region,
+    /// A window by itself.
+    Window,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Phase {
     Countdown(u32),
@@ -39,7 +51,13 @@ pub(crate) enum Phase {
 /// Where the pill goes: the output to show it on and its top-left in that output's
 /// coordinates. Prefers below the region, then above, then beside it, then another
 /// output. `k` is the interface scale.
-pub(crate) fn place_pill(region: Rect, home: &OutputInfo, outputs: &[OutputInfo], k: f64) -> Option<(String, Point)> {
+pub(crate) fn place_pill(
+    region: Rect,
+    chrome: Chrome,
+    home: &OutputInfo,
+    outputs: &[OutputInfo],
+    k: f64,
+) -> Option<(String, Point)> {
     let pill = pill_size(k);
     let gap = GAP * k;
     let o = home.logical;
@@ -59,9 +77,12 @@ pub(crate) fn place_pill(region: Rect, home: &OutputInfo, outputs: &[OutputInfo]
     if region.x - o.x >= pill.width + 2.0 * gap {
         return local(region.x - gap - pill.width, side_y);
     }
+    let bottom = |l: Rect| Point::new((l.width - pill.width) / 2.0, l.height - pill.height - 48.0 * k);
+    if chrome == Chrome::Window {
+        return Some((home.name.clone(), bottom(o)));
+    }
     let other = outputs.iter().filter(|x| x.name != home.name).max_by(|a, b| a.logical.area().total_cmp(&b.logical.area()))?;
-    let l = other.logical;
-    Some((other.name.clone(), Point::new((l.width - pill.width) / 2.0, l.height - pill.height - 48.0 * k)))
+    Some((other.name.clone(), bottom(other.logical)))
 }
 
 /// The pill's size at interface scale `k`.
@@ -85,19 +106,20 @@ pub(crate) struct Controls {
 /// Open the chrome for `region` on every output that needs some.
 pub(crate) fn open(
     region: Rect,
+    chrome: Chrome,
     home: &OutputInfo,
     outputs: &[OutputInfo],
     phase: Phase,
     cx: &mut AsyncApp,
 ) -> Vec<WindowHandle<Controls>> {
     let k = cx.update(|cx| f64::from(screenie_ui_kit::ui_scale(cx)));
-    let pill = place_pill(region, home, outputs, k);
+    let pill = place_pill(region, chrome, home, outputs, k);
     let whole_output = home.logical.inset(1.0).intersection(&region) == Some(home.logical.inset(1.0));
     let mut surfaces: Vec<(&OutputInfo, Controls)> = vec![(
         home,
         Controls {
             region: Some(region.translate(-home.logical.x, -home.logical.y)),
-            border: !whole_output,
+            border: chrome == Chrome::Region && !whole_output,
             pill: None,
             stop_hint: pill.is_none(),
             phase,
@@ -369,11 +391,11 @@ mod tests {
     fn pill_goes_below_then_above_then_beside() {
         let o = output("A", 0.0, 1920.0, 1080.0);
         let outputs = [o.clone()];
-        let (_, p) = place_pill(Rect::new(100.0, 100.0, 400.0, 300.0), &o, &outputs, 1.0).unwrap();
+        let (_, p) = place_pill(Rect::new(100.0, 100.0, 400.0, 300.0), Chrome::Region, &o, &outputs, 1.0).unwrap();
         assert_eq!(p.y, 412.0);
-        let (_, p) = place_pill(Rect::new(100.0, 700.0, 400.0, 370.0), &o, &outputs, 1.0).unwrap();
+        let (_, p) = place_pill(Rect::new(100.0, 700.0, 400.0, 370.0), Chrome::Region, &o, &outputs, 1.0).unwrap();
         assert_eq!(p.y, 700.0 - GAP - PILL.height);
-        let (_, p) = place_pill(Rect::new(0.0, 0.0, 1400.0, 1080.0), &o, &outputs, 1.0).unwrap();
+        let (_, p) = place_pill(Rect::new(0.0, 0.0, 1400.0, 1080.0), Chrome::Region, &o, &outputs, 1.0).unwrap();
         assert_eq!(p.x, 1400.0 + GAP);
     }
 
@@ -382,10 +404,19 @@ mod tests {
         let a = output("A", 0.0, 1920.0, 1080.0);
         let b = output("B", 1920.0, 1706.0, 960.0);
         let outputs = [a.clone(), b];
-        let (name, p) = place_pill(a.logical, &a, &outputs, 1.0).unwrap();
+        let (name, p) = place_pill(a.logical, Chrome::Region, &a, &outputs, 1.0).unwrap();
         assert_eq!(name, "B");
         assert!(p.x > 0.0 && p.y > 0.0, "local coordinates");
-        assert!(place_pill(a.logical, &a, std::slice::from_ref(&a), 1.0).is_none());
+        assert!(place_pill(a.logical, Chrome::Region, &a, std::slice::from_ref(&a), 1.0).is_none());
+    }
+
+    #[test]
+    fn a_full_screen_window_keeps_its_pill_on_its_output() {
+        let a = output("A", 0.0, 1920.0, 1080.0);
+        let b = output("B", 1920.0, 1706.0, 960.0);
+        let (name, p) = place_pill(a.logical, Chrome::Window, &a, &[a.clone(), b], 1.0).unwrap();
+        assert_eq!(name, "A");
+        assert_eq!(p.y, 1080.0 - PILL.height - 48.0);
     }
 
     #[test]

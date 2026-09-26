@@ -9,4 +9,4 @@ pub mod stream;
 pub use desktop::{OutputCapture, OutputInfo, Snapshot, WindowInfo};
 pub use geom::{PixelRect, Point, Rect, Size, Transform};
 pub use image::{Image, ImageError, PixelFormat};
-pub use stream::{FrameSource, SourceError};
+pub use stream::{FrameSource, Next, SourceError};

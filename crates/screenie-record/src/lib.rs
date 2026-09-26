@@ -10,6 +10,9 @@
 //! Frames arrive only when the screen changes and are capped at the configured frame
 //! rate, so a static screen costs almost nothing. Buffers are timestamped with the
 //! pipeline's running time, which also keeps audio in sync across pauses.
+//!
+//! The video keeps the size of the first frame. A source whose frames change size (a
+//! recorded window being resized) is scaled to fit it, letterboxed.
 
 mod encoder;
 
@@ -21,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use gst::prelude::*;
 use screenie_config::{EncoderPreference, Quality};
-use screenie_core::{FrameSource, Image, PixelFormat};
+use screenie_core::{FrameSource, Image, Next, PixelFormat};
 
 pub use encoder::Encoder;
 
@@ -37,6 +40,8 @@ pub enum Error {
     Source(String),
     #[error("the screen sent no frames")]
     NoFrames,
+    #[error("the window closed")]
+    Ended,
     #[error("the region is too small to record")]
     TooSmall,
     #[error(transparent)]
@@ -103,6 +108,8 @@ pub struct Finished {
 struct Shared {
     stop: AtomicBool,
     paused: AtomicBool,
+    /// The source ended (a recorded window closed): time to stop and save.
+    ended: AtomicBool,
     failure: Mutex<Option<String>>,
 }
 
@@ -130,7 +137,6 @@ impl Clock {
 /// A running recording. Dropping it cancels.
 pub struct Recording {
     pipeline: gst::Pipeline,
-    appsrc: gst_app::AppSrc,
     shared: Arc<Shared>,
     capture: Option<JoinHandle<Option<Image>>>,
     eos: mpsc::Receiver<Result<(), String>>,
@@ -148,8 +154,7 @@ impl Recording {
     pub fn start(mut source: Box<dyn FrameSource>, spec: RecordSpec) -> Result<Recording> {
         gst::init()?;
         let first = first_frame(source.as_mut())?;
-        // 4:2:0 chroma needs even dimensions; the odd last row/column is dropped.
-        let size = (first.width() & !1, first.height() & !1);
+        let size = even_size(&first);
         if size.0 < 16 || size.1 < 16 {
             return Err(Error::TooSmall);
         }
@@ -172,15 +177,9 @@ impl Recording {
             by_name("speakers")?.set_property("device", "@DEFAULT_MONITOR@");
         }
 
-        let format = video_format(first.format());
         let appsrc = by_name("video")?
             .downcast::<gst_app::AppSrc>()
             .map_err(|_| Error::Gst("video source is not an appsrc".into()))?;
-        let caps = gst_video::VideoInfo::builder(format, size.0, size.1)
-            .fps(gst::Fraction::new(fps as i32, 1))
-            .build()?
-            .to_caps()?;
-        appsrc.set_caps(Some(&caps));
         appsrc.set_format(gst::Format::Time);
         appsrc.set_is_live(true);
         appsrc.set_do_timestamp(true);
@@ -192,18 +191,18 @@ impl Recording {
         let eos = watch_bus(&pipeline, shared.clone());
         pipeline.set_state(gst::State::Playing)?;
         let clock = Clock { started: Instant::now(), paused_at: None, paused_total: Duration::ZERO };
-        push(&appsrc, &first, size, format);
+        let mut feed = Feed { appsrc, fps, caps: None };
+        feed.push(&first);
 
         let capture = {
-            let (appsrc, shared) = (appsrc.clone(), shared.clone());
+            let shared = shared.clone();
             std::thread::Builder::new()
                 .name("screenie-record".into())
-                .spawn(move || capture_loop(source, appsrc, shared, first, size, format, fps))?
+                .spawn(move || capture_loop(source, feed, shared, first, fps))?
         };
         tracing::info!(path = %spec.path.display(), encoder = encoder.factory, ?size, fps, audio = ?spec.audio, "recording");
         Ok(Recording {
             pipeline,
-            appsrc,
             shared,
             capture: Some(capture),
             eos,
@@ -233,6 +232,12 @@ impl Recording {
         self.shared.paused.load(Ordering::Relaxed)
     }
 
+    /// Whether the source ended (a recorded window closed), so the recording should be
+    /// stopped and saved.
+    pub fn ended(&self) -> bool {
+        self.shared.ended.load(Ordering::Relaxed)
+    }
+
     /// Why the recording broke, if it did. A failed recording should still be stopped to
     /// salvage what was written.
     pub fn failure(&self) -> Option<String> {
@@ -260,9 +265,6 @@ impl Recording {
         let last = self.stop_capture();
         if self.is_paused() {
             self.set_paused(false)?;
-        } else if let Some(frame) = &last {
-            // Hold the final frame until now, so a still ending isn't cut short.
-            push(&self.appsrc, frame, self.size, video_format(frame.format()));
         }
         let duration = self.elapsed();
         self.pipeline.send_event(gst::event::Eos::new());
@@ -311,11 +313,18 @@ impl Drop for Recording {
 fn first_frame(source: &mut dyn FrameSource) -> Result<Image> {
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if let Some(image) = source.next_frame(Duration::from_millis(250)).map_err(|e| Error::Source(e.to_string()))? {
-            return Ok(image);
+        match source.next_frame(Duration::from_millis(250)).map_err(|e| Error::Source(e.to_string()))? {
+            Next::Frame(image) => return Ok(image),
+            Next::Unchanged => {}
+            Next::Ended => return Err(Error::Ended),
         }
     }
     Err(Error::NoFrames)
+}
+
+/// 4:2:0 chroma needs even dimensions; an odd last row or column is dropped.
+fn even_size(image: &Image) -> (u32, u32) {
+    (image.width() & !1, image.height() & !1)
 }
 
 /// Where mp4mux keeps media data until it can write the index up front ("faststart",
@@ -331,9 +340,11 @@ fn pipeline_description(spec: &RecordSpec, encoder: Encoder, fps: u32, size: (u3
     const QUEUE: &str = "queue max-size-buffers=0 max-size-bytes=0 max-size-time=3000000000";
     let mut desc = format!(
         "mp4mux name=mux faststart=true ! filesink name=sink \
-         appsrc name=video ! {QUEUE} ! videoconvert n-threads=0 ! video/x-raw,format={} \
-         ! {} ! h264parse ! {QUEUE} ! mux.",
+         appsrc name=video ! {QUEUE} ! videoconvert n-threads=0 ! videoscale add-borders=true n-threads=0 \
+         ! video/x-raw,format={},width={},height={},pixel-aspect-ratio=1/1 ! {} ! h264parse ! {QUEUE} ! mux.",
         encoder.input_format(),
+        size.0,
+        size.1,
         encoder.element(spec.quality, fps, size)
     );
     if spec.audio.any() {
@@ -403,12 +414,45 @@ impl AsRef<[u8]> for Pixels {
     }
 }
 
-/// Hand a frame to the pipeline. Frames smaller than the stream (a mode change) are
-/// dropped; larger ones are cropped by describing their layout with a video meta.
-fn push(appsrc: &gst_app::AppSrc, image: &Image, (width, height): (u32, u32), format: gst_video::VideoFormat) {
-    if image.width() < width || image.height() < height {
-        return;
+/// Frames on their way into the pipeline. The appsrc's caps follow each frame's size and
+/// format, and the pipeline scales them to the video's.
+struct Feed {
+    appsrc: gst_app::AppSrc,
+    fps: u32,
+    caps: Option<(gst_video::VideoFormat, u32, u32)>,
+}
+
+impl Feed {
+    fn push(&mut self, image: &Image) {
+        let format = video_format(image.format());
+        let (width, height) = even_size(image);
+        if width < 2 || height < 2 {
+            return;
+        }
+        if self.caps != Some((format, width, height)) {
+            let caps = gst_video::VideoInfo::builder(format, width, height)
+                .fps(gst::Fraction::new(self.fps as i32, 1))
+                .build()
+                .and_then(|info| info.to_caps());
+            match caps {
+                Ok(caps) => self.appsrc.set_caps(Some(&caps)),
+                Err(e) => {
+                    tracing::warn!("cannot describe a {width}x{height} frame: {e}");
+                    return;
+                }
+            }
+            if self.caps.is_some() {
+                tracing::debug!(width, height, "recorded frames changed size");
+            }
+            self.caps = Some((format, width, height));
+        }
+        push(&self.appsrc, image, (width, height), format);
     }
+}
+
+/// Hand a frame to the pipeline, cropped to `width`×`height` by describing its layout with
+/// a video meta.
+fn push(appsrc: &gst_app::AppSrc, image: &Image, (width, height): (u32, u32), format: gst_video::VideoFormat) {
     let mut buffer = gst::Buffer::from_slice(Pixels(image.shared_data()));
     if image.stride() != width as usize * 4 {
         let buffer = buffer.get_mut().expect("fresh buffer");
@@ -432,16 +476,9 @@ fn push(appsrc: &gst_app::AppSrc, image: &Image, (width, height): (u32, u32), fo
 
 /// Pull frames from the source until stopped, pushing at most `fps` per second. The
 /// newest frame always wins, and one that arrives early is held rather than dropped, so
-/// the video never ends on a stale frame. Returns the last frame.
-fn capture_loop(
-    mut source: Box<dyn FrameSource>,
-    appsrc: gst_app::AppSrc,
-    shared: Arc<Shared>,
-    first: Image,
-    size: (u32, u32),
-    format: gst_video::VideoFormat,
-    fps: u32,
-) -> Option<Image> {
+/// the video never ends on a stale frame. Returns the last frame, after pushing it once
+/// more (unless paused) so a still ending lasts until the stop.
+fn capture_loop(mut source: Box<dyn FrameSource>, mut feed: Feed, shared: Arc<Shared>, first: Image, fps: u32) -> Option<Image> {
     let interval = Duration::from_secs_f64(1.0 / fps as f64);
     let mut last = first;
     let mut last_push = Instant::now();
@@ -452,8 +489,13 @@ fn capture_loop(
             None => Duration::from_millis(100),
         };
         match source.next_frame(wait.max(Duration::from_millis(1))) {
-            Ok(Some(frame)) => pending = Some(frame),
-            Ok(None) => {}
+            Ok(Next::Frame(frame)) => pending = Some(frame),
+            Ok(Next::Unchanged) => {}
+            Ok(Next::Ended) => {
+                tracing::info!("the recorded source ended");
+                shared.ended.store(true, Ordering::Relaxed);
+                break;
+            }
             Err(e) => {
                 shared.fail(format!("screen capture stopped: {e}"));
                 break;
@@ -465,20 +507,24 @@ fn capture_loop(
         if let Some(frame) = pending.take() {
             // Damage elsewhere on the output (or a compositor that doesn't track damage)
             // yields identical frames; skipping them keeps static screens nearly free.
-            if same_pixels(&frame, &last, size) {
+            if same_pixels(&frame, &last) {
                 continue;
             }
-            push(&appsrc, &frame, size, format);
+            feed.push(&frame);
             last = frame;
             last_push = Instant::now();
         }
     }
+    if !shared.paused.load(Ordering::Relaxed) {
+        feed.push(&last);
+    }
     Some(last)
 }
 
-/// Whether two frames show the same pixels within the recorded `size`.
-fn same_pixels(a: &Image, b: &Image, (width, height): (u32, u32)) -> bool {
-    if a.format() != b.format() || a.width() < width || b.width() < width || a.height() < height || b.height() < height {
+/// Whether two frames show the same pixels, within what's recorded of them.
+fn same_pixels(a: &Image, b: &Image) -> bool {
+    let (width, height) = even_size(a);
+    if a.format() != b.format() || even_size(b) != (width, height) {
         return false;
     }
     let row = width as usize * 4;
@@ -498,12 +544,14 @@ mod tests {
     fn identical_frames_are_detected_within_the_recorded_area() {
         let a = Image::new(5, 3, PixelFormat::Bgrx);
         let mut b = Image::new(5, 3, PixelFormat::Bgrx);
-        assert!(same_pixels(&a, &b, (4, 2)));
+        assert!(same_pixels(&a, &b));
         // A change in the cropped-off column doesn't count.
         b.blit(&Image::from_raw(1, 1, 4, PixelFormat::Bgrx, vec![9, 9, 9, 255]), 4, 0);
-        assert!(same_pixels(&a, &b, (4, 2)));
+        assert!(same_pixels(&a, &b));
         b.blit(&Image::from_raw(1, 1, 4, PixelFormat::Bgrx, vec![9, 9, 9, 255]), 1, 1);
-        assert!(!same_pixels(&a, &b, (4, 2)));
+        assert!(!same_pixels(&a, &b));
+        // Nor are frames of another size the same.
+        assert!(!same_pixels(&a, &Image::new(7, 3, PixelFormat::Bgrx)));
     }
 
     #[test]

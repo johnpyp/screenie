@@ -88,6 +88,7 @@ pub(crate) fn visible_windows(windows: &Value, workspaces: &Value, outputs: &Val
                 rect,
                 focused,
                 floating,
+                toplevel: None,
             };
             Some(((!floating, std::cmp::Reverse(recency)), info))
         })

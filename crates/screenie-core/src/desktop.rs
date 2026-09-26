@@ -35,6 +35,10 @@ pub struct WindowInfo {
     pub rect: Rect,
     pub focused: bool,
     pub floating: bool,
+    /// Its `ext-foreign-toplevel-list` identifier, where the compositor's IPC reports it,
+    /// for capturing the window itself.
+    #[serde(default)]
+    pub toplevel: Option<String>,
 }
 
 /// One output's frozen pixels. `image` is upright (output transform already applied).

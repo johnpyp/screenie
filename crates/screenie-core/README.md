@@ -12,5 +12,8 @@ The vocabulary every other crate shares. It has no Wayland or GUI dependencies.
   the window list at one instant). `Snapshot::render_region` turns any logical rect into
   an image. It crops natively when the rect is on one output and composites at the
   highest scale when it spans several.
-- **`stream`**: the `FrameSource` trait, a live view of the screen that yields frames as
-  it changes. The recorder consumes it; screencopy (and later PipeWire) implement it.
+- **`stream`**: the `FrameSource` trait, a live view of the screen or of one window
+  that yields frames as it changes (`Next::Frame`), nothing (`Unchanged`), or `Ended`.
+  The recorder consumes it; screencopy (and later PipeWire) implement it.
+  `WindowInfo::toplevel` carries the window's `ext-foreign-toplevel-list` identifier
+  where the compositor's IPC reports it.

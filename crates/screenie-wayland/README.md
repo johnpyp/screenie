@@ -8,6 +8,10 @@ to grim.
   - `capture_outputs(names, cursor)` grabs stills of several outputs concurrently.
   - `into_stream(output, region, cursor)` returns a `FrameStream` of damage-driven
     frames for recording.
+  - `into_window_stream(window, cursor)` streams one window by itself
+    (`ext-foreign-toplevel-image-capture-source-v1`), found through
+    `ext-foreign-toplevel-list-v1` by identifier, or by app id and title. Its frames
+    change size with the window, and the stream ends when it closes.
 - Protocols: `ext-image-copy-capture-v1` and `wlr-screencopy-unstable-v1`, chosen
   automatically or forced with `Backend`.
 - Handles 8-bit and 10-bit shm formats, y-invert, and all output transforms. Results are

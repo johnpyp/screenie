@@ -112,6 +112,7 @@ fn collect(
             rect: content,
             focused: node["focused"].as_bool().unwrap_or(false),
             floating: in_floating || node["type"].as_str() == Some("floating_con"),
+            toplevel: node["foreign_toplevel_identifier"].as_str().map(String::from),
         };
         if node["fullscreen_mode"].as_u64().unwrap_or(0) > 0 {
             fullscreen.push(info);

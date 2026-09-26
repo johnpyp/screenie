@@ -39,12 +39,29 @@ Nothing screenie draws ever lands inside the region, so it never appears in the 
 The chrome redraws only when the timer's second changes, because every redraw is damage
 the encoder would otherwise see.
 
+## Windows
+
+A picked window is recorded **by itself** where the compositor offers
+`ext-foreign-toplevel-image-capture-source-v1` (sway 1.11+, other wlroots 0.19+
+compositors): its own pixels, not the screen where it was. Windows covering it, bars,
+notifications and other workspaces never show, and the recording follows it if it moves
+or you switch workspaces. It then gets no ring, since the window may move away from
+it, and the pill can sit over the window, since nothing on screen is recorded.
+
+- The window is matched by the toplevel identifier sway's IPC reports, or else by app
+  id and title, which must be unique.
+- The video keeps the window's size when recording started. When the window is resized,
+  each frame is scaled to fit and letterboxed.
+- Closing the window stops the recording and saves it.
+- Where the protocol is missing (or the match fails, which is logged), the window is
+  recorded as the part of the screen it covered, like an area.
+
 ## Pipeline (`screenie-record`)
 
 ```
-FrameSource (screencopy stream) ─ capture thread ─▶ appsrc ─▶ videoconvert ─▶ H.264 ─┐
-pulsesrc @DEFAULT_MONITOR@ ─┐                                                         ├─▶ mp4mux ─▶ file
-pulsesrc (default mic) ─────┴─▶ audiomixer ─▶ AAC ────────────────────────────────────┘
+FrameSource (screencopy stream) ─ capture thread ─▶ appsrc ─▶ videoconvert ─▶ videoscale ─▶ H.264 ─┐
+pulsesrc @DEFAULT_MONITOR@ ─┐                                                                       ├─▶ mp4mux ─▶ file
+pulsesrc (default mic) ─────┴─▶ audiomixer ─▶ AAC ──────────────────────────────────────────────────┘
 ```
 
 - **Encoders** are probed once by actually encoding test frames. The order is
@@ -54,7 +71,9 @@ pulsesrc (default mic) ─────┴─▶ audiomixer ─▶ AAC ───�
 - **Frames** are damage-driven, capped at `recording.framerate`, and identical frames are
   skipped. A static screen costs almost nothing, and the output is variable frame rate.
   Buffers wrap the captured pixels without copying. Odd sizes lose their last row or
-  column, since 4:2:0 needs even dimensions.
+  column, since 4:2:0 needs even dimensions. The video is the first frame's size. The
+  appsrc's caps follow each frame, and `videoscale` fits frames of another size into
+  it (letterboxed); for a region that's a no-op.
 - **Timing**: buffers carry the pipeline's running time. Pausing sets the live
   pipeline to PAUSED, which stops running time for audio and video alike, so resumed
   segments join seamlessly.

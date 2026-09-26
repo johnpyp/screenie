@@ -194,11 +194,9 @@ impl Model {
         self
     }
 
+    /// Whether area mode picks windows too (window mode always does).
     pub fn with_window_snapping(mut self, on: bool) -> Self {
         self.window_snapping = on;
-        if !on {
-            self.windows.clear();
-        }
         self
     }
 
@@ -654,7 +652,15 @@ mod tests {
     }
 
     fn window(title: &str, rect: Rect) -> WindowInfo {
-        WindowInfo { id: title.into(), title: title.into(), app_id: title.into(), rect, focused: false, floating: false }
+        WindowInfo {
+            id: title.into(),
+            title: title.into(),
+            app_id: title.into(),
+            rect,
+            focused: false,
+            floating: false,
+            toplevel: None,
+        }
     }
 
     fn model(purpose: Purpose) -> Model {
@@ -687,6 +693,15 @@ mod tests {
             Outcome::Confirm(Selection::Window(w)) => assert_eq!(w.title, "top"),
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn snapping_off_only_changes_area_mode() {
+        let mut m = model(Purpose::Screenshot).with_window_snapping(false);
+        m.pointer_moved(Point::new(150.0, 150.0));
+        assert_eq!(m.hover_target(), None);
+        m.set_mode(Mode::Window);
+        assert!(matches!(m.hover_target(), Some(Selection::Window(w)) if w.title == "top"));
     }
 
     #[test]

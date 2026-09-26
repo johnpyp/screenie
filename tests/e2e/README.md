@@ -11,8 +11,8 @@ mise run test:e2e -- -k keyboard -x     # anything after -- goes to pytest
 SCREENIE_E2E_KEEP_SESSION=1 mise run test:e2e   # leave a session it started running
 ```
 
-Needs sway, grim, wev, wl-clipboard, dbus-daemon and gsettings; uv installs the
-Python side.
+Needs sway, grim, wev, foot, ffmpeg, wl-clipboard, dbus-daemon and gsettings; uv
+installs the Python side.
 
 ## Writing tests
 

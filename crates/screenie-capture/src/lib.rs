@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use screenie_compositor::Compositor;
 use screenie_config::CaptureBackend;
-use screenie_core::{FrameSource, Image, OutputInfo, Rect, Snapshot, SourceError};
+use screenie_core::{FrameSource, Image, Next, OutputInfo, Rect, Snapshot, SourceError, WindowInfo};
 use screenie_wayland::{Backend, Capturer, Support};
 
 #[derive(Debug, thiserror::Error)]
@@ -160,23 +160,37 @@ impl CaptureContext {
         region: Option<Rect>,
         cursor: bool,
     ) -> Result<Box<dyn FrameSource>> {
-        self.with_backends(backend, |b| {
-            let mut stream = Capturer::connect_with(Some(b))?.into_stream(output, region, cursor)?;
-            let deadline = Instant::now() + Duration::from_secs(3);
-            loop {
-                if let Some(frame) = stream.next_frame(Duration::from_millis(250))? {
-                    return Ok(Box::new(Primed { first: Some(frame.image), stream }) as Box<dyn FrameSource>);
-                }
-                if Instant::now() >= deadline {
-                    return Err(screenie_wayland::Error::Timeout);
-                }
-            }
-        })
+        self.with_backends(backend, |b| prime(Capturer::connect_with(Some(b))?.into_stream(output, region, cursor)?))
+    }
+
+    /// Whether [`CaptureContext::stream_window`] can work here with `backend`.
+    pub fn can_stream_window(&self, backend: CaptureBackend) -> bool {
+        self.support.window_capture && matches!(backend, CaptureBackend::Auto | CaptureBackend::Ext)
+    }
+
+    /// Start a live stream of one window by itself (only `ext-image-copy-capture` can).
+    /// Blocks until the first frame arrives.
+    pub fn stream_window(&self, window: &WindowInfo, cursor: bool) -> Result<Box<dyn FrameSource>> {
+        let capturer = Capturer::connect_with(Some(Backend::ExtImageCopyCapture))?;
+        Ok(prime(capturer.into_window_stream(window, cursor)?)?)
     }
 
     /// Output layout without capturing pixels.
     pub fn outputs(&self) -> Result<Vec<OutputInfo>> {
         Ok(Capturer::connect()?.outputs())
+    }
+}
+
+/// Wait for `stream`'s first frame, proving the protocol can actually deliver.
+fn prime(mut stream: screenie_wayland::FrameStream) -> Result<Box<dyn FrameSource>, screenie_wayland::Error> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(frame) = stream.next_frame(Duration::from_millis(250))? {
+            return Ok(Box::new(Primed { first: Some(frame.image), stream }));
+        }
+        if Instant::now() >= deadline {
+            return Err(screenie_wayland::Error::Timeout);
+        }
     }
 }
 
@@ -187,9 +201,9 @@ struct Primed {
 }
 
 impl FrameSource for Primed {
-    fn next_frame(&mut self, timeout: Duration) -> Result<Option<Image>, SourceError> {
+    fn next_frame(&mut self, timeout: Duration) -> Result<Next, SourceError> {
         match self.first.take() {
-            Some(frame) => Ok(Some(frame)),
+            Some(frame) => Ok(Next::Frame(frame)),
             None => FrameSource::next_frame(&mut self.stream, timeout),
         }
     }

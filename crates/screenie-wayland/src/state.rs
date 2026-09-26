@@ -4,8 +4,13 @@
 use screenie_core::{OutputInfo, Rect, Transform};
 use wayland_client::globals::GlobalListContents;
 use wayland_client::protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool};
-use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum, delegate_noop};
+use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum, delegate_noop, event_created_child};
+use wayland_protocols::ext::foreign_toplevel_list::v1::client::{
+    ext_foreign_toplevel_handle_v1::{self, ExtForeignToplevelHandleV1},
+    ext_foreign_toplevel_list_v1::{self, ExtForeignToplevelListV1},
+};
 use wayland_protocols::ext::image_capture_source::v1::client::{
+    ext_foreign_toplevel_image_capture_source_manager_v1::ExtForeignToplevelImageCaptureSourceManagerV1,
     ext_image_capture_source_v1::ExtImageCaptureSourceV1,
     ext_output_image_capture_source_manager_v1::ExtOutputImageCaptureSourceManagerV1,
 };
@@ -31,9 +36,27 @@ pub(crate) struct State {
     pub xdg_output_manager: Option<ZxdgOutputManagerV1>,
     pub ext_copy: Option<ExtImageCopyCaptureManagerV1>,
     pub ext_output_sources: Option<ExtOutputImageCaptureSourceManagerV1>,
+    pub ext_toplevel_sources: Option<ExtForeignToplevelImageCaptureSourceManagerV1>,
     pub wlr_screencopy: Option<ZwlrScreencopyManagerV1>,
     pub outputs: Vec<OutputState>,
+    /// Bound only to capture a window: listing them is otherwise wasted traffic.
+    pub toplevel_list: Option<ExtForeignToplevelListV1>,
+    pub toplevels: Vec<Toplevel>,
     pub captures: Vec<Capture>,
+}
+
+pub(crate) struct Toplevel {
+    pub handle: ExtForeignToplevelHandleV1,
+    pub info: ToplevelInfo,
+}
+
+/// A window as `ext-foreign-toplevel-list` describes it.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ToplevelInfo {
+    pub identifier: String,
+    pub app_id: String,
+    pub title: String,
+    pub closed: bool,
 }
 
 #[derive(Default)]
@@ -108,8 +131,17 @@ pub(crate) struct Constraints {
     pub done: bool,
 }
 
+/// What a capture copies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Target {
+    /// An output, by index into [`State::outputs`].
+    Output(usize),
+    /// A window, by index into [`State::toplevels`].
+    Toplevel(usize),
+}
+
 pub(crate) struct Capture {
-    pub output: usize,
+    pub target: Target,
     pub protocol: Protocol,
     pub cursor: bool,
     pub constraints: Constraints,
@@ -332,11 +364,54 @@ impl Dispatch<ZwlrScreencopyFrameV1, usize> for State {
     }
 }
 
+impl Dispatch<ExtForeignToplevelListV1, ()> for State {
+    fn event(
+        state: &mut Self,
+        _: &ExtForeignToplevelListV1,
+        event: ext_foreign_toplevel_list_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let ext_foreign_toplevel_list_v1::Event::Toplevel { toplevel } = event {
+            state.toplevels.push(Toplevel { handle: toplevel, info: ToplevelInfo::default() });
+        }
+    }
+
+    event_created_child!(State, ExtForeignToplevelListV1, [
+        ext_foreign_toplevel_list_v1::EVT_TOPLEVEL_OPCODE => (ExtForeignToplevelHandleV1, ()),
+    ]);
+}
+
+impl Dispatch<ExtForeignToplevelHandleV1, ()> for State {
+    fn event(
+        state: &mut Self,
+        handle: &ExtForeignToplevelHandleV1,
+        event: ext_foreign_toplevel_handle_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        use ext_foreign_toplevel_handle_v1::Event;
+        let Some(toplevel) = state.toplevels.iter_mut().find(|t| &t.handle == handle).map(|t| &mut t.info) else {
+            return;
+        };
+        match event {
+            Event::Identifier { identifier } => toplevel.identifier = identifier,
+            Event::AppId { app_id } => toplevel.app_id = app_id,
+            Event::Title { title } => toplevel.title = title,
+            Event::Closed => toplevel.closed = true,
+            _ => {}
+        }
+    }
+}
+
 delegate_noop!(State: ignore wl_shm::WlShm);
 delegate_noop!(State: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(State: ignore wl_buffer::WlBuffer);
 delegate_noop!(State: ZxdgOutputManagerV1);
 delegate_noop!(State: ExtImageCopyCaptureManagerV1);
 delegate_noop!(State: ExtOutputImageCaptureSourceManagerV1);
+delegate_noop!(State: ExtForeignToplevelImageCaptureSourceManagerV1);
 delegate_noop!(State: ExtImageCaptureSourceV1);
 delegate_noop!(State: ZwlrScreencopyManagerV1);

@@ -7,7 +7,9 @@
 //! * `wlr-screencopy-unstable-v1` (older wlroots compositors and most tiling WMs)
 //!
 //! A [`Capturer`] captures still frames of any set of outputs concurrently, and turns into
-//! a [`FrameStream`] for continuous capture (recording). Frames are always returned upright
+//! a [`FrameStream`] for continuous capture (recording) of an output, or of one window
+//! where the compositor offers `ext-foreign-toplevel-image-capture-source-v1` (the window's
+//! own pixels, wherever it is and whatever covers it). Frames are always returned upright
 //! with transforms and y-inversion undone. Compositors without either protocol (GNOME,
 //! KDE) are served by `screenie-portal` instead.
 
@@ -16,14 +18,14 @@ mod state;
 
 use std::time::{Duration, Instant};
 
-use screenie_core::{Image, OutputCapture, OutputInfo, Rect};
+use screenie_core::{Image, Next, OutputCapture, OutputInfo, Rect, WindowInfo};
 use wayland_client::globals::{GlobalList, registry_queue_init};
 use wayland_client::protocol::wl_output;
 use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::Options;
 
 pub use shm::transform_image;
-use state::{Capture, Constraints, OutputState, Phase, Protocol, State};
+use state::{Capture, Constraints, OutputState, Phase, Protocol, State, Target, ToplevelInfo};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -37,6 +39,8 @@ pub enum Error {
     Unsupported(String),
     #[error("no output named {0:?}")]
     NoSuchOutput(String),
+    #[error("{0}")]
+    NoSuchWindow(String),
     #[error("capture failed: {0}")]
     Capture(String),
     #[error("timed out waiting for the compositor")]
@@ -85,6 +89,8 @@ impl Backend {
 #[derive(Debug, Clone, Default)]
 pub struct Support {
     pub ext_image_copy_capture: bool,
+    /// Capturing a window by itself (see [`Capturer::into_window_stream`]).
+    pub window_capture: bool,
     pub wlr_screencopy: bool,
     pub layer_shell: bool,
     pub data_control: bool,
@@ -98,6 +104,9 @@ impl Support {
         Ok(Support {
             ext_image_copy_capture: has("ext_image_copy_capture_manager_v1")
                 && has("ext_output_image_capture_source_manager_v1"),
+            window_capture: has("ext_image_copy_capture_manager_v1")
+                && has("ext_foreign_toplevel_image_capture_source_manager_v1")
+                && has("ext_foreign_toplevel_list_v1"),
             wlr_screencopy: has("zwlr_screencopy_manager_v1"),
             layer_shell: has("zwlr_layer_shell_v1"),
             data_control: has("ext_data_control_manager_v1") || has("zwlr_data_control_manager_v1"),
@@ -112,6 +121,7 @@ impl Support {
 /// A connection to the compositor ready to capture outputs.
 pub struct Capturer {
     conn: Connection,
+    globals: GlobalList,
     queue: EventQueue<State>,
     qh: QueueHandle<State>,
     state: State,
@@ -134,6 +144,7 @@ impl Capturer {
             xdg_output_manager: globals.bind(&qh, 2..=3, ()).ok(),
             ext_copy: globals.bind(&qh, 1..=1, ()).ok(),
             ext_output_sources: globals.bind(&qh, 1..=1, ()).ok(),
+            ext_toplevel_sources: globals.bind(&qh, 1..=1, ()).ok(),
             wlr_screencopy: globals.bind(&qh, 1..=3, ()).ok(),
             ..Default::default()
         };
@@ -163,7 +174,7 @@ impl Capturer {
         queue.roundtrip(&mut state)?;
         tracing::debug!(backend = backend.name(), outputs = state.outputs.len(), "wayland capturer ready");
 
-        Ok(Self { conn, queue, qh, state, backend })
+        Ok(Self { conn, globals, queue, qh, state, backend })
     }
 
     pub fn backend(&self) -> Backend {
@@ -193,7 +204,7 @@ impl Capturer {
             Some(names) => names.iter().map(|n| self.output_index(n)).collect::<Result<_>>()?,
             None => (0..self.state.outputs.len()).filter(|&i| self.state.outputs[i].info(i).is_some()).collect(),
         };
-        let slots: Vec<usize> = indices.iter().map(|&i| self.new_capture(i, cursor, None)).collect();
+        let slots: Vec<usize> = indices.iter().map(|&i| self.new_capture(Target::Output(i), cursor, None)).collect();
 
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -241,17 +252,50 @@ impl Capturer {
             Backend::WlrScreencopy => (region, None),
             Backend::ExtImageCopyCapture => (None, region),
         };
-        let slot = self.new_capture(index, cursor, native_region);
-        Ok(FrameStream { capturer: self, slot, crop, info, sequence: 0 })
+        let slot = self.new_capture(Target::Output(index), cursor, native_region);
+        let crop = crop.map(|region| Crop { region, logical_width: info.logical.width });
+        Ok(FrameStream { capturer: self, slot, crop, sequence: 0 })
     }
 
-    fn new_capture(&mut self, output: usize, cursor: bool, region: Option<Rect>) -> usize {
-        let wl_output = self.state.outputs[output].wl_output.clone().expect("bound output");
+    /// Start continuous capture of one window: its own pixels at its own size, following
+    /// it across workspaces and outputs, with nothing that covers it. Frames change size
+    /// as the window does, and the stream ends when the window closes.
+    ///
+    /// The window is found by its toplevel identifier where the compositor's IPC reported
+    /// one, otherwise by app id and title, which must then be unique.
+    pub fn into_window_stream(mut self, window: &WindowInfo, cursor: bool) -> Result<FrameStream> {
+        if self.backend != Backend::ExtImageCopyCapture || self.state.ext_toplevel_sources.is_none() {
+            return Err(Error::Unsupported("this compositor can't capture a window by itself".into()));
+        }
+        let list = self
+            .globals
+            .bind(&self.qh, 1..=1, ())
+            .map_err(|_| Error::Unsupported("this compositor doesn't list its windows".into()))?;
+        self.state.toplevel_list = Some(list);
+        // The list sends every toplevel, then each one's details.
+        self.queue.roundtrip(&mut self.state)?;
+        self.queue.roundtrip(&mut self.state)?;
+        let index = find_toplevel(self.state.toplevels.iter().map(|t| &t.info), window)?;
+        let slot = self.new_capture(Target::Toplevel(index), cursor, None);
+        Ok(FrameStream { capturer: self, slot, crop: None, sequence: 0 })
+    }
+
+    fn new_capture(&mut self, target: Target, cursor: bool, region: Option<Rect>) -> usize {
         let idx = self.state.captures.len();
         let protocol = match self.backend {
             Backend::ExtImageCopyCapture => {
-                let sources = self.state.ext_output_sources.as_ref().expect("checked at connect");
-                let source = sources.create_source(&wl_output, &self.qh, ());
+                let source = match target {
+                    Target::Output(output) => {
+                        let wl_output = self.state.outputs[output].wl_output.as_ref().expect("bound output");
+                        let sources = self.state.ext_output_sources.as_ref().expect("checked at connect");
+                        sources.create_source(wl_output, &self.qh, ())
+                    }
+                    Target::Toplevel(toplevel) => {
+                        let handle = &self.state.toplevels[toplevel].handle;
+                        let sources = self.state.ext_toplevel_sources.as_ref().expect("checked by the caller");
+                        sources.create_source(handle, &self.qh, ())
+                    }
+                };
                 let options = if cursor { Options::PaintCursors } else { Options::empty() };
                 let session = self.state.ext_copy.as_ref().expect("checked at connect").create_session(
                     &source,
@@ -263,9 +307,13 @@ impl Capturer {
             }
             Backend::WlrScreencopy => Protocol::Wlr { frame: None, region },
         };
-        let transform = self.state.outputs[output].transform;
+        // ext sends each frame's transform; wlr frames come in the output's.
+        let transform = match target {
+            Target::Output(output) => self.state.outputs[output].transform,
+            Target::Toplevel(_) => Default::default(),
+        };
         self.state.captures.push(Capture {
-            output,
+            target,
             protocol,
             cursor,
             constraints: Constraints::default(),
@@ -294,7 +342,8 @@ impl Capturer {
             && frame.is_none()
         {
             let manager = self.state.wlr_screencopy.as_ref().expect("checked at connect");
-            let wl_output = outputs[cap.output].wl_output.as_ref().expect("bound output");
+            let Target::Output(output) = cap.target else { unreachable!("wlr only captures outputs") };
+            let wl_output = outputs[output].wl_output.as_ref().expect("bound output");
             let overlay = cap.cursor as i32;
             cap.constraints = Constraints::default();
             *frame = Some(match region {
@@ -469,21 +518,47 @@ pub struct StreamFrame {
     pub sequence: u64,
 }
 
-/// Continuous capture of one output or a region of it. Frames arrive as the screen
-/// changes (the compositor paces them); a static screen yields no frames.
+/// The window with `window`'s toplevel identifier, or else the one open window with its
+/// app id and title.
+fn find_toplevel<'a>(
+    toplevels: impl Iterator<Item = &'a ToplevelInfo> + Clone,
+    window: &WindowInfo,
+) -> Result<usize> {
+    let open = || toplevels.clone().enumerate().filter(|(_, t)| !t.closed);
+    if let Some(id) = &window.toplevel
+        && let Some((i, _)) = open().find(|(_, t)| &t.identifier == id)
+    {
+        return Ok(i);
+    }
+    let mut alike = open().filter(|(_, t)| t.app_id == window.app_id && t.title == window.title);
+    match (alike.next(), alike.next()) {
+        (Some((i, _)), None) => Ok(i),
+        (None, _) => Err(Error::NoSuchWindow(format!("no window {:?} ({})", window.title, window.app_id))),
+        (Some(_), Some(_)) => Err(Error::NoSuchWindow(format!(
+            "several windows are {:?} ({}), and the compositor doesn't say which",
+            window.title, window.app_id
+        ))),
+    }
+}
+
+/// Where a stream of a whole output keeps its region.
+struct Crop {
+    /// Logical, relative to the output.
+    region: Rect,
+    /// The output's logical width, to find the scale of each frame.
+    logical_width: f64,
+}
+
+/// Continuous capture of one output, a region of it, or one window. Frames arrive as the
+/// content changes (the compositor paces them); static content yields no frames.
 pub struct FrameStream {
     capturer: Capturer,
     slot: usize,
-    crop: Option<Rect>,
-    info: OutputInfo,
+    crop: Option<Crop>,
     sequence: u64,
 }
 
 impl FrameStream {
-    pub fn output(&self) -> &OutputInfo {
-        &self.info
-    }
-
     /// Wait up to `timeout` for the next frame. `Ok(None)` means nothing changed in time;
     /// the pending capture stays in flight and a later call picks it up.
     pub fn next_frame(&mut self, timeout: Duration) -> Result<Option<StreamFrame>> {
@@ -496,9 +571,9 @@ impl FrameStream {
                     let mut image = self.capturer.take_image(self.slot)?;
                     // Get the compositor working on the next frame while we hand this one off.
                     self.capturer.drive(self.slot)?;
-                    if let Some(crop) = self.crop {
-                        let scale = image.width() as f64 / self.info.logical.width;
-                        image = image.crop(crop.to_pixels(Default::default(), scale));
+                    if let Some(crop) = &self.crop {
+                        let scale = image.width() as f64 / crop.logical_width;
+                        image = image.crop(crop.region.to_pixels(Default::default(), scale));
                     }
                     let frame = StreamFrame { image, presented, sequence: self.sequence };
                     self.sequence += 1;
@@ -518,13 +593,55 @@ impl FrameStream {
 }
 
 impl screenie_core::FrameSource for FrameStream {
-    fn next_frame(&mut self, timeout: Duration) -> Result<Option<Image>, screenie_core::SourceError> {
-        Ok(FrameStream::next_frame(self, timeout)?.map(|f| f.image))
+    fn next_frame(&mut self, timeout: Duration) -> Result<Next, screenie_core::SourceError> {
+        match FrameStream::next_frame(self, timeout) {
+            Ok(Some(frame)) => Ok(Next::Frame(frame.image)),
+            Ok(None) => Ok(Next::Unchanged),
+            Err(Error::Stopped) => Ok(Next::Ended),
+            Err(e) => Err(e.into()),
+        }
     }
 }
 
 impl Drop for FrameStream {
     fn drop(&mut self) {
         self.capturer.release(self.slot);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn toplevel(identifier: &str, app_id: &str, title: &str) -> ToplevelInfo {
+        ToplevelInfo { identifier: identifier.into(), app_id: app_id.into(), title: title.into(), closed: false }
+    }
+
+    fn window(toplevel: Option<&str>, app_id: &str, title: &str) -> WindowInfo {
+        WindowInfo {
+            id: "1".into(),
+            title: title.into(),
+            app_id: app_id.into(),
+            rect: Rect::default(),
+            focused: false,
+            floating: false,
+            toplevel: toplevel.map(String::from),
+        }
+    }
+
+    #[test]
+    fn windows_are_found_by_identifier_first() {
+        let list = [toplevel("a", "foot", "~"), toplevel("b", "foot", "~")];
+        assert_eq!(find_toplevel(list.iter(), &window(Some("b"), "foot", "~")).unwrap(), 1);
+        // Two alike windows can't be told apart without one.
+        assert!(find_toplevel(list.iter(), &window(None, "foot", "~")).is_err());
+    }
+
+    #[test]
+    fn otherwise_by_app_id_and_title() {
+        let mut list = [toplevel("a", "foot", "~"), toplevel("b", "firefox", "Docs"), toplevel("c", "foot", "~")];
+        list[0].closed = true;
+        assert_eq!(find_toplevel(list.iter(), &window(Some("gone"), "foot", "~")).unwrap(), 2);
+        assert!(find_toplevel(list.iter(), &window(None, "firefox", "Mail")).is_err());
     }
 }

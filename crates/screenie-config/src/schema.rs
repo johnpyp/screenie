@@ -224,7 +224,8 @@ pub struct SelectorConfig {
     /// Take the screenshot as soon as the drag ends. When off, the selection stays
     /// adjustable until confirmed with Enter or the capture button.
     pub capture_on_release: bool,
-    /// Highlight and snap to windows under the cursor (needs compositor IPC).
+    /// In area mode, highlight the window under the cursor and pick it with a click
+    /// (needs compositor IPC). Window mode always does.
     pub window_snapping: bool,
     /// Show the mode toolbar at the bottom of the screen.
     pub toolbar: bool,

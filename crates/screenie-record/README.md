@@ -15,8 +15,11 @@ let finished = recording.stop()?; // path, duration, size, bytes, last frame
 - The frame pump runs on its own thread. It caps the frame rate, holds early frames
   rather than dropping them, skips identical frames, and hands pixels to GStreamer
   without copying.
+- The video is the first frame's size. Frames of another size (a recorded window being
+  resized) are scaled to fit, letterboxed.
 - `stop()` blocks until the file is finalized. `cancel()` or dropping the recording
-  deletes it. `failure()` reports a broken pipeline so the caller can salvage the file.
+  deletes it. `failure()` reports a broken pipeline so the caller can salvage the file,
+  and `ended()` a source that went away (a recorded window closed).
 
 See [docs/features/recording.md](../../docs/features/recording.md) for the design.
 

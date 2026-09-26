@@ -57,7 +57,7 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
     let options = SnapshotOptions {
         cursor: req.cursor.unwrap_or(config.screenshot.show_cursor),
         backend: config.advanced.capture_backend,
-        windows: (interactive && config.selector.window_snapping) || req.target == Target::ActiveWindow,
+        windows: interactive || req.target == Target::ActiveWindow,
     };
     let snapshot_capture = capture.clone();
     let snapshot = cx
