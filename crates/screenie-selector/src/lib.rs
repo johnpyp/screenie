@@ -19,8 +19,8 @@ use std::sync::Arc;
 
 use gpui::{AnyWindowHandle, AppContext, AsyncApp, px, size};
 use screenie_core::{OutputInfo, Snapshot, WindowInfo};
-use screenie_ui_kit::layer::{LayerSpec, fallback_options, layer_options, wait_for_displays};
 use screenie_ui_kit::KeyboardGrab;
+use screenie_ui_kit::layer::{LayerSpec, fallback_options, layer_options, wait_for_displays};
 
 pub use model::{Mode, Purpose, Selection};
 use view::{OutputView, Session, frozen_parts};
@@ -30,7 +30,10 @@ pub enum Backdrop {
     /// A frozen desktop: pixel-exact, with magnifier.
     Frozen(Arc<Snapshot>),
     /// The live desktop (for recordings): only the layout is known.
-    Live { outputs: Vec<OutputInfo>, windows: Vec<WindowInfo> },
+    Live {
+        outputs: Vec<OutputInfo>,
+        windows: Vec<WindowInfo>,
+    },
 }
 
 /// Recording toggles offered in the toolbar.
@@ -82,14 +85,21 @@ pub struct Choice {
 }
 
 /// Show the selector and wait for the user. `None` if they cancelled.
-pub async fn select(cx: &mut AsyncApp, backdrop: Backdrop, config: SelectorConfig) -> Option<Choice> {
+pub async fn select(
+    cx: &mut AsyncApp,
+    backdrop: Backdrop,
+    config: SelectorConfig,
+) -> Option<Choice> {
     let (outputs, windows, snapshot) = match backdrop {
         Backdrop::Frozen(snapshot) => {
             // The measured scale makes snapping match the captured pixels exactly.
             let outputs: Vec<OutputInfo> = snapshot
                 .outputs
                 .iter()
-                .map(|c| OutputInfo { scale: c.scale(), ..c.output.clone() })
+                .map(|c| OutputInfo {
+                    scale: c.scale(),
+                    ..c.output.clone()
+                })
                 .collect();
             (outputs, snapshot.windows.clone(), Some(snapshot))
         }
@@ -105,7 +115,10 @@ pub async fn select(cx: &mut AsyncApp, backdrop: Backdrop, config: SelectorConfi
         model = model.with_selection(initial);
     }
     let (tx, rx) = async_channel::bounded(1);
-    let active_output = config.focused_output.clone().or_else(|| outputs.first().map(|o| o.name.clone()));
+    let active_output = config
+        .focused_output
+        .clone()
+        .or_else(|| outputs.first().map(|o| o.name.clone()));
     let grab = cx.update(KeyboardGrab::new);
     let session = cx.new(|_| Session {
         model,
@@ -120,11 +133,16 @@ pub async fn select(cx: &mut AsyncApp, backdrop: Backdrop, config: SelectorConfi
 
     let mut handles: Vec<AnyWindowHandle> = Vec::new();
     for output in outputs {
-        let frozen = snapshot.as_ref().and_then(|s| frozen_parts(s, &output.name));
+        let frozen = snapshot
+            .as_ref()
+            .and_then(|s| frozen_parts(s, &output.name));
         let spec = LayerSpec::fullscreen_overlay(
             "screenie-selector",
             &output.name,
-            size(px(output.logical.width as f32), px(output.logical.height as f32)),
+            size(
+                px(output.logical.width as f32),
+                px(output.logical.height as f32),
+            ),
         );
         let session = session.clone();
         let opened = cx.update(|cx| {
@@ -133,12 +151,20 @@ pub async fn select(cx: &mut AsyncApp, backdrop: Backdrop, config: SelectorConfi
                     cx.new(|cx| OutputView::new(session, output, frozen, window, cx))
                 }
             };
-            let first = cx.open_window(layer_options(cx, &spec), build(output.clone(), frozen.clone(), session.clone()));
+            let first = cx.open_window(
+                layer_options(cx, &spec),
+                build(output.clone(), frozen.clone(), session.clone()),
+            );
             match first {
                 Ok(h) => Ok(h),
                 Err(e) => {
-                    tracing::debug!("layer-shell window failed ({e}); falling back to a regular window");
-                    cx.open_window(fallback_options(cx, &spec), build(output.clone(), frozen, session))
+                    tracing::debug!(
+                        "layer-shell window failed ({e}); falling back to a regular window"
+                    );
+                    cx.open_window(
+                        fallback_options(cx, &spec),
+                        build(output.clone(), frozen, session),
+                    )
                 }
             }
         });

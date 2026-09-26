@@ -6,7 +6,9 @@
 
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
-use cosmic_text::{Attrs, Buffer, Cursor, Family, FontSystem, Metrics, Shaping, SwashCache, Weight, fontdb};
+use cosmic_text::{
+    Attrs, Buffer, Cursor, Family, FontSystem, Metrics, Shaping, SwashCache, Weight, fontdb,
+};
 use tiny_skia::{Pixmap, PremultipliedColorU8};
 
 use crate::Color;
@@ -25,10 +27,15 @@ static FONTS: LazyLock<Mutex<Fonts>> = LazyLock::new(|| {
     db.load_system_fonts();
     db.load_font_data(include_bytes!("../../../assets/fonts/Inter-Bold.otf").to_vec());
     db.set_sans_serif_family(FAMILY);
-    let locale = std::env::var("LANG").ok().and_then(|l| l.split('.').next().map(|l| l.replace('_', "-")));
+    let locale = std::env::var("LANG")
+        .ok()
+        .and_then(|l| l.split('.').next().map(|l| l.replace('_', "-")));
     let system = FontSystem::new_with_locale_and_db(locale.unwrap_or_else(|| "en-US".into()), db);
     tracing::debug!(elapsed = ?started.elapsed(), "fonts loaded");
-    Mutex::new(Fonts { system, swash: SwashCache::new() })
+    Mutex::new(Fonts {
+        system,
+        swash: SwashCache::new(),
+    })
 });
 
 fn fonts() -> MutexGuard<'static, Fonts> {
@@ -55,7 +62,9 @@ impl TextBlock {
         let fonts = &mut *guard;
         let metrics = Metrics::relative(font_size.max(1.0), LINE_HEIGHT);
         let mut buffer = Buffer::new(&mut fonts.system, metrics);
-        let attrs = Attrs::new().family(Family::Name(FAMILY)).weight(Weight::BOLD);
+        let attrs = Attrs::new()
+            .family(Family::Name(FAMILY))
+            .weight(Weight::BOLD);
         {
             let mut b = buffer.borrow_with(&mut fonts.system);
             b.set_size(None, None);
@@ -69,7 +78,12 @@ impl TextBlock {
             height = height.max(run.line_top + run.line_height);
         }
         let height = height.max(metrics.line_height);
-        Self { buffer, text: text.to_string(), width, height }
+        Self {
+            buffer,
+            text: text.to_string(),
+            width,
+            height,
+        }
     }
 
     pub fn width(&self) -> f32 {
@@ -82,7 +96,10 @@ impl TextBlock {
 
     /// The first line's baseline, from the top.
     pub fn baseline(&self) -> f32 {
-        self.buffer.layout_runs().next().map_or(self.line_height() * 0.8, |run| run.line_y)
+        self.buffer
+            .layout_runs()
+            .next()
+            .map_or(self.line_height() * 0.8, |run| run.line_y)
     }
 
     pub fn line_height(&self) -> f32 {
@@ -92,12 +109,17 @@ impl TextBlock {
     /// Where a caret before byte `index` goes: its x, and the top of its line.
     pub fn caret(&self, index: usize) -> (f32, f32) {
         let cursor = self.cursor_for(index);
-        self.buffer.cursor_position(&cursor).unwrap_or((0.0, cursor.line as f32 * self.line_height()))
+        self.buffer
+            .cursor_position(&cursor)
+            .unwrap_or((0.0, cursor.line as f32 * self.line_height()))
     }
 
     /// The byte index nearest to a point.
     pub fn hit(&self, x: f32, y: f32) -> usize {
-        let cursor = self.buffer.hit(x, y.clamp(0.0, self.height - 0.5)).unwrap_or(Cursor::new(0, 0));
+        let cursor = self
+            .buffer
+            .hit(x, y.clamp(0.0, self.height - 0.5))
+            .unwrap_or(Cursor::new(0, 0));
         self.index_of(cursor)
     }
 
@@ -110,7 +132,12 @@ impl TextBlock {
     }
 
     fn index_of(&self, cursor: Cursor) -> usize {
-        let start: usize = self.text.split('\n').take(cursor.line).map(|l| l.len() + 1).sum();
+        let start: usize = self
+            .text
+            .split('\n')
+            .take(cursor.line)
+            .map(|l| l.len() + 1)
+            .sum();
         (start + cursor.index).min(self.text.len())
     }
 
@@ -125,14 +152,19 @@ impl TextBlock {
             for glyph in run.glyphs {
                 let physical = glyph.physical((x, y + run.line_y), 1.0);
                 let glyph_color = glyph.color_opt.unwrap_or(base);
-                fonts.swash.with_pixels(&mut fonts.system, physical.cache_key, glyph_color, |gx, gy, c| {
-                    let (px, py) = (physical.x + gx, physical.y + gy);
-                    if px < 0 || py < 0 || px >= width || py >= height || c.a() == 0 {
-                        return;
-                    }
-                    let dst = &mut pixels[(py * width + px) as usize];
-                    *dst = blend(*dst, c.r(), c.g(), c.b(), c.a());
-                });
+                fonts.swash.with_pixels(
+                    &mut fonts.system,
+                    physical.cache_key,
+                    glyph_color,
+                    |gx, gy, c| {
+                        let (px, py) = (physical.x + gx, physical.y + gy);
+                        if px < 0 || py < 0 || px >= width || py >= height || c.a() == 0 {
+                            return;
+                        }
+                        let dst = &mut pixels[(py * width + px) as usize];
+                        *dst = blend(*dst, c.r(), c.g(), c.b(), c.a());
+                    },
+                );
             }
         }
     }

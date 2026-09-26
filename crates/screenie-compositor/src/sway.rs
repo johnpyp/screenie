@@ -74,7 +74,11 @@ pub(crate) fn windows_from_tree(tree: &Value) -> Vec<WindowInfo> {
     let (mut fullscreen, mut floating, mut tiled) = (Vec::new(), Vec::new(), Vec::new());
     collect(tree, false, &mut fullscreen, &mut floating, &mut tiled);
     floating.reverse();
-    fullscreen.into_iter().chain(floating).chain(tiled).collect()
+    fullscreen
+        .into_iter()
+        .chain(floating)
+        .chain(tiled)
+        .collect()
 }
 
 fn collect(
@@ -87,8 +91,14 @@ fn collect(
     if node["name"].as_str() == Some("__i3") {
         return; // the scratchpad
     }
-    let children = node["nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let floaters = node["floating_nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let children = node["nodes"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let floaters = node["floating_nodes"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
     let is_view = children.is_empty()
         && floaters.is_empty()
         && matches!(node["type"].as_str(), Some("con" | "floating_con"))
@@ -100,7 +110,11 @@ fn collect(
         }
         let outer = rect(&node["rect"]);
         let inner = rect(&node["window_rect"]);
-        let content = if inner.is_empty() { outer } else { inner.translate(outer.x, outer.y) };
+        let content = if inner.is_empty() {
+            outer
+        } else {
+            inner.translate(outer.x, outer.y)
+        };
         let info = WindowInfo {
             id: node["id"].to_string(),
             title: node["name"].as_str().unwrap_or_default().to_string(),
@@ -112,7 +126,9 @@ fn collect(
             rect: content,
             focused: node["focused"].as_bool().unwrap_or(false),
             floating: in_floating || node["type"].as_str() == Some("floating_con"),
-            toplevel: node["foreign_toplevel_identifier"].as_str().map(String::from),
+            toplevel: node["foreign_toplevel_identifier"]
+                .as_str()
+                .map(String::from),
         };
         if node["fullscreen_mode"].as_u64().unwrap_or(0) > 0 {
             fullscreen.push(info);

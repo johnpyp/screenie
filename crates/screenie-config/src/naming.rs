@@ -17,7 +17,11 @@ impl Subject {
     /// A short app name: `org.gnome.Nautilus` → `Nautilus`, `firefox` → `firefox`.
     fn app_name(&self) -> Option<&str> {
         let app = self.app.as_deref()?.trim();
-        let name = if app.matches('.').count() >= 2 { app.rsplit('.').next()? } else { app };
+        let name = if app.matches('.').count() >= 2 {
+            app.rsplit('.').next()?
+        } else {
+            app
+        };
         (!name.is_empty()).then_some(name)
     }
 }
@@ -32,16 +36,30 @@ const SEPARATORS: &[char] = &['_', '-', ' ', '.'];
 pub fn expand_template(template: &str, when: DateTime<Local>, subject: &Subject) -> String {
     use std::fmt::Write;
     let mut text = template.to_string();
-    for (placeholder, value) in [("{app}", subject.app_name()), ("{title}", subject.title.as_deref())] {
-        text = substitute(&text, placeholder, value.map(clean_part).filter(|v| !v.is_empty()).as_deref());
+    for (placeholder, value) in [
+        ("{app}", subject.app_name()),
+        ("{title}", subject.title.as_deref()),
+    ] {
+        text = substitute(
+            &text,
+            placeholder,
+            value.map(clean_part).filter(|v| !v.is_empty()).as_deref(),
+        );
     }
     let mut out = String::new();
     let items = chrono::format::StrftimeItems::new(&text);
     if write!(out, "{}", when.format_with_items(items)).is_err() {
         out = text;
     }
-    let cleaned: String = out.chars().map(|c| if c == '/' || c == '\0' { '-' } else { c }).collect();
-    if cleaned.trim().is_empty() { "capture".into() } else { cleaned }
+    let cleaned: String = out
+        .chars()
+        .map(|c| if c == '/' || c == '\0' { '-' } else { c })
+        .collect();
+    if cleaned.trim().is_empty() {
+        "capture".into()
+    } else {
+        cleaned
+    }
 }
 
 fn substitute(text: &str, placeholder: &str, value: Option<&str>) -> String {
@@ -52,7 +70,10 @@ fn substitute(text: &str, placeholder: &str, value: Option<&str>) -> String {
             // strftime runs afterwards, so `%` in a title must stay literal.
             Some(v) => out.replace_range(at..end, &v.replace('%', "%%")),
             None => {
-                let before = out[..at].chars().next_back().filter(|c| SEPARATORS.contains(c));
+                let before = out[..at]
+                    .chars()
+                    .next_back()
+                    .filter(|c| SEPARATORS.contains(c));
                 let after = out[end..].chars().next().filter(|c| SEPARATORS.contains(c));
                 match (before, after) {
                     (Some(c), _) => out.replace_range(at - c.len_utf8()..end, ""),
@@ -79,7 +100,12 @@ fn clean_part(value: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    cleaned.chars().take(60).collect::<String>().trim().to_string()
+    cleaned
+        .chars()
+        .take(60)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// `dir/stem.ext`, or `dir/stem-2.ext`, `dir/stem-3.ext`, … if taken.
@@ -103,7 +129,10 @@ mod tests {
     fn expands_and_sanitizes() {
         let t = Local.with_ymd_and_hms(2026, 9, 25, 21, 5, 9).unwrap();
         let none = Subject::default();
-        assert_eq!(expand_template("Shot %Y-%m-%d %H.%M.%S", t, &none), "Shot 2026-09-25 21.05.09");
+        assert_eq!(
+            expand_template("Shot %Y-%m-%d %H.%M.%S", t, &none),
+            "Shot 2026-09-25 21.05.09"
+        );
         assert_eq!(expand_template("a/b %Y", t, &none), "a-b 2026");
         assert_eq!(expand_template("bad %Q", t, &none), "bad %Q");
     }
@@ -111,15 +140,30 @@ mod tests {
     #[test]
     fn window_placeholders() {
         let t = Local.with_ymd_and_hms(2026, 9, 25, 21, 5, 9).unwrap();
-        let win = |app: &str, title: &str| Subject { app: Some(app.into()), title: Some(title.into()) };
+        let win = |app: &str, title: &str| Subject {
+            app: Some(app.into()),
+            title: Some(title.into()),
+        };
         let template = "Screenshot_%Y-%m-%d_{app}";
-        assert_eq!(expand_template(template, t, &win("firefox", "x")), "Screenshot_2026-09-25_firefox");
-        assert_eq!(expand_template(template, t, &win("org.gnome.Nautilus", "x")), "Screenshot_2026-09-25_Nautilus");
+        assert_eq!(
+            expand_template(template, t, &win("firefox", "x")),
+            "Screenshot_2026-09-25_firefox"
+        );
+        assert_eq!(
+            expand_template(template, t, &win("org.gnome.Nautilus", "x")),
+            "Screenshot_2026-09-25_Nautilus"
+        );
         // No window: the placeholder and its separator disappear.
-        assert_eq!(expand_template(template, t, &Subject::default()), "Screenshot_2026-09-25");
+        assert_eq!(
+            expand_template(template, t, &Subject::default()),
+            "Screenshot_2026-09-25"
+        );
         assert_eq!(expand_template("{app}-%Y", t, &Subject::default()), "2026");
         // Titles are made safe, and their % signs stay literal.
-        assert_eq!(expand_template("{title}", t, &win("a", " 100% done / ok\n")), "100% done - ok");
+        assert_eq!(
+            expand_template("{title}", t, &win("a", " 100% done / ok\n")),
+            "100% done - ok"
+        );
     }
 
     #[test]

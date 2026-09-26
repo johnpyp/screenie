@@ -5,7 +5,9 @@ use tiny_skia::{IntRect, Pixmap, PremultipliedColorU8};
 /// Replace `area` with blocks of `block` pixels, each the average of what it covers.
 /// Blocks are aligned to `area`'s top-left so a shape's blocks don't shimmer as it moves.
 pub fn pixelate(pixmap: &mut Pixmap, area: IntRect, block: u32) {
-    let Some(area) = clip(pixmap, area) else { return };
+    let Some(area) = clip(pixmap, area) else {
+        return;
+    };
     let block = block.max(2);
     let width = pixmap.width() as usize;
     let pixels = pixmap.pixels_mut();
@@ -26,7 +28,8 @@ pub fn pixelate(pixmap: &mut Pixmap, area: IntRect, block: u32) {
             }
             let n = (bw * bh) as u32;
             let avg = sum.map(|s| ((s + n / 2) / n) as u8);
-            let color = PremultipliedColorU8::from_rgba(avg[0], avg[1], avg[2], avg[3]).unwrap_or(PremultipliedColorU8::TRANSPARENT);
+            let color = PremultipliedColorU8::from_rgba(avg[0], avg[1], avg[2], avg[3])
+                .unwrap_or(PremultipliedColorU8::TRANSPARENT);
             for y in by..by + bh {
                 pixels[y as usize * width + bx as usize..][..bw as usize].fill(color);
             }
@@ -39,10 +42,21 @@ pub fn pixelate(pixmap: &mut Pixmap, area: IntRect, block: u32) {
 /// Blur `area` in place with an approximately Gaussian kernel of `radius`, reading pixels
 /// just outside it so edges don't darken.
 pub fn blur(pixmap: &mut Pixmap, area: IntRect, radius: f32) {
-    let Some(area) = clip(pixmap, area) else { return };
+    let Some(area) = clip(pixmap, area) else {
+        return;
+    };
     let r = radius.round().max(1.0) as i32;
     // Read a margin around the area so the blur takes in the surroundings.
-    let Some(src) = clip(pixmap, IntRect::from_ltrb(area.left() - r * 3, area.top() - r * 3, area.right() + r * 3, area.bottom() + r * 3).unwrap_or(area)) else {
+    let Some(src) = clip(
+        pixmap,
+        IntRect::from_ltrb(
+            area.left() - r * 3,
+            area.top() - r * 3,
+            area.right() + r * 3,
+            area.bottom() + r * 3,
+        )
+        .unwrap_or(area),
+    ) else {
         return;
     };
     let (w, h) = (src.width() as usize, src.height() as usize);
@@ -50,7 +64,14 @@ pub fn blur(pixmap: &mut Pixmap, area: IntRect, radius: f32) {
     let mut buf: Vec<[f32; 4]> = Vec::with_capacity(w * h);
     for y in 0..h {
         let row = &pixmap.pixels()[(src.top() as usize + y) * width + src.left() as usize..][..w];
-        buf.extend(row.iter().map(|p| [p.red() as f32, p.green() as f32, p.blue() as f32, p.alpha() as f32]));
+        buf.extend(row.iter().map(|p| {
+            [
+                p.red() as f32,
+                p.green() as f32,
+                p.blue() as f32,
+                p.alpha() as f32,
+            ]
+        }));
     }
     for radius in box_radii(r as f32) {
         box_blur(&mut buf, w, h, radius);
@@ -61,7 +82,8 @@ pub fn blur(pixmap: &mut Pixmap, area: IntRect, radius: f32) {
             let v = buf[(y - src.top()) as usize * w + (x - src.left()) as usize];
             let [r, g, b, a] = v.map(|c| c.round().clamp(0.0, 255.0) as u8);
             pixels[y as usize * width + x as usize] =
-                PremultipliedColorU8::from_rgba(r.min(a), g.min(a), b.min(a), a).unwrap_or(PremultipliedColorU8::TRANSPARENT);
+                PremultipliedColorU8::from_rgba(r.min(a), g.min(a), b.min(a), a)
+                    .unwrap_or(PremultipliedColorU8::TRANSPARENT);
         }
     }
 }
@@ -89,7 +111,9 @@ fn box_radii(sigma: f32) -> [usize; 3] {
         lower -= 1;
     }
     let upper = lower + 2;
-    let m = ((12.0 * sigma * sigma - 3.0 * (lower * lower) as f32 - 12.0 * lower as f32 - 9.0) / (-4.0 * lower as f32 - 4.0)).round() as i32;
+    let m = ((12.0 * sigma * sigma - 3.0 * (lower * lower) as f32 - 12.0 * lower as f32 - 9.0)
+        / (-4.0 * lower as f32 - 4.0))
+        .round() as i32;
     let size = |i: i32| (if i < m { lower } else { upper }).max(1) as usize / 2;
     [size(0), size(1), size(2)]
 }
@@ -101,23 +125,24 @@ fn box_blur(buf: &mut [[f32; 4]], w: usize, h: usize, r: usize) {
     }
     let mut line = vec![[0f32; 4]; w.max(h)];
     let norm = 1.0 / (2 * r + 1) as f32;
-    let mut pass = |len: usize, count: usize, at: &dyn Fn(usize, usize) -> usize, buf: &mut [[f32; 4]]| {
-        for n in 0..count {
-            let get = |i: isize| buf[at(n, i.clamp(0, len as isize - 1) as usize)];
-            let mut acc = [0f32; 4];
-            for i in -(r as isize)..=(r as isize) {
-                add(&mut acc, get(i), 1.0);
+    let mut pass =
+        |len: usize, count: usize, at: &dyn Fn(usize, usize) -> usize, buf: &mut [[f32; 4]]| {
+            for n in 0..count {
+                let get = |i: isize| buf[at(n, i.clamp(0, len as isize - 1) as usize)];
+                let mut acc = [0f32; 4];
+                for i in -(r as isize)..=(r as isize) {
+                    add(&mut acc, get(i), 1.0);
+                }
+                for (i, out) in line.iter_mut().take(len).enumerate() {
+                    *out = acc.map(|c| c * norm);
+                    add(&mut acc, get(i as isize + r as isize + 1), 1.0);
+                    add(&mut acc, get(i as isize - r as isize), -1.0);
+                }
+                for (i, v) in line.iter().take(len).enumerate() {
+                    buf[at(n, i)] = *v;
+                }
             }
-            for (i, out) in line.iter_mut().take(len).enumerate() {
-                *out = acc.map(|c| c * norm);
-                add(&mut acc, get(i as isize + r as isize + 1), 1.0);
-                add(&mut acc, get(i as isize - r as isize), -1.0);
-            }
-            for (i, v) in line.iter().take(len).enumerate() {
-                buf[at(n, i)] = *v;
-            }
-        }
-    };
+        };
     pass(w, h, &|row, i| row * w + i, buf);
     pass(h, w, &|col, i| i * w + col, buf);
 }
@@ -181,6 +206,9 @@ mod tests {
         p.fill(Color::from_rgba8(10, 200, 30, 255));
         blur(&mut p, IntRect::from_xywh(0, 0, 20, 20).unwrap(), 4.0);
         let px = p.pixel(10, 10).unwrap();
-        assert_eq!((px.red(), px.green(), px.blue(), px.alpha()), (10, 200, 30, 255));
+        assert_eq!(
+            (px.red(), px.green(), px.blue(), px.alpha()),
+            (10, 200, 30, 255)
+        );
     }
 }

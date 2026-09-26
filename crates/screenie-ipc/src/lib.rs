@@ -60,10 +60,14 @@ pub fn exe_stamp() -> String {
     static STAMP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     STAMP
         .get_or_init(|| {
-            let meta = std::fs::metadata("/proc/self/exe").or_else(|_| std::fs::metadata(std::env::current_exe()?));
+            let meta = std::fs::metadata("/proc/self/exe")
+                .or_else(|_| std::fs::metadata(std::env::current_exe()?));
             match meta {
                 Ok(m) => {
-                    let mtime = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+                    let mtime = m
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
                     format!("{:x}-{:x}", mtime.map_or(0, |d| d.as_nanos()), m.len())
                 }
                 Err(_) => String::from("unknown"),
@@ -84,13 +88,17 @@ pub struct Client {
 impl Client {
     /// Connect to a running daemon.
     pub fn connect() -> Result<Client> {
-        Ok(Client { stream: UnixStream::connect(Paths::get().socket())? })
+        Ok(Client {
+            stream: UnixStream::connect(Paths::get().socket())?,
+        })
     }
 
     /// Make way for a daemon running this executable: a daemon running another one (an
     /// upgrade, or a rebuild) is stopped, unless it's busy.
     pub fn take_over() -> Result<Takeover> {
-        let Ok(client) = Self::connect() else { return Ok(Takeover::NotRunning) };
+        let Ok(client) = Self::connect() else {
+            return Ok(Takeover::NotRunning);
+        };
         let status = match client.request(&Request::Status)? {
             Response::Status(status) => *status,
             // Something answers, but not like a daemon: leave it be.
@@ -120,8 +128,14 @@ impl Client {
         loop {
             match Self::connect() {
                 Ok(client) => return Ok(client),
-                Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-                Err(_) => return Err(Error::DaemonDidNotStart { log: daemon_log_path() }),
+                Err(_) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                Err(_) => {
+                    return Err(Error::DaemonDidNotStart {
+                        log: daemon_log_path(),
+                    });
+                }
             }
         }
     }
@@ -185,7 +199,10 @@ fn spawn_daemon() -> Result<()> {
     }
     let log = std::fs::File::create(&log_path)?;
     let mut cmd = Command::new(exe);
-    cmd.arg("daemon").stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
+    cmd.arg("daemon")
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log);
     detach(&mut cmd);
     cmd.spawn()?;
     tracing::debug!("spawned daemon, logging to {}", log_path.display());
@@ -230,7 +247,9 @@ mod tests {
     #[test]
     fn a_legacy_daemon_status_looks_outdated_and_idle() {
         let legacy = r#"{"type":"status","recording":null,"pid":7,"version":"0.1.0","compositor":"Hyprland","capture_backend":"wlr-screencopy-unstable-v1"}"#;
-        let Response::Status(status) = serde_json::from_str(legacy).unwrap() else { panic!("not a status") };
+        let Response::Status(status) = serde_json::from_str(legacy).unwrap() else {
+            panic!("not a status")
+        };
         assert_ne!(status.build, exe_stamp());
         assert!(!status.busy());
     }
@@ -244,9 +263,14 @@ mod tests {
     #[test]
     fn messages_roundtrip() {
         let req = Request::Screenshot(ScreenshotRequest {
-            target: Target::Select { mode: SelectMode::Window },
+            target: Target::Select {
+                mode: SelectMode::Window,
+            },
             delay: 2,
-            actions: ActionOverrides { copy: Some(false), ..Default::default() },
+            actions: ActionOverrides {
+                copy: Some(false),
+                ..Default::default()
+            },
             output: None,
             want_file: true,
             cursor: None,

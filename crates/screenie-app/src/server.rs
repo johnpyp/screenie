@@ -7,8 +7,13 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use screenie_ipc::{Request, Response, Status, read_message, write_message};
 
 pub(crate) enum Incoming {
-    Request { request: Request, reply: async_channel::Sender<Response> },
-    Watch { updates: async_channel::Sender<Status> },
+    Request {
+        request: Request,
+        reply: async_channel::Sender<Response>,
+    },
+    Watch {
+        updates: async_channel::Sender<Status>,
+    },
 }
 
 /// Accept connections forever, forwarding each to the returned channel.
@@ -21,11 +26,14 @@ pub(crate) fn start(listener: UnixListener) -> async_channel::Receiver<Incoming>
                 match stream {
                     Ok(stream) => {
                         let tx = tx.clone();
-                        let _ = std::thread::Builder::new().name("ipc-conn".into()).spawn(move || {
-                            if let Err(e) = serve(stream, &tx) {
-                                tracing::debug!("ipc connection ended: {e}");
-                            }
-                        });
+                        let _ =
+                            std::thread::Builder::new()
+                                .name("ipc-conn".into())
+                                .spawn(move || {
+                                    if let Err(e) = serve(stream, &tx) {
+                                        tracing::debug!("ipc connection ended: {e}");
+                                    }
+                                });
                     }
                     Err(e) => tracing::warn!("accept failed: {e}"),
                 }
@@ -51,7 +59,9 @@ fn serve(stream: UnixStream, tx: &async_channel::Sender<Incoming>) -> anyhow::Re
     }
     let (reply, rx) = async_channel::bounded(1);
     tx.send_blocking(Incoming::Request { request, reply })?;
-    let response = rx.recv_blocking().unwrap_or_else(|_| Response::error("the daemon dropped the request"));
+    let response = rx
+        .recv_blocking()
+        .unwrap_or_else(|_| Response::error("the daemon dropped the request"));
     write_message(&stream, &response)?;
     Ok(())
 }

@@ -144,8 +144,14 @@ struct Grab {
 #[derive(Debug, Clone)]
 enum Phase {
     Idle,
-    Drawing { anchor: Point, current: Point },
-    Editing { selection: Selection, grab: Option<Grab> },
+    Drawing {
+        anchor: Point,
+        current: Point,
+    },
+    Editing {
+        selection: Selection,
+        grab: Option<Grab>,
+    },
 }
 
 pub struct Model {
@@ -166,7 +172,12 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn new(outputs: Vec<OutputInfo>, windows: Vec<WindowInfo>, purpose: Purpose, mode: Mode) -> Self {
+    pub fn new(
+        outputs: Vec<OutputInfo>,
+        windows: Vec<WindowInfo>,
+        purpose: Purpose,
+        mode: Mode,
+    ) -> Self {
         Self {
             outputs,
             windows,
@@ -202,7 +213,10 @@ impl Model {
 
     /// Start with an existing selection being edited (e.g. the last region).
     pub fn with_selection(mut self, selection: Selection) -> Self {
-        self.phase = Phase::Editing { selection, grab: None };
+        self.phase = Phase::Editing {
+            selection,
+            grab: None,
+        };
         self
     }
 
@@ -266,7 +280,8 @@ impl Model {
         if let Some(g) = grab {
             return Some(g.handle);
         }
-        self.cursor.and_then(|p| handle_at(&selection.rect(), p, self.handle_reach))
+        self.cursor
+            .and_then(|p| handle_at(&selection.rect(), p, self.handle_reach))
     }
 
     pub fn output_at(&self, p: Point) -> Option<&OutputInfo> {
@@ -274,7 +289,11 @@ impl Model {
     }
 
     fn layout_bounds(&self) -> Rect {
-        self.outputs.iter().map(|o| o.logical).reduce(|a, b| a.union(&b)).unwrap_or_default()
+        self.outputs
+            .iter()
+            .map(|o| o.logical)
+            .reduce(|a, b| a.union(&b))
+            .unwrap_or_default()
     }
 
     /// Clip a rectangle to what is on screen.
@@ -336,7 +355,8 @@ impl Model {
 
     /// Keep a region on screen; recordings additionally stay on one output.
     fn fit(&self, rect: Rect, reference: Point) -> Rect {
-        rect.intersection(&self.bounds_for(reference)).unwrap_or(Rect::new(reference.x, reference.y, 0.0, 0.0))
+        rect.intersection(&self.bounds_for(reference))
+            .unwrap_or(Rect::new(reference.x, reference.y, 0.0, 0.0))
     }
 
     pub fn set_modifiers(&mut self, modifiers: Modifiers) -> Outcome {
@@ -344,7 +364,11 @@ impl Model {
             return Outcome::Nothing;
         }
         self.modifiers = modifiers;
-        if self.is_drawing() { Outcome::Redraw } else { Outcome::Nothing }
+        if self.is_drawing() {
+            Outcome::Redraw
+        } else {
+            Outcome::Nothing
+        }
     }
 
     pub fn set_mode(&mut self, mode: Mode) -> Outcome {
@@ -372,13 +396,20 @@ impl Model {
         match &self.phase {
             Phase::Drawing { anchor, .. } => {
                 let mut anchor = *anchor;
-                if self.space_held && let Some(prev) = previous {
+                if self.space_held
+                    && let Some(prev) = previous
+                {
                     // Space-drag moves the whole selection instead of resizing it.
                     anchor = anchor.offset(p.x - prev.x, p.y - prev.y);
                 }
-                self.phase = Phase::Drawing { anchor, current: snapped };
+                self.phase = Phase::Drawing {
+                    anchor,
+                    current: snapped,
+                };
             }
-            Phase::Editing { grab: Some(grab), .. } => {
+            Phase::Editing {
+                grab: Some(grab), ..
+            } => {
                 let grab = grab.clone();
                 let next = drag_rect(&grab, snapped, self.modifiers.shift);
                 let next = if grab.handle == Handle::Inside {
@@ -386,7 +417,10 @@ impl Model {
                 } else {
                     self.fit(next, grab.original.center())
                 };
-                self.phase = Phase::Editing { selection: Selection::Region(next), grab: Some(grab) };
+                self.phase = Phase::Editing {
+                    selection: Selection::Region(next),
+                    grab: Some(grab),
+                };
             }
             _ => {}
         }
@@ -414,16 +448,26 @@ impl Model {
             Phase::Editing { selection, grab } => {
                 let rect = selection.rect();
                 if let Some(handle) = handle_at(&rect, p, self.handle_reach) {
-                    *grab = Some(Grab { handle, start: snapped, original: rect });
+                    *grab = Some(Grab {
+                        handle,
+                        start: snapped,
+                        original: rect,
+                    });
                     return Outcome::Redraw;
                 }
                 if self.mode == Mode::Area {
-                    self.phase = Phase::Drawing { anchor: snapped, current: snapped };
+                    self.phase = Phase::Drawing {
+                        anchor: snapped,
+                        current: snapped,
+                    };
                 }
                 Outcome::Redraw
             }
             Phase::Idle | Phase::Drawing { .. } if self.mode == Mode::Area => {
-                self.phase = Phase::Drawing { anchor: snapped, current: snapped };
+                self.phase = Phase::Drawing {
+                    anchor: snapped,
+                    current: snapped,
+                };
                 Outcome::Redraw
             }
             _ => Outcome::Nothing,
@@ -434,7 +478,9 @@ impl Model {
         self.cursor = Some(p);
         // Only a press that started here counts: releasing after clicking the toolbar
         // (e.g. its Window button) must not pick whatever is under the pointer.
-        let Some(press) = self.press.take() else { return Outcome::Nothing };
+        let Some(press) = self.press.take() else {
+            return Outcome::Nothing;
+        };
         let is_click = press.distance(p) < CLICK_SLOP;
         match std::mem::replace(&mut self.phase, Phase::Idle) {
             Phase::Drawing { anchor, current } => {
@@ -448,8 +494,15 @@ impl Model {
                 self.choose(Selection::Region(rect), self.capture_on_release)
             }
             Phase::Editing { selection, grab } => {
-                self.phase = Phase::Editing { selection, grab: None };
-                if grab.is_some() { Outcome::Redraw } else { Outcome::Nothing }
+                self.phase = Phase::Editing {
+                    selection,
+                    grab: None,
+                };
+                if grab.is_some() {
+                    Outcome::Redraw
+                } else {
+                    Outcome::Nothing
+                }
             }
             Phase::Idle => {
                 if is_click {
@@ -463,7 +516,9 @@ impl Model {
 
     pub fn double_clicked(&mut self, p: Point) -> Outcome {
         match &self.phase {
-            Phase::Editing { selection, .. } if selection.rect().contains(p) => Outcome::Confirm(selection.clone()),
+            Phase::Editing { selection, .. } if selection.rect().contains(p) => {
+                Outcome::Confirm(selection.clone())
+            }
             _ => Outcome::Nothing,
         }
     }
@@ -486,7 +541,10 @@ impl Model {
         if self.purpose == Purpose::Screenshot && immediate {
             Outcome::Confirm(selection)
         } else {
-            self.phase = Phase::Editing { selection, grab: None };
+            self.phase = Phase::Editing {
+                selection,
+                grab: None,
+            };
             Outcome::Redraw
         }
     }
@@ -498,8 +556,13 @@ impl Model {
             Phase::Drawing { .. } => Outcome::Nothing,
             // What's highlighted, else the screen under the pointer.
             Phase::Idle => {
-                let p = self.cursor.or_else(|| self.outputs.first().map(|o| o.logical.center()));
-                let target = p.and_then(|p| self.target_at(p).or_else(|| self.output_at(p).cloned().map(Selection::Output)));
+                let p = self
+                    .cursor
+                    .or_else(|| self.outputs.first().map(|o| o.logical.center()));
+                let target = p.and_then(|p| {
+                    self.target_at(p)
+                        .or_else(|| self.output_at(p).cloned().map(Selection::Output))
+                });
                 target.map(Outcome::Confirm).unwrap_or(Outcome::Nothing)
             }
         }
@@ -516,7 +579,11 @@ impl Model {
                     Outcome::Nothing
                 } else if matches!(self.phase, Phase::Idle) {
                     // macOS muscle memory: space toggles between area and window.
-                    let next = if self.mode == Mode::Window { Mode::Area } else { Mode::Window };
+                    let next = if self.mode == Mode::Window {
+                        Mode::Area
+                    } else {
+                        Mode::Window
+                    };
                     self.set_mode(next)
                 } else {
                     Outcome::Nothing
@@ -546,7 +613,11 @@ impl Model {
     /// with Ctrl they grow or shrink it from the bottom-right corner.
     fn nudge(&mut self, key: Key, modifiers: Modifiers) -> Outcome {
         let bounds = self.layout_bounds();
-        let Phase::Editing { selection, grab: None } = &mut self.phase else {
+        let Phase::Editing {
+            selection,
+            grab: None,
+        } = &mut self.phase
+        else {
             return Outcome::Nothing;
         };
         let rect = selection.rect();
@@ -567,7 +638,9 @@ impl Model {
         let next = if modifiers.ctrl {
             let w = (rect.width + dx).max(step);
             let h = (rect.height + dy).max(step);
-            Rect::new(rect.x, rect.y, w, h).intersection(&bounds).unwrap_or(rect)
+            Rect::new(rect.x, rect.y, w, h)
+                .intersection(&bounds)
+                .unwrap_or(rect)
         } else {
             rect.translate(dx, dy).clamp_within(&bounds)
         };
@@ -583,7 +656,12 @@ pub fn handle_at(r: &Rect, p: Point, reach: f64) -> Option<Handle> {
     // grabbable.
     let reach = reach.min(r.width / 3.0).min(r.height / 3.0).max(4.0);
     let near = |h: Handle| h.position(r).distance(p) <= reach;
-    for h in [Handle::TopLeft, Handle::TopRight, Handle::BottomRight, Handle::BottomLeft] {
+    for h in [
+        Handle::TopLeft,
+        Handle::TopRight,
+        Handle::BottomRight,
+        Handle::BottomLeft,
+    ] {
         if near(h) {
             return Some(h);
         }
@@ -662,14 +740,24 @@ mod tests {
 
     fn model(purpose: Purpose) -> Model {
         Model::new(
-            vec![output("A", 0.0, 1920.0, 1080.0, 1.0), output("B", 1920.0, 1280.0, 720.0, 1.5)],
-            vec![window("top", Rect::new(100.0, 100.0, 400.0, 300.0)), window("big", Rect::new(0.0, 0.0, 1920.0, 1080.0))],
+            vec![
+                output("A", 0.0, 1920.0, 1080.0, 1.0),
+                output("B", 1920.0, 1280.0, 720.0, 1.5),
+            ],
+            vec![
+                window("top", Rect::new(100.0, 100.0, 400.0, 300.0)),
+                window("big", Rect::new(0.0, 0.0, 1920.0, 1080.0)),
+            ],
             purpose,
             Mode::Area,
         )
     }
 
-    const NO_MODS: Modifiers = Modifiers { shift: false, ctrl: false, alt: false };
+    const NO_MODS: Modifiers = Modifiers {
+        shift: false,
+        ctrl: false,
+        alt: false,
+    };
 
     #[test]
     fn drag_captures_region_on_release() {
@@ -677,7 +765,10 @@ mod tests {
         m.pressed(Point::new(10.0, 20.0));
         m.pointer_moved(Point::new(110.0, 70.0));
         assert_eq!(m.selection_rect(), Some(Rect::new(10.0, 20.0, 100.0, 50.0)));
-        assert_eq!(m.released(Point::new(110.0, 70.0)), Outcome::Confirm(Selection::Region(Rect::new(10.0, 20.0, 100.0, 50.0))));
+        assert_eq!(
+            m.released(Point::new(110.0, 70.0)),
+            Outcome::Confirm(Selection::Region(Rect::new(10.0, 20.0, 100.0, 50.0)))
+        );
     }
 
     #[test]
@@ -723,7 +814,10 @@ mod tests {
         m.pointer_moved(Point::new(80.0, 60.0));
         m.released(Point::new(80.0, 60.0));
         assert_eq!(m.selection_rect(), Some(Rect::new(0.0, 0.0, 80.0, 60.0)));
-        assert_eq!(m.key_pressed(Key::Enter, NO_MODS), Outcome::Confirm(Selection::Region(Rect::new(0.0, 0.0, 80.0, 60.0))));
+        assert_eq!(
+            m.key_pressed(Key::Enter, NO_MODS),
+            Outcome::Confirm(Selection::Region(Rect::new(0.0, 0.0, 80.0, 60.0)))
+        );
     }
 
     #[test]
@@ -732,7 +826,10 @@ mod tests {
         m.pressed(Point::new(1800.0, 100.0));
         m.pointer_moved(Point::new(2100.0, 200.0));
         m.released(Point::new(2100.0, 200.0));
-        assert_eq!(m.selection_rect(), Some(Rect::new(1800.0, 100.0, 120.0, 100.0)));
+        assert_eq!(
+            m.selection_rect(),
+            Some(Rect::new(1800.0, 100.0, 120.0, 100.0))
+        );
     }
 
     #[test]
@@ -740,16 +837,25 @@ mod tests {
         let mut m = model(Purpose::Screenshot);
         m.pressed(Point::new(1800.0, 100.0));
         m.pointer_moved(Point::new(2100.0, 200.0));
-        assert_eq!(m.selection_rect(), Some(Rect::new(1800.0, 100.0, 300.0, 100.0)));
+        assert_eq!(
+            m.selection_rect(),
+            Some(Rect::new(1800.0, 100.0, 300.0, 100.0))
+        );
     }
 
     #[test]
     fn shift_makes_square() {
         let mut m = model(Purpose::Screenshot);
         m.pressed(Point::new(100.0, 100.0));
-        m.set_modifiers(Modifiers { shift: true, ..NO_MODS });
+        m.set_modifiers(Modifiers {
+            shift: true,
+            ..NO_MODS
+        });
         m.pointer_moved(Point::new(150.0, 120.0));
-        assert_eq!(m.selection_rect(), Some(Rect::new(100.0, 100.0, 50.0, 50.0)));
+        assert_eq!(
+            m.selection_rect(),
+            Some(Rect::new(100.0, 100.0, 50.0, 50.0))
+        );
     }
 
     #[test]
@@ -759,7 +865,10 @@ mod tests {
         m.pointer_moved(Point::new(200.0, 200.0));
         m.key_pressed(Key::Space, NO_MODS);
         m.pointer_moved(Point::new(250.0, 210.0));
-        assert_eq!(m.selection_rect(), Some(Rect::new(150.0, 110.0, 100.0, 100.0)));
+        assert_eq!(
+            m.selection_rect(),
+            Some(Rect::new(150.0, 110.0, 100.0, 100.0))
+        );
     }
 
     #[test]
@@ -806,15 +915,27 @@ mod tests {
         m.pointer_moved(Point::new(150.0, 150.0));
         let highlighted = m.hover_target();
         assert!(matches!(&highlighted, Some(Selection::Window(w)) if w.title == "top"));
-        assert_eq!(m.key_pressed(Key::Enter, NO_MODS), Outcome::Confirm(highlighted.unwrap()));
+        assert_eq!(
+            m.key_pressed(Key::Enter, NO_MODS),
+            Outcome::Confirm(highlighted.unwrap())
+        );
     }
 
     #[test]
     fn handles() {
         let r = Rect::new(100.0, 100.0, 200.0, 100.0);
-        assert_eq!(handle_at(&r, Point::new(101.0, 99.0), HANDLE_REACH), Some(Handle::TopLeft));
-        assert_eq!(handle_at(&r, Point::new(200.0, 199.0), HANDLE_REACH), Some(Handle::Bottom));
-        assert_eq!(handle_at(&r, Point::new(200.0, 150.0), HANDLE_REACH), Some(Handle::Inside));
+        assert_eq!(
+            handle_at(&r, Point::new(101.0, 99.0), HANDLE_REACH),
+            Some(Handle::TopLeft)
+        );
+        assert_eq!(
+            handle_at(&r, Point::new(200.0, 199.0), HANDLE_REACH),
+            Some(Handle::Bottom)
+        );
+        assert_eq!(
+            handle_at(&r, Point::new(200.0, 150.0), HANDLE_REACH),
+            Some(Handle::Inside)
+        );
         assert_eq!(handle_at(&r, Point::new(500.0, 150.0), HANDLE_REACH), None);
     }
 }

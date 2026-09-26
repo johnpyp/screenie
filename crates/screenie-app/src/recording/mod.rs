@@ -16,7 +16,7 @@ use screenie_config::{Config, Subject, expand_template, unique_path};
 use screenie_core::{OutputInfo, Rect};
 use screenie_ipc::{RecordRequest, RecordingStatus, Response, Target};
 use screenie_record::{AudioSources, RecordSpec, Recording};
-use screenie_selector::{Backdrop, Purpose, RecordOptions, SelectorConfig, Selection};
+use screenie_selector::{Backdrop, Purpose, RecordOptions, Selection, SelectorConfig};
 
 use crate::daemon::Daemon;
 use crate::deliver::{self, Actions};
@@ -36,15 +36,26 @@ pub(crate) struct Active {
 
 impl Active {
     pub fn status(&self) -> RecordingStatus {
-        let (elapsed, paused) = self.recording.as_ref().map_or((Duration::ZERO, false), |r| (r.elapsed(), r.is_paused()));
-        RecordingStatus { path: self.path.clone(), elapsed_secs: elapsed.as_secs_f64(), paused }
+        let (elapsed, paused) = self
+            .recording
+            .as_ref()
+            .map_or((Duration::ZERO, false), |r| (r.elapsed(), r.is_paused()));
+        RecordingStatus {
+            path: self.path.clone(),
+            elapsed_secs: elapsed.as_secs_f64(),
+            paused,
+        }
     }
 }
 
 /// `screenie record`: start, or stop the running recording when toggling.
 pub(crate) async fn record(req: RecordRequest, cx: &mut AsyncApp) -> Response {
     if cx.update(|cx| Daemon::get(cx).recording.is_some()) {
-        return if req.toggle { stop(cx).await } else { Response::error("already recording") };
+        return if req.toggle {
+            stop(cx).await
+        } else {
+            Response::error("already recording")
+        };
     }
     let busy = cx.update(|cx| Daemon::update(cx, |d, _| std::mem::replace(&mut d.capturing, true)));
     if busy {
@@ -73,7 +84,12 @@ pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
             })
         })
     };
-    let running = cx.update(|cx| Daemon::get(cx).recording.as_ref().is_some_and(|a| a.recording.is_some()));
+    let running = cx.update(|cx| {
+        Daemon::get(cx)
+            .recording
+            .as_ref()
+            .is_some_and(|a| a.recording.is_some())
+    });
     if running {
         set_saving(true, cx);
     }
@@ -97,7 +113,11 @@ pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
         })
         .await;
     let card = if active.actions.preview {
-        let (frame, size, duration) = (recording.latest_frame(), recording.size(), recording.elapsed());
+        let (frame, size, duration) = (
+            recording.latest_frame(),
+            recording.size(),
+            recording.elapsed(),
+        );
         let item = PreviewItem::recording_saving(frame, size, duration, cx).await;
         let id = item.id();
         let output = active.output.clone();
@@ -112,7 +132,10 @@ pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
         Ok(finished) => {
             let path = finished.path.clone();
             deliver::recording(finished, active.actions, Some(active.output), card, cx).await;
-            Response::Captured { path: Some(path), temporary: false }
+            Response::Captured {
+                path: Some(path),
+                temporary: false,
+            }
         }
         Err(e) => {
             tracing::error!("finishing the recording failed: {e}");
@@ -130,15 +153,23 @@ pub(crate) async fn cancel(cx: &mut AsyncApp) -> Response {
         return Response::error("nothing is being recorded");
     };
     if let Some(recording) = active.recording {
-        cx.background_executor().spawn(async move { recording.cancel() }).await;
+        cx.background_executor()
+            .spawn(async move { recording.cancel() })
+            .await;
     }
     Response::Cancelled
 }
 
 pub(crate) fn toggle_pause(cx: &mut App) -> Response {
     let result = Daemon::update(cx, |d, _| {
-        let recording = d.recording.as_ref().and_then(|a| a.recording.as_ref()).ok_or("nothing is being recorded")?;
-        recording.set_paused(!recording.is_paused()).map_err(|_| "cannot pause this recording")?;
+        let recording = d
+            .recording
+            .as_ref()
+            .and_then(|a| a.recording.as_ref())
+            .ok_or("nothing is being recorded")?;
+        recording
+            .set_paused(!recording.is_paused())
+            .map_err(|_| "cannot pause this recording")?;
         d.broadcast();
         Ok::<_, &str>(())
     });
@@ -186,11 +217,16 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     let compositor = capture.compositor().clone();
     let outputs = {
         let capture = capture.clone();
-        background.spawn(async move { capture.outputs() }).await.context("listing outputs")?
+        background
+            .spawn(async move { capture.outputs() })
+            .await
+            .context("listing outputs")?
     };
     let focused = {
         let compositor = compositor.clone();
-        background.spawn(async move { compositor.focused_output().ok().flatten() }).await
+        background
+            .spawn(async move { compositor.focused_output().ok().flatten() })
+            .await
     };
     let mut audio = RecordOptions {
         system_audio: req.system_audio.unwrap_or(config.recording.system_audio),
@@ -202,7 +238,9 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         Target::Select { mode } => {
             let windows = {
                 let compositor = compositor.clone();
-                background.spawn(async move { compositor.windows().unwrap_or_default() }).await
+                background
+                    .spawn(async move { compositor.windows().unwrap_or_default() })
+                    .await
             };
             let selector = SelectorConfig {
                 purpose: Purpose::Recording,
@@ -217,7 +255,10 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
                 focused_output: focused,
                 record: audio,
             };
-            let backdrop = Backdrop::Live { outputs: outputs.clone(), windows };
+            let backdrop = Backdrop::Live {
+                outputs: outputs.clone(),
+                windows,
+            };
             let Some(choice) = screenie_selector::select(cx, backdrop, selector).await else {
                 return Ok(None);
             };
@@ -231,25 +272,39 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         Target::Screen { output } => {
             let name = output.clone().or(focused);
             let chosen = match &name {
-                Some(n) => outputs.iter().find(|o| &o.name == n).ok_or_else(|| anyhow!("no output named {n}"))?,
+                Some(n) => outputs
+                    .iter()
+                    .find(|o| &o.name == n)
+                    .ok_or_else(|| anyhow!("no output named {n}"))?,
                 None => outputs.first().ok_or_else(|| anyhow!("no outputs"))?,
             };
             chosen.logical
         }
         Target::ActiveWindow => {
             let compositor = compositor.clone();
-            let windows = background.spawn(async move { compositor.windows() }).await?;
-            let focused = windows.into_iter().find(|w| w.focused).ok_or_else(|| anyhow!("no focused window"))?;
+            let windows = background
+                .spawn(async move { compositor.windows() })
+                .await?;
+            let focused = windows
+                .into_iter()
+                .find(|w| w.focused)
+                .ok_or_else(|| anyhow!("no focused window"))?;
             window.insert(focused).rect
         }
         Target::Region { rect } => *rect,
-        Target::LastRegion => last_region.ok_or_else(|| anyhow!("there is no previous capture region yet"))?,
+        Target::LastRegion => {
+            last_region.ok_or_else(|| anyhow!("there is no previous capture region yet"))?
+        }
         Target::AllScreens => bail!("recordings capture one screen at a time"),
     };
 
     // A recording covers one output: the one showing most of the region.
-    let home = home_output(region, &outputs).ok_or_else(|| anyhow!("the region is off screen"))?.clone();
-    let region = region.intersection(&home.logical).ok_or_else(|| anyhow!("the region is off screen"))?;
+    let home = home_output(region, &outputs)
+        .ok_or_else(|| anyhow!("the region is off screen"))?
+        .clone();
+    let region = region
+        .intersection(&home.logical)
+        .ok_or_else(|| anyhow!("the region is off screen"))?;
     if region.width < 8.0 || region.height < 8.0 {
         bail!("the region is too small to record");
     }
@@ -258,11 +313,17 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     // A window is recorded by itself where the compositor allows: the recording follows
     // it and shows nothing that covers it. Opened now, so a failure shows before the
     // countdown. Elsewhere it's recorded as the part of the screen it covers.
-    let (backend, cursor) = (config.advanced.capture_backend, config.recording.show_cursor);
+    let (backend, cursor) = (
+        config.advanced.capture_backend,
+        config.recording.show_cursor,
+    );
     let window_source = match &window {
         Some(w) if capture.can_stream_window(backend) => {
             let (capture, w) = (capture.clone(), w.clone());
-            match background.spawn(async move { capture.stream_window(&w, cursor) }).await {
+            match background
+                .spawn(async move { capture.stream_window(&w, cursor) })
+                .await
+            {
                 Ok(source) => Some(source),
                 Err(e) => {
                     tracing::warn!("recording the window's part of the screen instead: {e}");
@@ -275,19 +336,35 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
 
     let subject = window
         .as_ref()
-        .map(|w| Subject { app: Some(w.app_id.clone()), title: Some(w.title.clone()) })
+        .map(|w| Subject {
+            app: Some(w.app_id.clone()),
+            title: Some(w.title.clone()),
+        })
         .unwrap_or_default();
-    let path = req.output.clone().unwrap_or_else(|| recording_path(&config, &subject));
+    let path = req
+        .output
+        .clone()
+        .unwrap_or_else(|| recording_path(&config, &subject));
     let actions = Actions::resolve(&config.recording.after_capture, &req.actions, None, false);
     let countdown = config.recording.countdown;
     let cancelled = Arc::new(AtomicBool::new(false));
 
-    let first_phase = if countdown > 0 { Phase::Countdown(countdown) } else { Phase::Recording };
-    let chrome = if window_source.is_some() { Chrome::Window } else { Chrome::Region };
+    let first_phase = if countdown > 0 {
+        Phase::Countdown(countdown)
+    } else {
+        Phase::Recording
+    };
+    let chrome = if window_source.is_some() {
+        Chrome::Window
+    } else {
+        Chrome::Region
+    };
     // A fullscreen app (a window filling the output) keeps its output to itself.
     let covered = {
         let (compositor, home) = (compositor.clone(), home.clone());
-        let windows = background.spawn(async move { compositor.windows().unwrap_or_default() }).await;
+        let windows = background
+            .spawn(async move { compositor.windows().unwrap_or_default() })
+            .await;
         windows.iter().any(|w| controls::fills(w.rect, &home))
     };
     let handles = controls::open(region, chrome, &home, covered, first_phase, cx);
@@ -325,7 +402,10 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         resolution: config.recording.resolution,
         quality: config.recording.quality,
         encoder: config.recording.encoder,
-        audio: AudioSources { system: audio.system_audio, microphone: audio.microphone },
+        audio: AudioSources {
+            system: audio.system_audio,
+            microphone: audio.microphone,
+        },
     };
     let output = home.name.clone();
     let started = background
@@ -350,7 +430,10 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     // Hand the pipeline over, unless the user gave up while it was starting.
     let leftover = cx.update(|cx| {
         Daemon::update(cx, |d, _| match &mut d.recording {
-            Some(active) if Arc::ptr_eq(&active.cancelled, &cancelled) && !cancelled.load(Ordering::Relaxed) => {
+            Some(active)
+                if Arc::ptr_eq(&active.cancelled, &cancelled)
+                    && !cancelled.load(Ordering::Relaxed) =>
+            {
                 active.recording = Some(recording);
                 d.broadcast();
                 None
@@ -362,7 +445,8 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         background.spawn(async move { recording.cancel() }).await;
         return Ok(None);
     }
-    cx.spawn(async move |cx| monitor(cancelled, cx).await).detach();
+    cx.spawn(async move |cx| monitor(cancelled, cx).await)
+        .detach();
     Ok(Some(path))
 }
 
@@ -378,7 +462,10 @@ async fn monitor(cancelled: Arc<AtomicBool>, cx: &mut AsyncApp) {
             Daemon::update(cx, |d, _| {
                 d.broadcast();
                 let recording = d.recording.as_ref().and_then(|a| a.recording.as_ref());
-                (recording.is_some_and(|r| r.ended()), recording.and_then(|r| r.failure()))
+                (
+                    recording.is_some_and(|r| r.ended()),
+                    recording.and_then(|r| r.failure()),
+                )
             })
         });
         if ended && failure.is_none() {

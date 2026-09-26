@@ -7,7 +7,9 @@
 //! ```
 
 use gpui::prelude::*;
-use gpui::{AnyView, App, BoxShadow, Context, FontWeight, SharedString, Window, div, point, px, rgba};
+use gpui::{
+    AnyView, App, BoxShadow, Context, FontWeight, SharedString, Window, div, point, px, rgba,
+};
 
 use crate::hud::{color, keycap};
 use crate::scale::ui;
@@ -28,18 +30,31 @@ struct Row {
 
 impl Tip {
     pub fn new(title: impl Into<SharedString>) -> Self {
-        Self { rows: vec![Row { label: title.into(), keys: Vec::new() }], note: None }
+        Self {
+            rows: vec![Row {
+                label: title.into(),
+                keys: Vec::new(),
+            }],
+            note: None,
+        }
     }
 
     /// A shortcut for the last row, e.g. `"Ctrl+Shift+Z"`. More than one are alternatives.
     pub fn key(mut self, chord: impl Into<SharedString>) -> Self {
-        self.rows.last_mut().expect("a tip has a title").keys.push(chord.into());
+        self.rows
+            .last_mut()
+            .expect("a tip has a title")
+            .keys
+            .push(chord.into());
         self
     }
 
     /// A related action under the title, e.g. "Save as" under "Save". Follow with `key`.
     pub fn also(mut self, label: impl Into<SharedString>) -> Self {
-        self.rows.push(Row { label: label.into(), keys: Vec::new() });
+        self.rows.push(Row {
+            label: label.into(),
+            keys: Vec::new(),
+        });
         self
     }
 
@@ -77,7 +92,12 @@ impl Render for Tip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.rows.iter().enumerate().map(|(i, row)| {
             let keys = row.keys.iter().enumerate().flat_map(|(n, chord)| {
-                let or = (n > 0).then(|| div().text_color(color::text_dim()).child("or").into_any_element());
+                let or = (n > 0).then(|| {
+                    div()
+                        .text_color(color::text_dim())
+                        .child("or")
+                        .into_any_element()
+                });
                 let chord = div()
                     .flex()
                     .flex_row()
@@ -125,7 +145,11 @@ impl Render for Tip {
                 .text_size(ui(12.))
                 .whitespace_nowrap()
                 .children(rows)
-                .children(self.note.clone().map(|note| div().text_color(color::text_dim()).child(note))),
+                .children(
+                    self.note
+                        .clone()
+                        .map(|note| div().text_color(color::text_dim()).child(note)),
+                ),
         )
     }
 }

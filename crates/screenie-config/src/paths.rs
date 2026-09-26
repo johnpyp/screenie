@@ -20,10 +20,17 @@ impl Paths {
         PATHS.get_or_init(|| {
             let base = BaseDirs::new();
             let user = UserDirs::new();
-            let home = base.as_ref().map(|b| b.home_dir().to_path_buf()).unwrap_or_else(|| PathBuf::from("/"));
+            let home = base
+                .as_ref()
+                .map(|b| b.home_dir().to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("/"));
             let uid = rustix_uid();
             Paths {
-                config_dir: base.as_ref().map(|b| b.config_dir().to_path_buf()).unwrap_or_else(|| home.join(".config")).join("screenie"),
+                config_dir: base
+                    .as_ref()
+                    .map(|b| b.config_dir().to_path_buf())
+                    .unwrap_or_else(|| home.join(".config"))
+                    .join("screenie"),
                 state_dir: base
                     .as_ref()
                     .and_then(|b| b.state_dir().map(Path::to_path_buf))
@@ -33,8 +40,12 @@ impl Paths {
                     .map(PathBuf::from)
                     .unwrap_or_else(|| std::env::temp_dir().join(format!("screenie-{uid}")))
                     .join("screenie"),
-                pictures: user.as_ref().and_then(|u| u.picture_dir().map(Path::to_path_buf)),
-                videos: user.as_ref().and_then(|u| u.video_dir().map(Path::to_path_buf)),
+                pictures: user
+                    .as_ref()
+                    .and_then(|u| u.picture_dir().map(Path::to_path_buf)),
+                videos: user
+                    .as_ref()
+                    .and_then(|u| u.video_dir().map(Path::to_path_buf)),
                 home,
             }
         })
@@ -66,7 +77,11 @@ impl Paths {
     pub fn socket(&self) -> PathBuf {
         // Namespaced by display so two sessions for one user get separate daemons.
         let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".into());
-        let display = display.rsplit('/').next().unwrap_or("wayland-0").to_string();
+        let display = display
+            .rsplit('/')
+            .next()
+            .unwrap_or("wayland-0")
+            .to_string();
         self.runtime_dir.join(format!("{display}.sock"))
     }
 
@@ -75,11 +90,15 @@ impl Paths {
     }
 
     pub fn pictures_dir(&self) -> PathBuf {
-        self.pictures.clone().unwrap_or_else(|| self.home.join("Pictures"))
+        self.pictures
+            .clone()
+            .unwrap_or_else(|| self.home.join("Pictures"))
     }
 
     pub fn videos_dir(&self) -> PathBuf {
-        self.videos.clone().unwrap_or_else(|| self.home.join("Videos"))
+        self.videos
+            .clone()
+            .unwrap_or_else(|| self.home.join("Videos"))
     }
 }
 
@@ -93,5 +112,7 @@ pub fn expand_home(path: &Path) -> PathBuf {
 
 fn rustix_uid() -> u32 {
     // Avoid a libc dependency for one call: the runtime dir owner is good enough.
-    std::fs::metadata("/proc/self").map(|m| std::os::unix::fs::MetadataExt::uid(&m)).unwrap_or(0)
+    std::fs::metadata("/proc/self")
+        .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
+        .unwrap_or(0)
 }

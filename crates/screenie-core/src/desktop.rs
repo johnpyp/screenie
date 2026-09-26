@@ -107,7 +107,9 @@ impl Snapshot {
         if let [(o, inter)] = hits.as_slice()
             && inter == &region
         {
-            return o.image.crop(region.to_pixels(o.output.logical.origin(), o.scale()));
+            return o
+                .image
+                .crop(region.to_pixels(o.output.logical.origin(), o.scale()));
         }
 
         let mut canvas = Image::new(target.width, target.height, PixelFormat::Rgba);
@@ -142,7 +144,13 @@ mod tests {
     use super::*;
 
     fn solid(w: u32, h: u32, rgba: [u8; 4]) -> Image {
-        Image::from_raw(w, h, w as usize * 4, PixelFormat::Rgba, rgba.repeat((w * h) as usize))
+        Image::from_raw(
+            w,
+            h,
+            w as usize * 4,
+            PixelFormat::Rgba,
+            rgba.repeat((w * h) as usize),
+        )
     }
 
     fn output(name: &str, logical: Rect, scale: f64, color: [u8; 4]) -> OutputCapture {
@@ -154,7 +162,11 @@ mod tests {
                 scale,
                 transform: Transform::Normal,
             },
-            image: solid((logical.width * scale) as u32, (logical.height * scale) as u32, color),
+            image: solid(
+                (logical.width * scale) as u32,
+                (logical.height * scale) as u32,
+                color,
+            ),
         }
     }
 
@@ -162,7 +174,12 @@ mod tests {
         Snapshot {
             outputs: vec![
                 output("A", Rect::new(0.0, 0.0, 100.0, 50.0), 1.0, [255, 0, 0, 255]),
-                output("B", Rect::new(100.0, 0.0, 100.0, 50.0), 2.0, [0, 0, 255, 255]),
+                output(
+                    "B",
+                    Rect::new(100.0, 0.0, 100.0, 50.0),
+                    2.0,
+                    [0, 0, 255, 255],
+                ),
             ],
             windows: vec![],
             taken_at: SystemTime::UNIX_EPOCH,

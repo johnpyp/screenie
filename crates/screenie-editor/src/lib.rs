@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::{
-    App, AppContext as _, Bounds, Context, Size, WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowHandle,
-    WindowOptions, px, size,
+    App, AppContext as _, Bounds, Context, Size, WindowBackgroundAppearance, WindowBounds,
+    WindowDecorations, WindowHandle, WindowOptions, px, size,
 };
 use screenie_annotate::{Color, Document, Style};
 use screenie_core::{Image, OutputInfo, Rect};
@@ -100,7 +100,8 @@ impl gpui::Global for Overlays {}
 /// Whether an overlay editor is open (or stepped aside for Save As). Overlay mode
 /// allows one at a time.
 pub fn overlay_open(cx: &App) -> bool {
-    cx.try_global::<Overlays>().is_some_and(|o| !o.open.is_empty() || o.parked > 0)
+    cx.try_global::<Overlays>()
+        .is_some_and(|o| !o.open.is_empty() || o.parked > 0)
 }
 
 /// Call `f` whenever an overlay editor opens or closes.
@@ -113,7 +114,10 @@ pub fn observe_overlays<V: 'static>(
 
 /// If an overlay editor is open, show it `message` and return true.
 pub fn overlay_busy(message: &str, cx: &mut App) -> bool {
-    if let Some(handle) = cx.try_global::<Overlays>().and_then(|o| o.open.last().copied()) {
+    if let Some(handle) = cx
+        .try_global::<Overlays>()
+        .and_then(|o| o.open.last().copied())
+    {
         let message = message.to_string();
         let _ = handle.update(cx, |editor, window, cx| {
             editor.show_toast(message, cx);
@@ -131,7 +135,11 @@ pub fn open(
     cx: &mut App,
 ) -> anyhow::Result<WindowHandle<Editor>> {
     screenie_annotate::text::warm_up();
-    let session = Session::new(Document::new(image, options.scale), options.style, options.on_disk);
+    let session = Session::new(
+        Document::new(image, options.scale),
+        options.style,
+        options.on_disk,
+    );
     let setup = Rc::new(Setup {
         title: options.title,
         palette: options.palette,
@@ -156,12 +164,17 @@ pub(crate) fn open_session(
 ) -> anyhow::Result<WindowHandle<Editor>> {
     let name = setup.output.as_ref().map(|o| o.name.as_str());
     let display = name.and_then(|name| screenie_ui_kit::display_for_output(cx, name));
-    let screen = setup.output.as_ref().map(|o| size(px(o.logical.width as f32), px(o.logical.height as f32)));
+    let screen = setup
+        .output
+        .as_ref()
+        .map(|o| size(px(o.logical.width as f32), px(o.logical.height as f32)));
     let build = {
         let setup = setup.clone();
         move |session: Session, path| {
             let setup = setup.clone();
-            move |window: &mut gpui::Window, cx: &mut App| cx.new(|cx| Editor::new(session, path, setup, window, cx))
+            move |window: &mut gpui::Window, cx: &mut App| {
+                cx.new(|cx| Editor::new(session, path, setup, window, cx))
+            }
         }
     };
     let handle = match setup.mode {
@@ -173,11 +186,19 @@ pub(crate) fn open_session(
                 name.unwrap_or_default(),
                 screen.unwrap_or(size(px(1280.), px(800.))),
             );
-            let spec = LayerSpec { output: name.map(String::from), ..spec };
-            match cx.open_window(layer_options(cx, &spec), build(session.clone(), path.clone())) {
+            let spec = LayerSpec {
+                output: name.map(String::from),
+                ..spec
+            };
+            match cx.open_window(
+                layer_options(cx, &spec),
+                build(session.clone(), path.clone()),
+            ) {
                 Ok(handle) => handle,
                 Err(e) => {
-                    tracing::debug!("layer-shell editor failed ({e}); falling back to a fullscreen window");
+                    tracing::debug!(
+                        "layer-shell editor failed ({e}); falling back to a fullscreen window"
+                    );
                     cx.open_window(fallback_options(cx, &spec), build(session, path))?
                 }
             }
@@ -186,8 +207,15 @@ pub(crate) fn open_session(
             let k = screenie_ui_kit::ui_scale(cx);
             let window_size = initial_size(session.doc(), screen, k);
             let options = WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions { title: Some(setup.title.clone().into()), ..Default::default() }),
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(display, window_size, cx))),
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some(setup.title.clone().into()),
+                    ..Default::default()
+                }),
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    display,
+                    window_size,
+                    cx,
+                ))),
                 window_min_size: Some(size(px(780. * k), px(480. * k))),
                 window_decorations: Some(WindowDecorations::Server),
                 window_background: WindowBackgroundAppearance::Opaque,
@@ -207,8 +235,16 @@ pub(crate) fn open_session(
 /// Big enough to show the capture at its on-screen size plus the bars (at interface
 /// scale `k`), within 85% of the display.
 fn initial_size(doc: &Document, display: Option<Size<gpui::Pixels>>, k: f32) -> Size<gpui::Pixels> {
-    let (w, h) = (doc.width() as f32 / doc.scale(), doc.height() as f32 / doc.scale());
-    let (max_w, max_h) = display.map_or((1600.0, 1000.0), |d| (f32::from(d.width) * 0.85, f32::from(d.height) * 0.85));
+    let (w, h) = (
+        doc.width() as f32 / doc.scale(),
+        doc.height() as f32 / doc.scale(),
+    );
+    let (max_w, max_h) = display.map_or((1600.0, 1000.0), |d| {
+        (f32::from(d.width) * 0.85, f32::from(d.height) * 0.85)
+    });
     let (min_w, min_h) = (780.0 * k, 480.0 * k);
-    size(px((w + 56.0 * k).clamp(min_w, max_w.max(min_w))), px((h + 132.0 * k).clamp(min_h, max_h.max(min_h))))
+    size(
+        px((w + 56.0 * k).clamp(min_w, max_w.max(min_w))),
+        px((h + 132.0 * k).clamp(min_h, max_h.max(min_h))),
+    )
 }

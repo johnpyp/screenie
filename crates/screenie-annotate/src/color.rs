@@ -36,7 +36,11 @@ impl Color {
 
     /// Black or white: whichever reads on this colour.
     pub fn contrasting(self) -> Color {
-        if self.is_light() { Color::rgb(0x1c, 0x1c, 0x1e) } else { Color::WHITE }
+        if self.is_light() {
+            Color::rgb(0x1c, 0x1c, 0x1e)
+        } else {
+            Color::WHITE
+        }
     }
 
     pub(crate) fn skia(self) -> tiny_skia::Color {
@@ -68,11 +72,20 @@ impl FromStr for Color {
         let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| err());
         match hex.len() {
             3 => {
-                let digit = |i: usize| u8::from_str_radix(&hex[i..i + 1], 16).map(|d| d * 17).map_err(|_| err());
+                let digit = |i: usize| {
+                    u8::from_str_radix(&hex[i..i + 1], 16)
+                        .map(|d| d * 17)
+                        .map_err(|_| err())
+                };
                 Ok(Color::rgb(digit(0)?, digit(1)?, digit(2)?))
             }
             6 => Ok(Color::rgb(byte(0)?, byte(2)?, byte(4)?)),
-            8 => Ok(Color { r: byte(0)?, g: byte(2)?, b: byte(4)?, a: byte(6)? }),
+            8 => Ok(Color {
+                r: byte(0)?,
+                g: byte(2)?,
+                b: byte(4)?,
+                a: byte(6)?,
+            }),
             _ => Err(err()),
         }
     }
@@ -94,10 +107,19 @@ mod tests {
 
     #[test]
     fn parses_and_prints_hex() {
-        assert_eq!("#ff3b30".parse::<Color>().unwrap(), Color::rgb(0xff, 0x3b, 0x30));
-        assert_eq!("0a84ff".parse::<Color>().unwrap(), Color::rgb(0x0a, 0x84, 0xff));
+        assert_eq!(
+            "#ff3b30".parse::<Color>().unwrap(),
+            Color::rgb(0xff, 0x3b, 0x30)
+        );
+        assert_eq!(
+            "0a84ff".parse::<Color>().unwrap(),
+            Color::rgb(0x0a, 0x84, 0xff)
+        );
         assert_eq!("#fff".parse::<Color>().unwrap(), Color::WHITE);
-        assert_eq!("#00000080".parse::<Color>().unwrap(), Color::BLACK.with_alpha(0x80));
+        assert_eq!(
+            "#00000080".parse::<Color>().unwrap(),
+            Color::BLACK.with_alpha(0x80)
+        );
         assert!("#12345".parse::<Color>().is_err());
         assert!("#ggg".parse::<Color>().is_err());
         assert_eq!(Color::rgb(0xff, 0x3b, 0x30).to_string(), "#ff3b30");
@@ -106,9 +128,18 @@ mod tests {
 
     #[test]
     fn contrast_picks_readable_text() {
-        assert_eq!("#ffcc00".parse::<Color>().unwrap().contrasting(), Color::rgb(0x1c, 0x1c, 0x1e));
-        assert_eq!("#ff3b30".parse::<Color>().unwrap().contrasting(), Color::WHITE);
-        assert_eq!("#0a84ff".parse::<Color>().unwrap().contrasting(), Color::WHITE);
+        assert_eq!(
+            "#ffcc00".parse::<Color>().unwrap().contrasting(),
+            Color::rgb(0x1c, 0x1c, 0x1e)
+        );
+        assert_eq!(
+            "#ff3b30".parse::<Color>().unwrap().contrasting(),
+            Color::WHITE
+        );
+        assert_eq!(
+            "#0a84ff".parse::<Color>().unwrap().contrasting(),
+            Color::WHITE
+        );
         assert_eq!(Color::WHITE.contrasting(), Color::rgb(0x1c, 0x1c, 0x1e));
     }
 }

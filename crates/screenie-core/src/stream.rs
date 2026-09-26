@@ -35,14 +35,19 @@ pub enum Pixels {
 
 impl Frame {
     pub fn cpu(image: Image) -> Self {
-        Self { pixels: Pixels::Cpu(image), presented: None }
+        Self {
+            pixels: Pixels::Cpu(image),
+            presented: None,
+        }
     }
 
     /// The size of what's recorded of it.
     pub fn size(&self) -> (u32, u32) {
         match &self.pixels {
             Pixels::Cpu(image) => (image.width(), image.height()),
-            Pixels::Gpu(buf) => buf.crop.map_or((buf.width, buf.height), |c| (c.width, c.height)),
+            Pixels::Gpu(buf) => buf
+                .crop
+                .map_or((buf.width, buf.height), |c| (c.width, c.height)),
         }
     }
 
@@ -108,8 +113,13 @@ pub struct Pacer {
 impl Pacer {
     /// `None`: every tick is due at once.
     pub fn new(fps: Option<u32>) -> Self {
-        let interval = fps.map_or(Duration::ZERO, |fps| Duration::from_secs_f64(1.0 / fps.max(1) as f64));
-        Self { interval, next: None }
+        let interval = fps.map_or(Duration::ZERO, |fps| {
+            Duration::from_secs_f64(1.0 / fps.max(1) as f64)
+        });
+        Self {
+            interval,
+            next: None,
+        }
     }
 
     /// The time between ticks (zero when unpaced).

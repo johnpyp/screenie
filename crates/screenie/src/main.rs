@@ -16,11 +16,17 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use screenie_core::Rect;
 use screenie_ipc::{
-    ActionOverrides, CaptureKind, Client, RecordRequest, Request, Response, ScreenshotRequest, SelectMode, State, Status, Target,
+    ActionOverrides, CaptureKind, Client, RecordRequest, Request, Response, ScreenshotRequest,
+    SelectMode, State, Status, Target,
 };
 
 /// `0.1.0 (46bce20 2026-09-25 23:20)`
-const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("SCREENIE_COMMIT"), ")");
+const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("SCREENIE_COMMIT"),
+    ")"
+);
 
 #[derive(Parser)]
 #[command(name = "screenie", version = VERSION, about = "Screenshots and screen recordings for Wayland")]
@@ -106,7 +112,15 @@ struct Delivery {
 
 impl Delivery {
     fn overrides(&self) -> ActionOverrides {
-        let flag = |yes: bool, no: bool| if yes { Some(true) } else if no { Some(false) } else { None };
+        let flag = |yes: bool, no: bool| {
+            if yes {
+                Some(true)
+            } else if no {
+                Some(false)
+            } else {
+                None
+            }
+        };
         ActionOverrides {
             copy: flag(self.copy, self.no_copy),
             save: flag(self.save, self.no_save),
@@ -200,19 +214,32 @@ fn main() -> ExitCode {
     if let Command::Daemon = command {
         let commit = env!("SCREENIE_COMMIT");
         let describe = |s: &screenie_ipc::Status| {
-            let build = if s.commit.is_empty() { "an older build".to_string() } else { s.commit.clone() };
+            let build = if s.commit.is_empty() {
+                "an older build".to_string()
+            } else {
+                s.commit.clone()
+            };
             format!("{build}, pid {}", s.pid)
         };
         match Client::take_over() {
             Ok(screenie_ipc::Takeover::NotRunning) => {}
             Ok(screenie_ipc::Takeover::Replaced(old)) if old.commit == commit => {
-                eprintln!("screenie: replaced the running daemon (pid {}), a different binary of this commit", old.pid);
+                eprintln!(
+                    "screenie: replaced the running daemon (pid {}), a different binary of this commit",
+                    old.pid
+                );
             }
             Ok(screenie_ipc::Takeover::Replaced(old)) => {
-                eprintln!("screenie: upgraded the running daemon ({}) to this build ({commit})", describe(&old));
+                eprintln!(
+                    "screenie: upgraded the running daemon ({}) to this build ({commit})",
+                    describe(&old)
+                );
             }
             Ok(screenie_ipc::Takeover::Current(s)) => {
-                eprintln!("screenie: the daemon is already running this build ({})", describe(&s));
+                eprintln!(
+                    "screenie: the daemon is already running this build ({})",
+                    describe(&s)
+                );
                 return ExitCode::SUCCESS;
             }
             Ok(screenie_ipc::Takeover::Busy(s)) => {
@@ -251,8 +278,12 @@ fn main() -> ExitCode {
 
 fn init_logging(daemon: bool) {
     let default = if daemon { "info" } else { "warn" };
-    let filter = tracing_subscriber::EnvFilter::try_from_env("SCREENIE_LOG").unwrap_or_else(|_| default.into());
-    tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
+    let filter = tracing_subscriber::EnvFilter::try_from_env("SCREENIE_LOG")
+        .unwrap_or_else(|_| default.into());
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .init();
 }
 
 fn request(req: &Request) -> anyhow::Result<Response> {
@@ -265,8 +296,12 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
         Command::Record(args) => {
             let target = match (args.region, args.target) {
                 (Some(rect), _) => Target::Region { rect },
-                (None, RecordTarget::Area) => Target::Select { mode: SelectMode::Area },
-                (None, RecordTarget::Window) => Target::Select { mode: SelectMode::Window },
+                (None, RecordTarget::Area) => Target::Select {
+                    mode: SelectMode::Area,
+                },
+                (None, RecordTarget::Window) => Target::Select {
+                    mode: SelectMode::Window,
+                },
                 (None, RecordTarget::Screen) => Target::Screen { output: None },
                 (None, RecordTarget::Last) => Target::LastRegion,
             };
@@ -283,8 +318,12 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
         Command::Pause => request(&Request::RecordPause)?,
         Command::Cancel => request(&Request::RecordCancel)?,
         Command::Settings => request(&Request::Settings)?,
-        Command::Edit { file } => request(&Request::Edit { path: std::fs::canonicalize(file)? })?,
-        Command::Pin { file } => request(&Request::Pin { path: std::fs::canonicalize(file)? })?,
+        Command::Edit { file } => request(&Request::Edit {
+            path: std::fs::canonicalize(file)?,
+        })?,
+        Command::Pin { file } => request(&Request::Pin {
+            path: std::fs::canonicalize(file)?,
+        })?,
         Command::Query(Query::Last { kind, json, watch }) => {
             let kind = kind.map(|k| match k {
                 LastKind::Screenshot => CaptureKind::Screenshot,
@@ -294,7 +333,11 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
                 (Some(c), true) => serde_json::to_string(c).unwrap_or_default(),
                 (None, true) => "null".into(),
                 (Some(c), false) => {
-                    let path = c.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+                    let path = c
+                        .path
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default();
                     format!("{}\t{}\t{path}", c.kind.as_str(), c.time)
                 }
                 (None, false) => String::new(),
@@ -313,7 +356,14 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
         Command::Query(Query::Status(args)) | Command::Status(args) => {
-            return status(if args.json { StatusFormat::Json } else { args.format }, args.watch);
+            return status(
+                if args.json {
+                    StatusFormat::Json
+                } else {
+                    args.format
+                },
+                args.watch,
+            );
         }
         Command::Quit => match Client::connect() {
             Ok(client) => client.request(&Request::Quit)?,
@@ -329,9 +379,15 @@ fn shot(args: ShotArgs) -> anyhow::Result<ExitCode> {
         (Some(rect), _) => Target::Region { rect },
         (None, Some(name)) => Target::Screen { output: Some(name) },
         (None, None) => match args.target {
-            ShotTarget::Area => Target::Select { mode: SelectMode::Area },
-            ShotTarget::Window => Target::Select { mode: SelectMode::Window },
-            ShotTarget::PickScreen => Target::Select { mode: SelectMode::Screen },
+            ShotTarget::Area => Target::Select {
+                mode: SelectMode::Area,
+            },
+            ShotTarget::Window => Target::Select {
+                mode: SelectMode::Window,
+            },
+            ShotTarget::PickScreen => Target::Select {
+                mode: SelectMode::Screen,
+            },
             ShotTarget::Screen => Target::Screen { output: None },
             ShotTarget::All => Target::AllScreens,
             ShotTarget::Active => Target::ActiveWindow,
@@ -350,7 +406,13 @@ fn shot(args: ShotArgs) -> anyhow::Result<ExitCode> {
 }
 
 fn absolute(path: PathBuf) -> PathBuf {
-    if path.is_absolute() { path } else { std::env::current_dir().map(|d| d.join(&path)).unwrap_or(path) }
+    if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()
+            .map(|d| d.join(&path))
+            .unwrap_or(path)
+    }
 }
 
 /// Print a response the way scripts want it: paths on stdout, errors on stderr, and an
@@ -494,12 +556,24 @@ fn follow(render: impl Fn(&Status) -> String) -> anyhow::Result<ExitCode> {
 
 fn format_status(s: &Status, format: StatusFormat) -> String {
     let timing = matches!(s.state, State::Recording | State::Paused);
-    let elapsed = s.recording.as_ref().filter(|_| timing).map(|r| format_elapsed(r.elapsed_secs));
+    let elapsed = s
+        .recording
+        .as_ref()
+        .filter(|_| timing)
+        .map(|r| format_elapsed(r.elapsed_secs));
     match format {
         StatusFormat::Json => serde_json::to_string(s).unwrap_or_default(),
         StatusFormat::Text => {
-            let path = s.recording.as_ref().map(|r| r.path.display().to_string()).unwrap_or_default();
-            format!("{}\t{}\t{path}", s.state.as_str(), elapsed.as_deref().unwrap_or(""))
+            let path = s
+                .recording
+                .as_ref()
+                .map(|r| r.path.display().to_string())
+                .unwrap_or_default();
+            format!(
+                "{}\t{}\t{path}",
+                s.state.as_str(),
+                elapsed.as_deref().unwrap_or("")
+            )
         }
         StatusFormat::Waybar => {
             let text = match (s.state, &elapsed) {
@@ -521,5 +595,9 @@ fn format_status(s: &Status, format: StatusFormat) -> String {
 
 fn format_elapsed(secs: f64) -> String {
     let s = secs.max(0.0) as u64;
-    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
+    }
 }

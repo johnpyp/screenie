@@ -34,8 +34,8 @@
 use gpui::layer_shell::KeyboardInteractivity;
 use gpui::prelude::*;
 use gpui::{
-    AnyWindowHandle, App, Bounds, Context, DispatchPhase, Entity, FocusHandle, MouseExitEvent, MouseMoveEvent,
-    Pixels, Point, Window, canvas,
+    AnyWindowHandle, App, Bounds, Context, DispatchPhase, Entity, FocusHandle, MouseExitEvent,
+    MouseMoveEvent, Pixels, Point, Window, canvas,
 };
 
 use crate::keys::{RELEASE_TIMEOUT, Release, Then, run};
@@ -107,15 +107,22 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
     /// the keyboard while the pointer is on it. Fills the parent, which must be `relative`.
     pub fn area(this: &Entity<Self>, key: K) -> impl IntoElement {
         let this = this.clone();
-        canvas(move |bounds, _, cx| this.update(cx, |h, _| h.painting.push((key, bounds))), |_, _, _, _| {})
-            .absolute()
-            .inset_0()
+        canvas(
+            move |bounds, _, cx| this.update(cx, |h, _| h.painting.push((key, bounds))),
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
     }
 
     /// Finish the surface's root element, once its children are in: it holds the focus,
     /// tracks the keys held on the surface and the pointer over its areas, and limits
     /// input to those areas.
-    pub fn root<E: InteractiveElement + ParentElement>(this: &Entity<Self>, root: E, cx: &App) -> E {
+    pub fn root<E: InteractiveElement + ParentElement>(
+        this: &Entity<Self>,
+        root: E,
+        cx: &App,
+    ) -> E {
         let (down, up, mods) = (this.clone(), this.clone(), this.clone());
         let root = root
             .track_focus(&this.read(cx).focus)
@@ -147,9 +154,12 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
         // Painted after every area has been prepainted.
         let this = this.clone();
         root.child(
-            canvas(|_, _, _| {}, move |_, _, window, cx| this.update(cx, |h, cx| h.painted(window, cx)))
-                .absolute()
-                .size_0(),
+            canvas(
+                |_, _, _| {},
+                move |_, _, window, cx| this.update(cx, |h, cx| h.painted(window, cx)),
+            )
+            .absolute()
+            .size_0(),
         )
     }
 
@@ -217,7 +227,10 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
 
     fn area_at(&self, pointer: Option<Point<Pixels>>) -> Option<K> {
         let p = pointer?;
-        self.areas.iter().find(|(_, b)| b.contains(&p)).map(|(key, _)| key.clone())
+        self.areas
+            .iter()
+            .find(|(_, b)| b.contains(&p))
+            .map(|(key, _)| key.clone())
     }
 
     fn pointer_at(&mut self, pointer: Option<Point<Pixels>>, cx: &mut Context<Self>) {
@@ -258,11 +271,17 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
         }
         self.taken = take;
         tracing::debug!(taken = take, "hover keyboard");
-        let interactivity = if take { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
+        let interactivity = if take {
+            KeyboardInteractivity::Exclusive
+        } else {
+            KeyboardInteractivity::None
+        };
         // Not from inside the window's own event dispatch.
         let window = self.window;
         cx.defer(move |cx| {
-            let _ = window.update(cx, |_, window, _| window.set_keyboard_interactivity(interactivity));
+            let _ = window.update(cx, |_, window, _| {
+                window.set_keyboard_interactivity(interactivity)
+            });
         });
     }
 }

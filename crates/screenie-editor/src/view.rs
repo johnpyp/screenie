@@ -9,14 +9,15 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, BorderStyle, Bounds, BoxShadow, Context, CursorStyle, DispatchPhase, Entity, FocusHandle, FontWeight,
-    Hitbox, HitboxBehavior, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    ScrollDelta, ScrollWheelEvent, SharedString, Size, Window, canvas, div, fill, point, px, quad, rgba, size,
+    AnyElement, App, BorderStyle, Bounds, BoxShadow, Context, CursorStyle, DispatchPhase, Entity,
+    FocusHandle, FontWeight, Hitbox, HitboxBehavior, Hsla, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollDelta, ScrollWheelEvent,
+    SharedString, Size, Window, canvas, div, fill, point, px, quad, rgba, size,
 };
 use screenie_annotate::{Color, Handle, Kind, Redaction, Shape, Style};
 use screenie_core::{Image, Point, Rect};
-use screenie_ui_kit::{Icon, KeyboardGrab, Tip, ui};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
+use screenie_ui_kit::{Icon, KeyboardGrab, Tip, ui};
 
 use crate::raster::Raster;
 use crate::session::{Cursor, Key, Modifiers, Outcome, Reach, Session};
@@ -32,9 +33,15 @@ pub enum Output {
     /// Finished: apply the after-capture actions, then the window closes. `copied` and
     /// `saved` say the image is already on the clipboard / saved exactly like this, so
     /// there's no need to do it again.
-    Done { image: Image, copied: bool, saved: bool },
+    Done {
+        image: Image,
+        copied: bool,
+        saved: bool,
+    },
     /// The window closed; the last style, to start the next editor with.
-    Closed { style: Style },
+    Closed {
+        style: Style,
+    },
 }
 
 /// Handles an [`Output`]; a returned message is shown briefly in the editor.
@@ -78,20 +85,35 @@ struct Viewport {
 
 impl Viewport {
     fn to_image(self, p: gpui::Point<Pixels>) -> Point {
-        Point::new(f64::from((p.x - self.origin.x) / self.zoom), f64::from((p.y - self.origin.y) / self.zoom))
+        Point::new(
+            f64::from((p.x - self.origin.x) / self.zoom),
+            f64::from((p.y - self.origin.y) / self.zoom),
+        )
     }
 
     fn to_window(self, p: Point) -> gpui::Point<Pixels> {
-        point(self.origin.x + px(p.x as f32 * self.zoom), self.origin.y + px(p.y as f32 * self.zoom))
+        point(
+            self.origin.x + px(p.x as f32 * self.zoom),
+            self.origin.y + px(p.y as f32 * self.zoom),
+        )
     }
 
     fn rect(self, r: Rect) -> Bounds<Pixels> {
-        Bounds::new(self.to_window(r.origin()), size(px(r.width as f32 * self.zoom), px(r.height as f32 * self.zoom)))
+        Bounds::new(
+            self.to_window(r.origin()),
+            size(
+                px(r.width as f32 * self.zoom),
+                px(r.height as f32 * self.zoom),
+            ),
+        )
     }
 
     fn reach(self) -> Reach {
         let per_px = f64::from(self.ui) / self.zoom as f64;
-        Reach { tolerance: (6.0 * per_px).max(3.0), handle: 10.0 * per_px }
+        Reach {
+            tolerance: (6.0 * per_px).max(3.0),
+            handle: 10.0 * per_px,
+        }
     }
 }
 
@@ -138,12 +160,19 @@ impl Editor {
         let grab = KeyboardGrab::new(cx);
         cx.observe(&grab, |_, _, cx| cx.notify()).detach();
         let this = cx.entity().downgrade();
-        window.on_window_should_close(cx, move |_, cx| this.update(cx, |e, cx| e.should_close(cx)).unwrap_or(true));
+        window.on_window_should_close(cx, move |_, cx| {
+            this.update(cx, |e, cx| e.should_close(cx)).unwrap_or(true)
+        });
         if setup.mode == Mode::Overlay
             && let Some(handle) = window.window_handle().downcast::<Editor>()
         {
             cx.default_global::<Overlays>().open.push(handle);
-            cx.on_release(move |_, cx| cx.default_global::<Overlays>().open.retain(|h| *h != handle)).detach();
+            cx.on_release(move |_, cx| {
+                cx.default_global::<Overlays>()
+                    .open
+                    .retain(|h| *h != handle)
+            })
+            .detach();
         }
         Self {
             session,
@@ -188,7 +217,9 @@ impl Editor {
         self.toast = Some((message.into(), generation));
         cx.notify();
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(1800)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(1800))
+                .await;
             let _ = this.update(cx, |e, cx| {
                 if e.toast.as_ref().is_some_and(|(_, g)| *g == generation) {
                     e.toast = None;
@@ -226,15 +257,25 @@ impl Editor {
     }
 
     fn save_as(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let dir = self.path.as_ref().and_then(|p| p.parent()).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        let name = self.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
+        let dir = self
+            .path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let name = self
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned());
         // Like copying and saving, Save As settles the editor (see `Session::export`).
         self.session.settle();
         let chosen = cx.prompt_for_new_path(&dir, name.as_deref());
         if self.overlay() {
             // The dialog would open underneath the overlay, so step aside until it's
             // answered, then come back just as things were.
-            let (session, path, setup) = (self.session.clone(), self.path.clone(), self.setup.clone());
+            let (session, path, setup) =
+                (self.session.clone(), self.path.clone(), self.setup.clone());
             self.closed = true;
             self.remove(window, cx);
             cx.default_global::<Overlays>().parked += 1;
@@ -242,23 +283,33 @@ impl Editor {
             app.spawn(async move |cx| {
                 let chosen = chosen.await.ok().and_then(Result::ok).flatten();
                 cx.update(|cx| cx.default_global::<Overlays>().parked -= 1);
-                cx.update(|cx| match crate::open_session(session, path, setup.clone(), cx) {
-                    Ok(handle) => {
-                        if let Some(chosen) = chosen {
-                            let _ = handle.update(cx, |e, window, cx| e.save_to(chosen, window, cx));
+                cx.update(
+                    |cx| match crate::open_session(session, path, setup.clone(), cx) {
+                        Ok(handle) => {
+                            if let Some(chosen) = chosen {
+                                let _ = handle
+                                    .update(cx, |e, window, cx| e.save_to(chosen, window, cx));
+                            }
                         }
-                    }
-                    Err(e) => {
-                        tracing::error!("cannot reopen the editor: {e:#}");
-                        let _ = (setup.on_output)(Output::Closed { style: Style::default() }, cx);
-                    }
-                });
+                        Err(e) => {
+                            tracing::error!("cannot reopen the editor: {e:#}");
+                            let _ = (setup.on_output)(
+                                Output::Closed {
+                                    style: Style::default(),
+                                },
+                                cx,
+                            );
+                        }
+                    },
+                );
             })
             .detach();
             return;
         }
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(path))) = chosen.await else { return };
+            let Ok(Ok(Some(path))) = chosen.await else {
+                return;
+            };
             let _ = this.update_in(cx, |e, window, cx| e.save_to(path, window, cx));
         })
         .detach();
@@ -281,7 +332,14 @@ impl Editor {
         }
         let image = self.session.export();
         let (copied, saved) = (self.session.is_copied(), self.session.is_saved());
-        if self.emit(Output::Done { image, copied, saved }, cx) {
+        if self.emit(
+            Output::Done {
+                image,
+                copied,
+                saved,
+            },
+            cx,
+        ) {
             self.close(window, cx);
         }
     }
@@ -291,7 +349,10 @@ impl Editor {
     fn done_does(&self) -> (bool, bool) {
         let on_done = self.setup.on_done;
         let has_file = on_done.save || self.path.is_some() || self.session.has_file();
-        (has_file && !self.session.is_saved(), on_done.copy && !self.session.is_copied())
+        (
+            has_file && !self.session.is_saved(),
+            on_done.copy && !self.session.is_copied(),
+        )
     }
 
     /// What Done will do, as a sentence and as a button label.
@@ -330,7 +391,14 @@ impl Editor {
     fn remove(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let handle = window.window_handle();
         self.grab.update(cx, |grab, cx| {
-            grab.when_released(move |cx| handle.update(cx, |_, window, _| window.remove_window()).unwrap_or(()), cx);
+            grab.when_released(
+                move |cx| {
+                    handle
+                        .update(cx, |_, window, _| window.remove_window())
+                        .unwrap_or(())
+                },
+                cx,
+            );
         });
     }
 
@@ -395,7 +463,11 @@ impl Editor {
             return;
         }
 
-        let mods = Modifiers { shift: m.shift, ctrl: m.control, alt: m.alt };
+        let mods = Modifiers {
+            shift: m.shift,
+            ctrl: m.control,
+            alt: m.alt,
+        };
         let mapped = match key {
             "escape" => Some(Key::Escape),
             "enter" => Some(Key::Enter),
@@ -426,23 +498,44 @@ impl Editor {
         // As an overlay, the capture stays exactly where it was taken (cropping included).
         if let Some(place) = self.placement(bounds.size) {
             let zoom = place.width as f32 / doc.width() as f32;
-            return Viewport { origin: bounds.origin + point(px(place.x as f32), px(place.y as f32)), zoom, ui: self.k };
+            return Viewport {
+                origin: bounds.origin + point(px(place.x as f32), px(place.y as f32)),
+                zoom,
+                ui: self.k,
+            };
         }
         // In crop mode the whole image shows, so the crop can grow again.
-        let shown = if self.session.crop_edit().is_some() { doc.bounds() } else { doc.visible() };
+        let shown = if self.session.crop_edit().is_some() {
+            doc.bounds()
+        } else {
+            doc.visible()
+        };
         if self.overlay() {
             return self.centred(bounds, shown);
         }
         let (inset_top, inset_bottom, inset_side) = WINDOW_INSETS;
-        let (inset_top, inset_bottom, inset_side) = (inset_top * self.k, inset_bottom * self.k, inset_side * self.k);
+        let (inset_top, inset_bottom, inset_side) = (
+            inset_top * self.k,
+            inset_bottom * self.k,
+            inset_side * self.k,
+        );
         let avail_w = (f32::from(bounds.size.width) - inset_side * 2.0).max(40.0);
         let avail_h = (f32::from(bounds.size.height) - inset_top - inset_bottom).max(40.0);
         // Never beyond the capture's own size on screen (logical 1:1), so it stays sharp.
-        let zoom = (avail_w / shown.width as f32).min(avail_h / shown.height as f32).min(1.0 / doc.scale());
+        let zoom = (avail_w / shown.width as f32)
+            .min(avail_h / shown.height as f32)
+            .min(1.0 / doc.scale());
         let (w, h) = (shown.width as f32 * zoom, shown.height as f32 * zoom);
         let left = f32::from(bounds.origin.x) + inset_side + (avail_w - w) / 2.0;
         let top = f32::from(bounds.origin.y) + inset_top + (avail_h - h) / 2.0;
-        Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom, ui: self.k }
+        Viewport {
+            origin: point(
+                px(left - shown.x as f32 * zoom),
+                px(top - shown.y as f32 * zoom),
+            ),
+            zoom,
+            ui: self.k,
+        }
     }
 
     /// An overlay's capture, when it isn't in place: logical 1:1, or shrunk if it nearly
@@ -450,7 +543,10 @@ impl Editor {
     fn centred(&self, bounds: Bounds<Pixels>, shown: Rect) -> Viewport {
         let doc = self.session.doc();
         let (screen_w, screen_h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-        let (w, h) = (shown.width as f32 / doc.scale(), shown.height as f32 / doc.scale());
+        let (w, h) = (
+            shown.width as f32 / doc.scale(),
+            shown.height as f32 / doc.scale(),
+        );
         let fit = if w > screen_w * CENTRED_LIMIT || h > screen_h * CENTRED_LIMIT {
             (screen_w * CENTRED_FIT / w).min(screen_h * CENTRED_FIT / h)
         } else {
@@ -459,10 +555,21 @@ impl Editor {
         let zoom = fit / doc.scale();
         let (w, h) = (w * fit, h * fit);
         let bars = (BARS_HEIGHT + BAR_GAP) * self.k;
-        let top = if h + bars + SCREEN_MARGIN * self.k * 2.0 <= screen_h { (screen_h - h - bars) / 2.0 } else { (screen_h - h) / 2.0 };
+        let top = if h + bars + SCREEN_MARGIN * self.k * 2.0 <= screen_h {
+            (screen_h - h - bars) / 2.0
+        } else {
+            (screen_h - h) / 2.0
+        };
         let left = f32::from(bounds.origin.x) + (screen_w - w) / 2.0;
         let top = f32::from(bounds.origin.y) + top;
-        Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom, ui: self.k }
+        Viewport {
+            origin: point(
+                px(left - shown.x as f32 * zoom),
+                px(top - shown.y as f32 * zoom),
+            ),
+            zoom,
+            ui: self.k,
+        }
     }
 
     /// Where the overlay shows the capture in place: the spot it was taken from, if that
@@ -477,10 +584,20 @@ impl Editor {
     fn shown(&self, bounds: Bounds<Pixels>) -> Bounds<Pixels> {
         let doc = self.session.doc();
         let vp = self.viewport(bounds);
-        vp.rect(if self.session.crop_edit().is_some() { doc.bounds() } else { doc.visible() })
+        vp.rect(if self.session.crop_edit().is_some() {
+            doc.bounds()
+        } else {
+            doc.visible()
+        })
     }
 
-    fn paint_canvas(&mut self, bounds: Bounds<Pixels>, hitbox: &Hitbox, window: &mut Window, cx: &mut Context<Self>) {
+    fn paint_canvas(
+        &mut self,
+        bounds: Bounds<Pixels>,
+        hitbox: &Hitbox,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         for stale in self.raster.take_stale() {
             let _ = window.drop_image(stale);
         }
@@ -488,43 +605,84 @@ impl Editor {
         let doc = self.session.doc();
         let crop_edit = self.session.crop_edit();
         let full = vp.rect(doc.bounds());
-        let shown = if crop_edit.is_some() { full } else { vp.rect(doc.visible()) };
+        let shown = if crop_edit.is_some() {
+            full
+        } else {
+            vp.rect(doc.visible())
+        };
 
         // Centred over the dimmed screen, the capture (often of that very screen) needs a
         // clear edge: a deeper shadow lifts it, and a dark outer and light inner hairline
         // keep the edge visible whatever the capture's colours.
         let floating = self.overlay() && self.placement(bounds.size).is_none();
         if floating {
-            window.paint_drop_shadows(shown, px(0.).into(), &[
-                shadow(0x000000a6, 18.0, 56.0),
-                shadow(0x00000080, 2.0, 8.0),
-            ]);
+            window.paint_drop_shadows(
+                shown,
+                px(0.).into(),
+                &[shadow(0x000000a6, 18.0, 56.0), shadow(0x00000080, 2.0, 8.0)],
+            );
         } else {
-            window.paint_drop_shadows(shown, px(2.).into(), &[
-                shadow(0x00000080, 10.0, 36.0),
-                shadow(0x00000066, 1.0, 3.0),
-            ]);
+            window.paint_drop_shadows(
+                shown,
+                px(2.).into(),
+                &[shadow(0x00000080, 10.0, 36.0), shadow(0x00000066, 1.0, 3.0)],
+            );
         }
         let (composite, tile) = self.raster.update(&self.session);
         let tile = tile.map(|t| (t.image.clone(), t.rect));
         let _ = window.paint_image(shown, full, px(0.).into(), composite, 0, false);
         if let Some((image, rect)) = tile {
             let tile_bounds = vp.rect(rect);
-            let _ = window.paint_image(shown.intersect(&tile_bounds), tile_bounds, px(0.).into(), image, 0, false);
+            let _ = window.paint_image(
+                shown.intersect(&tile_bounds),
+                tile_bounds,
+                px(0.).into(),
+                image,
+                0,
+                false,
+            );
         }
         if floating {
-            let outer = Bounds::new(shown.origin - point(px(1.), px(1.)), shown.size + size(px(2.), px(2.)));
-            window.paint_quad(quad(outer, px(0.), gpui::transparent_black(), px(1.), rgba(0x000000b3), BorderStyle::Solid));
-            window.paint_quad(quad(shown, px(0.), gpui::transparent_black(), px(1.), rgba(0xffffff4d), BorderStyle::Solid));
+            let outer = Bounds::new(
+                shown.origin - point(px(1.), px(1.)),
+                shown.size + size(px(2.), px(2.)),
+            );
+            window.paint_quad(quad(
+                outer,
+                px(0.),
+                gpui::transparent_black(),
+                px(1.),
+                rgba(0x000000b3),
+                BorderStyle::Solid,
+            ));
+            window.paint_quad(quad(
+                shown,
+                px(0.),
+                gpui::transparent_black(),
+                px(1.),
+                rgba(0xffffff4d),
+                BorderStyle::Solid,
+            ));
         } else {
-            window.paint_quad(quad(shown, px(2.), gpui::transparent_black(), px(1.), rgba(0xffffff14), BorderStyle::Solid));
+            window.paint_quad(quad(
+                shown,
+                px(2.),
+                gpui::transparent_black(),
+                px(1.),
+                rgba(0xffffff14),
+                BorderStyle::Solid,
+            ));
         }
 
         let doc = self.session.doc();
         if let Some(crop) = crop_edit {
             paint_crop(&vp, doc.bounds(), crop, window);
         } else {
-            if let Some(shape) = self.session.selected().filter(|_| !self.session.is_drawing()) {
+            if let Some(shape) = self
+                .session
+                .selected()
+                .filter(|_| !self.session.is_drawing())
+            {
                 paint_selection(&vp, shape, doc.scale(), window);
             }
             if let Some(edit) = self.session.text_edit()
@@ -535,13 +693,18 @@ impl Editor {
         }
 
         let reach = vp.reach();
-        let cursor = self.pointer.map_or(Cursor::Crosshair, |p| self.session.hover(p, reach));
+        let cursor = self
+            .pointer
+            .map_or(Cursor::Crosshair, |p| self.session.hover(p, reach));
         window.set_cursor_style(cursor_style(cursor), hitbox);
 
         let this = cx.entity();
         let hb = hitbox.clone();
         window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
-            if phase != DispatchPhase::Bubble || e.button != MouseButton::Left || !hb.is_hovered(window) {
+            if phase != DispatchPhase::Bubble
+                || e.button != MouseButton::Left
+                || !hb.is_hovered(window)
+            {
                 return;
             }
             let p = vp.to_image(e.position);
@@ -558,7 +721,11 @@ impl Editor {
                 return;
             }
             let p = vp.to_image(e.position);
-            let mods = Modifiers { shift: e.modifiers.shift, ctrl: e.modifiers.control, alt: e.modifiers.alt };
+            let mods = Modifiers {
+                shift: e.modifiers.shift,
+                ctrl: e.modifiers.control,
+                alt: e.modifiers.alt,
+            };
             this.update(cx, |editor, cx| {
                 editor.pointer = Some(p);
                 if e.pressed_button == Some(MouseButton::Left) {
@@ -582,7 +749,12 @@ impl Editor {
 
     // Bars.
 
-    fn button_for(&self, id: &'static str, cx: &mut Context<Self>, f: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static) -> HudButton {
+    fn button_for(
+        &self,
+        id: &'static str,
+        cx: &mut Context<Self>,
+        f: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> HudButton {
         let this = cx.entity();
         let f = Rc::new(f);
         HudButton::new(id).on_click(move |_, window, cx| {
@@ -639,11 +811,20 @@ impl Editor {
 
     fn action_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         hud::panel()
-            .child(self.button_for("copy", cx, |e, window, cx| e.copy(window, cx)).icon(Icon::Copy).tooltip(Tip::new("Copy").key("Ctrl+C")))
+            .child(
+                self.button_for("copy", cx, |e, window, cx| e.copy(window, cx))
+                    .icon(Icon::Copy)
+                    .tooltip(Tip::new("Copy").key("Ctrl+C")),
+            )
             .child(
                 self.button_for("save", cx, |e, window, cx| e.save(window, cx))
                     .icon(Icon::Download)
-                    .tooltip(Tip::new("Save").key("Ctrl+S").also("Save as…").key("Ctrl+Shift+S")),
+                    .tooltip(
+                        Tip::new("Save")
+                            .key("Ctrl+S")
+                            .also("Save as…")
+                            .key("Ctrl+Shift+S"),
+                    ),
             )
             .child(
                 div().ml_1().child(
@@ -658,8 +839,11 @@ impl Editor {
 
     /// The tool whose options apply: the selection's, or the current one.
     fn styled_tool(&self) -> Tool {
-        match self.session.selected().or_else(|| self.session.text_edit().and_then(|t| self.session.doc().shape(t.id)))
-        {
+        match self.session.selected().or_else(|| {
+            self.session
+                .text_edit()
+                .and_then(|t| self.session.doc().shape(t.id))
+        }) {
             Some(shape) => tool_for(&shape.kind),
             None => self.session.tool(),
         }
@@ -699,32 +883,47 @@ impl Editor {
         if tool.uses_color() {
             for (i, c) in self.setup.palette.iter().copied().enumerate() {
                 let this = cx.entity();
-                bar = bar.child(swatch(("swatch", i), c, c == style.color).on_click(move |_, _, cx| {
-                    this.update(cx, |e, cx| {
-                        e.session.set_color(c);
-                        cx.notify();
-                    })
-                }));
+                bar = bar.child(swatch(("swatch", i), c, c == style.color).on_click(
+                    move |_, _, cx| {
+                        this.update(cx, |e, cx| {
+                            e.session.set_color(c);
+                            cx.notify();
+                        })
+                    },
+                ));
             }
         }
         if tool == Tool::Redact {
             let mode = self.session.redaction();
             for (m, label) in [(Redaction::Pixelate, "Pixelate"), (Redaction::Blur, "Blur")] {
                 bar = bar.child(
-                    self.button_for(if m == Redaction::Blur { "blur" } else { "pixelate" }, cx, move |e, _, _| {
-                        e.session.set_redaction(m)
-                    })
+                    self.button_for(
+                        if m == Redaction::Blur {
+                            "blur"
+                        } else {
+                            "pixelate"
+                        },
+                        cx,
+                        move |e, _, _| e.session.set_redaction(m),
+                    )
                     .label(label)
                     .selected(mode == m),
                 );
             }
         }
         if tool.uses_size() {
-            bar = bar.child(hud::separator()).child(self.size_stepper(style.size, cx));
+            bar = bar
+                .child(hud::separator())
+                .child(self.size_stepper(style.size, cx));
         }
         if tool.uses_fill() {
             let fill = style.fill;
-            let tip = Tip::new(if tool == Tool::Text { "Label background" } else { "Fill" }).key("F");
+            let tip = Tip::new(if tool == Tool::Text {
+                "Label background"
+            } else {
+                "Fill"
+            })
+            .key("F");
             let this = cx.entity();
             bar = bar.child(hud::separator()).child(
                 div()
@@ -810,8 +1009,15 @@ impl Editor {
                     .child(format!("{} × {}", crop.width.round(), crop.height.round())),
             )
             .child(hud::separator())
-            .child(self.button_for("crop-reset", cx, |e, _, _| e.session.reset_crop()).label("Reset"))
-            .child(self.button_for("crop-cancel", cx, |e, _, _| e.session.cancel_crop()).label("Cancel").tooltip(Tip::new("Cancel crop").key("Esc")))
+            .child(
+                self.button_for("crop-reset", cx, |e, _, _| e.session.reset_crop())
+                    .label("Reset"),
+            )
+            .child(
+                self.button_for("crop-cancel", cx, |e, _, _| e.session.cancel_crop())
+                    .label("Cancel")
+                    .tooltip(Tip::new("Cancel crop").key("Esc")),
+            )
             .child(
                 div().ml_1().child(
                     self.button_for("crop-apply", cx, |e, _, _| e.session.apply_crop())
@@ -826,7 +1032,9 @@ impl Editor {
     /// The close prompt's ways to keep the annotations: what Done does, or if it does
     /// nothing, copying or saving.
     fn prompt_actions(&self, cx: &mut Context<Self>) -> Vec<HudButton> {
-        let primary = self.button_for("keep", cx, |e, window, cx| e.keep_and_close(window, cx)).style(ButtonStyle::Accent);
+        let primary = self
+            .button_for("keep", cx, |e, window, cx| e.keep_and_close(window, cx))
+            .style(ButtonStyle::Accent);
         match self.done_does() {
             (false, false) => vec![
                 self.button_for("prompt-copy", cx, |e, window, cx| {
@@ -868,7 +1076,12 @@ impl Editor {
             .border_color(color::hairline())
             .shadow(hud::panel_shadow())
             .text_color(color::text())
-            .child(div().text_size(ui(15.)).font_weight(FontWeight::SEMIBOLD).child("Keep your annotations?"))
+            .child(
+                div()
+                    .text_size(ui(15.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Keep your annotations?"),
+            )
             .child(
                 div()
                     .text_size(ui(13.))
@@ -881,11 +1094,24 @@ impl Editor {
                     .flex_row()
                     .justify_end()
                     .gap_1()
-                    .child(self.button_for("discard", cx, |e, window, cx| e.close(window, cx)).label("Discard"))
-                    .child(self.button_for("keep-editing", cx, |e, _, _| e.confirm_close = false).label("Cancel"))
+                    .child(
+                        self.button_for("discard", cx, |e, window, cx| e.close(window, cx))
+                            .label("Discard"),
+                    )
+                    .child(
+                        self.button_for("keep-editing", cx, |e, _, _| e.confirm_close = false)
+                            .label("Cancel"),
+                    )
                     .children(self.prompt_actions(cx)),
             );
-        div().absolute().inset_0().bg(color::scrim(0.45)).flex().items_center().justify_center().child(card)
+        div()
+            .absolute()
+            .inset_0()
+            .bg(color::scrim(0.45))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(card)
     }
 }
 
@@ -897,7 +1123,9 @@ impl Render for Editor {
         let canvas = canvas(
             |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
             move |bounds, hitbox: Hitbox, window, cx| {
-                this.update(cx, |editor, cx| editor.paint_canvas(bounds, &hitbox, window, cx));
+                this.update(cx, |editor, cx| {
+                    editor.paint_canvas(bounds, &hitbox, window, cx)
+                });
             },
         )
         .absolute()
@@ -905,19 +1133,31 @@ impl Render for Editor {
 
         let root = KeyboardGrab::track(
             &self.grab,
-            div().id("editor").size_full().track_focus(&self.focus).on_key_down(cx.listener(Self::on_key_down)),
+            div()
+                .id("editor")
+                .size_full()
+                .track_focus(&self.focus)
+                .on_key_down(cx.listener(Self::on_key_down)),
         );
         if self.grab.read(cx).leaving() && self.overlay() {
             return root;
         }
-        let bars = if self.overlay() { self.overlay_bars(window, cx) } else { self.window_bars(cx) };
-        root
-            .relative()
-            .bg(match (self.overlay(), self.placement(window.viewport_size()).is_some()) {
-                (true, true) => color::scrim(OVERLAY_DIM),
-                (true, false) => color::scrim(CENTRED_DIM),
-                (false, _) => workspace(),
-            })
+        let bars = if self.overlay() {
+            self.overlay_bars(window, cx)
+        } else {
+            self.window_bars(cx)
+        };
+        root.relative()
+            .bg(
+                match (
+                    self.overlay(),
+                    self.placement(window.viewport_size()).is_some(),
+                ) {
+                    (true, true) => color::scrim(OVERLAY_DIM),
+                    (true, false) => color::scrim(CENTRED_DIM),
+                    (false, _) => workspace(),
+                },
+            )
             .font_family(screenie_ui_kit::FONT)
             .on_scroll_wheel(cx.listener(|e, event: &ScrollWheelEvent, _, cx| {
                 if event.modifiers.control {
@@ -932,7 +1172,9 @@ impl Render for Editor {
 
 impl Editor {
     fn toast_pill(&self) -> Option<gpui::Div> {
-        self.toast.as_ref().map(|(message, _)| hud::pill(message.clone()))
+        self.toast
+            .as_ref()
+            .map(|(message, _)| hud::pill(message.clone()))
     }
 
     /// In a window: history, tools and actions along the top, style bar and toasts along
@@ -951,10 +1193,26 @@ impl Editor {
             .child(self.tool_bar(cx))
             .child(self.action_bar(cx));
         let bottom = self.style_bar(cx).map(|bar| {
-            div().absolute().bottom(ui(14.)).left_0().right_0().flex().flex_row().justify_center().child(bar)
+            div()
+                .absolute()
+                .bottom(ui(14.))
+                .left_0()
+                .right_0()
+                .flex()
+                .flex_row()
+                .justify_center()
+                .child(bar)
         });
         let toast = self.toast_pill().map(|pill| {
-            div().absolute().bottom(ui(70.)).left_0().right_0().flex().flex_row().justify_center().child(pill)
+            div()
+                .absolute()
+                .bottom(ui(70.))
+                .left_0()
+                .right_0()
+                .flex()
+                .flex_row()
+                .justify_center()
+                .child(pill)
         });
         let mut out = vec![top.into_any_element()];
         out.extend(bottom.map(IntoElement::into_any_element));
@@ -988,7 +1246,14 @@ impl Editor {
             Side::Inside
         };
 
-        let row = || div().h(ui(BAR_HEIGHT)).flex().flex_row().items_center().justify_center();
+        let row = || {
+            div()
+                .h(ui(BAR_HEIGHT))
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_center()
+        };
         let slot = self.bar_width.clone();
         let main = row()
             .relative()
@@ -1029,7 +1294,10 @@ impl Editor {
         let fits = measured.is_none_or(|width| f32::from(width) <= half * 2.0);
         let mut column = div().absolute().flex().flex_col().gap(ui(BAR_GAP - 2.0));
         column = if fits {
-            column.left(px(center - half)).w(px(half * 2.0)).items_center()
+            column
+                .left(px(center - half))
+                .w(px(half * 2.0))
+                .items_center()
         } else if center < w / 2.0 {
             column.left(px(margin)).right(px(margin)).items_start()
         } else {
@@ -1039,8 +1307,14 @@ impl Editor {
         let toast = self.toast_pill();
         column = match side {
             Side::Below => column.top(px(bottom + gap)).child(stack).children(toast),
-            Side::Above => column.bottom(px(h - top + gap)).children(toast).child(stack),
-            Side::Inside => column.bottom(px((h - bottom).max(0.0) + gap + 4.0 * k)).children(toast).child(stack),
+            Side::Above => column
+                .bottom(px(h - top + gap))
+                .children(toast)
+                .child(stack),
+            Side::Inside => column
+                .bottom(px((h - bottom).max(0.0) + gap + 4.0 * k))
+                .children(toast)
+                .child(stack),
         };
         vec![column.into_any_element()]
     }
@@ -1080,7 +1354,13 @@ fn tool_for(kind: &Kind) -> Tool {
 }
 
 fn swatch(id: impl Into<gpui::ElementId>, c: Color, selected: bool) -> gpui::Stateful<gpui::Div> {
-    let fill: Hsla = gpui::Rgba { r: c.r as f32 / 255.0, g: c.g as f32 / 255.0, b: c.b as f32 / 255.0, a: 1.0 }.into();
+    let fill: Hsla = gpui::Rgba {
+        r: c.r as f32 / 255.0,
+        g: c.g as f32 / 255.0,
+        b: c.b as f32 / 255.0,
+        a: 1.0,
+    }
+    .into();
     div()
         .id(id.into())
         .size(ui(28.))
@@ -1090,13 +1370,30 @@ fn swatch(id: impl Into<gpui::ElementId>, c: Color, selected: bool) -> gpui::Sta
         .rounded_full()
         .cursor_pointer()
         .border_2()
-        .border_color(if selected { color::text() } else { gpui::transparent_black() })
+        .border_color(if selected {
+            color::text()
+        } else {
+            gpui::transparent_black()
+        })
         .hover(|d| d.bg(color::hover()))
-        .child(div().size(ui(18.)).rounded_full().bg(fill).border_1().border_color(rgba(0xffffff40)))
+        .child(
+            div()
+                .size(ui(18.))
+                .rounded_full()
+                .bg(fill)
+                .border_1()
+                .border_color(rgba(0xffffff40)),
+        )
 }
 
 fn shadow(color: u32, y: f32, blur: f32) -> BoxShadow {
-    BoxShadow { color: rgba(color).into(), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(0.), inset: false }
+    BoxShadow {
+        color: rgba(color).into(),
+        offset: point(px(0.), px(y)),
+        blur_radius: px(blur),
+        spread_radius: px(0.),
+        inset: false,
+    }
 }
 
 fn cursor_style(cursor: Cursor) -> CursorStyle {
@@ -1118,14 +1415,28 @@ fn handle_square(center: gpui::Point<Pixels>, ui: f32, window: &mut Window) {
     let d = px(9. * ui);
     let b = Bounds::new(point(center.x - d / 2., center.y - d / 2.), size(d, d));
     window.paint_drop_shadows(b, px(2. * ui).into(), &[shadow(0x00000059, 1.0, 3.0)]);
-    window.paint_quad(quad(b, px(2. * ui), gpui::white(), px(1.5), color::accent(), BorderStyle::Solid));
+    window.paint_quad(quad(
+        b,
+        px(2. * ui),
+        gpui::white(),
+        px(1.5),
+        color::accent(),
+        BorderStyle::Solid,
+    ));
 }
 
 fn handle_dot(center: gpui::Point<Pixels>, ui: f32, window: &mut Window) {
     let d = px(10. * ui);
     let b = Bounds::new(point(center.x - d / 2., center.y - d / 2.), size(d, d));
     window.paint_drop_shadows(b, (d / 2.).into(), &[shadow(0x00000059, 1.0, 3.0)]);
-    window.paint_quad(quad(b, d / 2., gpui::white(), px(1.5), color::accent(), BorderStyle::Solid));
+    window.paint_quad(quad(
+        b,
+        d / 2.,
+        gpui::white(),
+        px(1.5),
+        color::accent(),
+        BorderStyle::Solid,
+    ));
 }
 
 fn paint_selection(vp: &Viewport, shape: &Shape, scale: f32, window: &mut Window) {
@@ -1136,8 +1447,18 @@ fn paint_selection(vp: &Viewport, shape: &Shape, scale: f32, window: &mut Window
                 handle_dot(vp.to_window(p), vp.ui, window);
             }
         }
-        Kind::Rectangle { rect } | Kind::Ellipse { rect } | Kind::Redact { rect, .. } | Kind::Spotlight { rect } => {
-            window.paint_quad(quad(vp.rect(*rect), px(0.), gpui::transparent_black(), px(1.), accent, BorderStyle::Solid));
+        Kind::Rectangle { rect }
+        | Kind::Ellipse { rect }
+        | Kind::Redact { rect, .. }
+        | Kind::Spotlight { rect } => {
+            window.paint_quad(quad(
+                vp.rect(*rect),
+                px(0.),
+                gpui::transparent_black(),
+                px(1.),
+                accent,
+                BorderStyle::Solid,
+            ));
             for (handle, p) in shape.handles() {
                 if handle.is_visible() {
                     handle_square(vp.to_window(p), vp.ui, window);
@@ -1147,25 +1468,54 @@ fn paint_selection(vp: &Viewport, shape: &Shape, scale: f32, window: &mut Window
         _ => {
             let pad = shape.stroke(scale) / 2.0 + 4.0 / vp.zoom as f64;
             let outline = vp.rect(shape.bounds(scale).inset(-pad));
-            window.paint_quad(quad(outline, px(3.), gpui::transparent_black(), px(1.), accent, BorderStyle::Dashed));
+            window.paint_quad(quad(
+                outline,
+                px(3.),
+                gpui::transparent_black(),
+                px(1.),
+                accent,
+                BorderStyle::Dashed,
+            ));
         }
     }
 }
 
 fn paint_text_edit(vp: &Viewport, shape: &Shape, caret: usize, scale: f32, window: &mut Window) {
-    let (Kind::Text { origin, .. }, Some(block)) = (&shape.kind, shape.text_block(scale)) else { return };
+    let (Kind::Text { origin, .. }, Some(block)) = (&shape.kind, shape.text_block(scale)) else {
+        return;
+    };
     // A box a little larger than the text, so an empty one is still visible.
     let min_w = block.line_height() as f64 * 0.6;
     let mut bounds = shape.bounds(scale);
     bounds.width = bounds.width.max(min_w);
     let outline = vp.rect(bounds.inset(-4.0 / vp.zoom as f64));
-    window.paint_quad(quad(outline, px(3.), gpui::transparent_black(), px(1.), rgba(0xffffffb3), BorderStyle::Dashed));
+    window.paint_quad(quad(
+        outline,
+        px(3.),
+        gpui::transparent_black(),
+        px(1.),
+        rgba(0xffffffb3),
+        BorderStyle::Dashed,
+    ));
     let (x, y) = block.caret(caret);
     let top = vp.to_window(Point::new(origin.x + x as f64, origin.y + y as f64));
     let height = px(block.line_height() * vp.zoom);
-    let color = if shape.style.fill { shape.style.color.contrasting() } else { shape.style.color };
-    let c: Hsla = gpui::Rgba { r: color.r as f32 / 255.0, g: color.g as f32 / 255.0, b: color.b as f32 / 255.0, a: 1.0 }.into();
-    window.paint_quad(fill(Bounds::new(point(top.x - px(1.), top.y), size(px(2.), height)), c));
+    let color = if shape.style.fill {
+        shape.style.color.contrasting()
+    } else {
+        shape.style.color
+    };
+    let c: Hsla = gpui::Rgba {
+        r: color.r as f32 / 255.0,
+        g: color.g as f32 / 255.0,
+        b: color.b as f32 / 255.0,
+        a: 1.0,
+    }
+    .into();
+    window.paint_quad(fill(
+        Bounds::new(point(top.x - px(1.), top.y), size(px(2.), height)),
+        c,
+    ));
 }
 
 fn paint_crop(vp: &Viewport, image: Rect, crop: Rect, window: &mut Window) {
@@ -1173,10 +1523,22 @@ fn paint_crop(vp: &Viewport, image: Rect, crop: Rect, window: &mut Window) {
     let outer = vp.rect(image);
     let hole = vp.rect(crop);
     for b in [
-        Bounds::new(outer.origin, size(outer.size.width, hole.origin.y - outer.origin.y)),
-        Bounds::new(point(outer.origin.x, hole.bottom()), size(outer.size.width, outer.bottom() - hole.bottom())),
-        Bounds::new(point(outer.origin.x, hole.origin.y), size(hole.origin.x - outer.origin.x, hole.size.height)),
-        Bounds::new(point(hole.right(), hole.origin.y), size(outer.right() - hole.right(), hole.size.height)),
+        Bounds::new(
+            outer.origin,
+            size(outer.size.width, hole.origin.y - outer.origin.y),
+        ),
+        Bounds::new(
+            point(outer.origin.x, hole.bottom()),
+            size(outer.size.width, outer.bottom() - hole.bottom()),
+        ),
+        Bounds::new(
+            point(outer.origin.x, hole.origin.y),
+            size(hole.origin.x - outer.origin.x, hole.size.height),
+        ),
+        Bounds::new(
+            point(hole.right(), hole.origin.y),
+            size(outer.right() - hole.right(), hole.size.height),
+        ),
     ] {
         if b.size.width > px(0.) && b.size.height > px(0.) {
             window.paint_quad(fill(b, dim));
@@ -1186,10 +1548,23 @@ fn paint_crop(vp: &Viewport, image: Rect, crop: Rect, window: &mut Window) {
     for k in [1.0 / 3.0, 2.0 / 3.0] {
         let x = hole.origin.x + hole.size.width * k;
         let y = hole.origin.y + hole.size.height * k;
-        window.paint_quad(fill(Bounds::new(point(x, hole.origin.y), size(px(1.), hole.size.height)), grid));
-        window.paint_quad(fill(Bounds::new(point(hole.origin.x, y), size(hole.size.width, px(1.))), grid));
+        window.paint_quad(fill(
+            Bounds::new(point(x, hole.origin.y), size(px(1.), hole.size.height)),
+            grid,
+        ));
+        window.paint_quad(fill(
+            Bounds::new(point(hole.origin.x, y), size(hole.size.width, px(1.))),
+            grid,
+        ));
     }
-    window.paint_quad(quad(hole, px(0.), gpui::transparent_black(), px(1.5), gpui::white(), BorderStyle::Solid));
+    window.paint_quad(quad(
+        hole,
+        px(0.),
+        gpui::transparent_black(),
+        px(1.5),
+        gpui::white(),
+        BorderStyle::Solid,
+    ));
     for handle in Handle::BOX {
         let c = vp.to_window(handle.position(&crop));
         let (w, h) = match handle {
@@ -1200,6 +1575,13 @@ fn paint_crop(vp: &Viewport, image: Rect, crop: Rect, window: &mut Window) {
         let (w, h, r) = (px(w * vp.ui), px(h * vp.ui), px(2.5 * vp.ui));
         let b = Bounds::new(point(c.x - w / 2., c.y - h / 2.), size(w, h));
         window.paint_drop_shadows(b, r.into(), &[shadow(0x00000073, 1.0, 4.0)]);
-        window.paint_quad(quad(b, r, gpui::white(), px(0.), gpui::transparent_black(), BorderStyle::Solid));
+        window.paint_quad(quad(
+            b,
+            r,
+            gpui::white(),
+            px(0.),
+            gpui::transparent_black(),
+            BorderStyle::Solid,
+        ));
     }
 }

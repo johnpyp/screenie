@@ -81,10 +81,28 @@ impl Image {
     }
 
     /// Wrap raw pixel rows. Panics if `data` is too short for the geometry.
-    pub fn from_raw(width: u32, height: u32, stride: usize, format: PixelFormat, data: Vec<u8>) -> Self {
-        assert!(stride >= width as usize * PixelFormat::BYTES_PER_PIXEL, "stride too small");
-        assert!(data.len() >= stride * height.saturating_sub(1) as usize + width as usize * 4, "buffer too small");
-        Self { width, height, stride, format, data: Arc::new(data) }
+    pub fn from_raw(
+        width: u32,
+        height: u32,
+        stride: usize,
+        format: PixelFormat,
+        data: Vec<u8>,
+    ) -> Self {
+        assert!(
+            stride >= width as usize * PixelFormat::BYTES_PER_PIXEL,
+            "stride too small"
+        );
+        assert!(
+            data.len() >= stride * height.saturating_sub(1) as usize + width as usize * 4,
+            "buffer too small"
+        );
+        Self {
+            width,
+            height,
+            stride,
+            format,
+            data: Arc::new(data),
+        }
     }
 
     pub fn width(&self) -> u32 {
@@ -157,7 +175,13 @@ impl Image {
                 data.extend_from_slice(&from_rgba(format, to_rgba(self.format, p)));
             }
         }
-        Image::from_raw(self.width, self.height, self.width as usize * 4, format, data)
+        Image::from_raw(
+            self.width,
+            self.height,
+            self.width as usize * 4,
+            format,
+            data,
+        )
     }
 
     /// Tightly packed straight-alpha RGBA bytes.
@@ -192,7 +216,12 @@ impl Image {
             if same {
                 dst_row.copy_from_slice(src_row);
             } else {
-                for (d, &s) in dst_row.as_chunks_mut::<4>().0.iter_mut().zip(src_row.as_chunks::<4>().0) {
+                for (d, &s) in dst_row
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(src_row.as_chunks::<4>().0)
+                {
                     *d = from_rgba(fmt, to_rgba(src.format, s));
                 }
             }
@@ -247,7 +276,8 @@ impl Image {
             for x in 0..w as usize {
                 let (a, b) = (x * 8, (x * 8 + 4).min(r0.len() - 4));
                 for c in 0..4 {
-                    let sum = r0[a + c] as u32 + r0[b + c] as u32 + r1[a + c] as u32 + r1[b + c] as u32;
+                    let sum =
+                        r0[a + c] as u32 + r0[b + c] as u32 + r1[a + c] as u32 + r1[b + c] as u32;
                     data[(y as usize * w as usize + x) * 4 + c] = ((sum + 2) / 4) as u8;
                 }
             }
@@ -256,10 +286,18 @@ impl Image {
     }
 
     /// Encode as PNG. Opaque images are written as RGB, which is noticeably smaller.
-    pub fn write_png<W: Write>(&self, out: W, compression: png::Compression) -> Result<(), ImageError> {
+    pub fn write_png<W: Write>(
+        &self,
+        out: W,
+        compression: png::Compression,
+    ) -> Result<(), ImageError> {
         let opaque = self.is_opaque();
         let mut encoder = png::Encoder::new(out, self.width, self.height);
-        encoder.set_color(if opaque { png::ColorType::Rgb } else { png::ColorType::Rgba });
+        encoder.set_color(if opaque {
+            png::ColorType::Rgb
+        } else {
+            png::ColorType::Rgba
+        });
         encoder.set_depth(png::BitDepth::Eight);
         encoder.set_compression(compression);
         let mut writer = encoder.write_header()?;
@@ -304,32 +342,59 @@ impl Image {
         let mut decoder = png::Decoder::new(reader);
         decoder.set_transformations(png::Transformations::normalize_to_color8());
         let mut reader = decoder.read_info()?;
-        let mut buf = vec![0; reader.output_buffer_size().ok_or_else(|| ImageError::Unsupported("image too large".into()))?];
+        let mut buf = vec![
+            0;
+            reader
+                .output_buffer_size()
+                .ok_or_else(|| ImageError::Unsupported("image too large".into()))?
+        ];
         let info = reader.next_frame(&mut buf)?;
         let (w, h) = (info.width, info.height);
         let px = w as usize * h as usize;
         let mut rgba = Vec::with_capacity(px * 4);
         match info.color_type {
             png::ColorType::Rgba => rgba.extend_from_slice(&buf[..px * 4]),
-            png::ColorType::Rgb => buf[..px * 3].as_chunks::<3>().0.iter().for_each(|&[r, g, b]| rgba.extend_from_slice(&[r, g, b, 255])),
-            png::ColorType::GrayscaleAlpha => {
-                buf[..px * 2].as_chunks::<2>().0.iter().for_each(|&[g, a]| rgba.extend_from_slice(&[g, g, g, a]))
-            }
-            png::ColorType::Grayscale => buf[..px].iter().for_each(|&g| rgba.extend_from_slice(&[g, g, g, 255])),
+            png::ColorType::Rgb => buf[..px * 3]
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .for_each(|&[r, g, b]| rgba.extend_from_slice(&[r, g, b, 255])),
+            png::ColorType::GrayscaleAlpha => buf[..px * 2]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .for_each(|&[g, a]| rgba.extend_from_slice(&[g, g, g, a])),
+            png::ColorType::Grayscale => buf[..px]
+                .iter()
+                .for_each(|&g| rgba.extend_from_slice(&[g, g, g, 255])),
             other => return Err(ImageError::Unsupported(format!("png color type {other:?}"))),
         }
-        Ok(Image::from_raw(w, h, w as usize * 4, PixelFormat::Rgba, rgba))
+        Ok(Image::from_raw(
+            w,
+            h,
+            w as usize * 4,
+            PixelFormat::Rgba,
+            rgba,
+        ))
     }
 }
 
 fn to_rgba(format: PixelFormat, p: [u8; 4]) -> [u8; 4] {
     let a = if format.has_alpha() { p[3] } else { 255 };
-    if format.is_bgr() { [p[2], p[1], p[0], a] } else { [p[0], p[1], p[2], a] }
+    if format.is_bgr() {
+        [p[2], p[1], p[0], a]
+    } else {
+        [p[0], p[1], p[2], a]
+    }
 }
 
 fn from_rgba(format: PixelFormat, p: [u8; 4]) -> [u8; 4] {
     let a = if format.has_alpha() { p[3] } else { 255 };
-    if format.is_bgr() { [p[2], p[1], p[0], a] } else { [p[0], p[1], p[2], a] }
+    if format.is_bgr() {
+        [p[2], p[1], p[0], a]
+    } else {
+        [p[0], p[1], p[2], a]
+    }
 }
 
 #[cfg(test)]

@@ -36,14 +36,20 @@ impl Global for Daemon {}
 
 impl Daemon {
     pub fn new(config: Config, capture: Arc<CaptureContext>, commit: &'static str) -> Self {
-        Self { config, capture, last_region: None, capturing: false,
+        Self {
+            config,
+            capture,
+            last_region: None,
+            capturing: false,
             recording: None,
             saving: false,
             editors: 0,
             last_screenshot: None,
             last_recording: None,
             state: screenie_state::StateFile::open(),
-            commit, watchers: Vec::new() }
+            commit,
+            watchers: Vec::new(),
+        }
     }
 
     pub fn get(cx: &App) -> &Daemon {
@@ -77,13 +83,18 @@ impl Daemon {
             commit: self.commit.to_string(),
             build: screenie_ipc::exe_stamp(),
             compositor: self.capture.compositor().name().to_string(),
-            capture_backend: self.capture.backend_name(self.config.advanced.capture_backend).to_string(),
+            capture_backend: self
+                .capture
+                .backend_name(self.config.advanced.capture_backend)
+                .to_string(),
         }
     }
 
     /// Remember a finished capture (for `screenie last` and status watchers).
     pub fn note_capture(&mut self, kind: CaptureKind, path: Option<PathBuf>) {
-        let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         let last = Some(LastCapture { kind, path, time });
         match kind {
             CaptureKind::Screenshot => self.last_screenshot = last,
@@ -95,7 +106,8 @@ impl Daemon {
     /// Tell status watchers something changed.
     pub fn broadcast(&mut self) {
         let status = self.status();
-        self.watchers.retain(|w| w.try_send(status.clone()).is_ok() || !w.is_closed());
+        self.watchers
+            .retain(|w| w.try_send(status.clone()).is_ok() || !w.is_closed());
     }
 }
 

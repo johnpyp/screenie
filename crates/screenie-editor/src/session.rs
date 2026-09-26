@@ -3,7 +3,8 @@
 //! in image-pixel coordinates.
 
 use screenie_annotate::{
-    Document, Handle, Kind, Redaction, Shape, ShapeId, State, Style, box_from_drag, resize_box, snap_angle,
+    Document, Handle, Kind, Redaction, Shape, ShapeId, State, Style, box_from_drag, resize_box,
+    snap_angle,
 };
 use screenie_core::{Point, Rect};
 
@@ -65,12 +66,27 @@ pub enum Outcome {
 #[derive(Debug, Clone, Copy)]
 enum Gesture {
     /// Drawing a new shape from `anchor`.
-    Draw { id: ShapeId, anchor: Point },
-    Move { id: ShapeId, last: Point },
-    Handle { id: ShapeId, handle: Handle },
-    CropDraw { anchor: Point },
-    CropMove { last: Point },
-    CropHandle { handle: Handle },
+    Draw {
+        id: ShapeId,
+        anchor: Point,
+    },
+    Move {
+        id: ShapeId,
+        last: Point,
+    },
+    Handle {
+        id: ShapeId,
+        handle: Handle,
+    },
+    CropDraw {
+        anchor: Point,
+    },
+    CropMove {
+        last: Point,
+    },
+    CropHandle {
+        handle: Handle,
+    },
 }
 
 /// Text being typed into a text shape.
@@ -170,7 +186,9 @@ impl Session {
     /// the rest so only it needs re-rendering.
     pub fn live(&self) -> Option<ShapeId> {
         match self.gesture {
-            Some(Gesture::Draw { id, .. } | Gesture::Move { id, .. } | Gesture::Handle { id, .. }) => Some(id),
+            Some(
+                Gesture::Draw { id, .. } | Gesture::Move { id, .. } | Gesture::Handle { id, .. },
+            ) => Some(id),
             _ => self.text.map(|t| t.id),
         }
     }
@@ -201,7 +219,10 @@ impl Session {
     }
 
     pub fn set_color(&mut self, color: screenie_annotate::Color) {
-        self.restyle(Style { color, ..self.style });
+        self.restyle(Style {
+            color,
+            ..self.style
+        });
     }
 
     pub fn set_size(&mut self, size: f32) {
@@ -228,7 +249,10 @@ impl Session {
     }
 
     pub fn toggle_fill(&mut self) {
-        self.restyle(Style { fill: !self.style.fill, ..self.style });
+        self.restyle(Style {
+            fill: !self.style.fill,
+            ..self.style
+        });
     }
 
     pub fn set_redaction(&mut self, mode: Redaction) {
@@ -238,7 +262,11 @@ impl Session {
             && *current != mode
         {
             self.doc.checkpoint();
-            if let Some(Shape { kind: Kind::Redact { mode: m, .. }, .. }) = self.doc.shape_mut(id) {
+            if let Some(Shape {
+                kind: Kind::Redact { mode: m, .. },
+                ..
+            }) = self.doc.shape_mut(id)
+            {
                 *m = mode;
             }
         }
@@ -292,12 +320,16 @@ impl Session {
     }
 
     pub fn delete_selected(&mut self) -> bool {
-        let Some(id) = self.selected.take() else { return false };
+        let Some(id) = self.selected.take() else {
+            return false;
+        };
         self.doc.remove(id).is_some()
     }
 
     pub fn duplicate_selected(&mut self) -> bool {
-        let Some(shape) = self.selected().cloned() else { return false };
+        let Some(shape) = self.selected().cloned() else {
+            return false;
+        };
         let mut copy = self.doc.make(shape.kind, shape.style);
         let offset = 12.0 * self.doc.scale() as f64;
         copy.translate(offset, offset);
@@ -359,8 +391,15 @@ impl Session {
             return true;
         }
         if let Some(edit) = self.text {
-            if self.doc.shape(edit.id).is_some_and(|s| s.hit(p, reach.tolerance, self.doc.scale())) {
-                self.text = Some(TextEdit { caret: self.caret_at(edit.id, p), ..edit });
+            if self
+                .doc
+                .shape(edit.id)
+                .is_some_and(|s| s.hit(p, reach.tolerance, self.doc.scale()))
+            {
+                self.text = Some(TextEdit {
+                    caret: self.caret_at(edit.id, p),
+                    ..edit
+                });
                 return true;
             }
             self.commit_text();
@@ -369,7 +408,9 @@ impl Session {
             }
         }
         let hit = self.doc.hit(p, reach.tolerance);
-        let hit_kind = hit.and_then(|id| self.doc.shape(id)).map(|s| s.kind.clone());
+        let hit_kind = hit
+            .and_then(|id| self.doc.shape(id))
+            .map(|s| s.kind.clone());
 
         if clicks >= 2 && matches!(hit_kind, Some(Kind::Text { .. })) {
             self.edit_text(hit.expect("hit"), p);
@@ -402,26 +443,31 @@ impl Session {
                 }
             },
             Tool::Crop => {}
-            tool => {
-                match hit {
-                    Some(id) if hit == self.selected => self.start_move(id, p),
-                    _ => self.start_drawing(tool, p),
-                }
-            }
+            tool => match hit {
+                Some(id) if hit == self.selected => self.start_move(id, p),
+                _ => self.start_drawing(tool, p),
+            },
         }
         true
     }
 
     pub fn drag(&mut self, p: Point, mods: Modifiers) -> bool {
-        let Some(gesture) = self.gesture else { return false };
+        let Some(gesture) = self.gesture else {
+            return false;
+        };
         match gesture {
             Gesture::Draw { id, anchor } => {
-                let Some(shape) = self.doc.shape_mut(id) else { return false };
+                let Some(shape) = self.doc.shape_mut(id) else {
+                    return false;
+                };
                 match &mut shape.kind {
                     Kind::Arrow { to, .. } | Kind::Line { to, .. } => {
                         *to = if mods.shift { snap_angle(anchor, p) } else { p };
                     }
-                    Kind::Rectangle { rect } | Kind::Ellipse { rect } | Kind::Redact { rect, .. } | Kind::Spotlight { rect } => {
+                    Kind::Rectangle { rect }
+                    | Kind::Ellipse { rect }
+                    | Kind::Redact { rect, .. }
+                    | Kind::Spotlight { rect } => {
                         *rect = box_from_drag(anchor, p, mods.shift);
                     }
                     Kind::Pen { points } => {
@@ -450,11 +496,16 @@ impl Session {
                     shape.drag_handle(handle, p, mods.shift);
                 }
             }
-            Gesture::CropDraw { anchor } => self.set_crop_rect(box_from_drag(anchor, p, mods.shift)),
+            Gesture::CropDraw { anchor } => {
+                self.set_crop_rect(box_from_drag(anchor, p, mods.shift))
+            }
             Gesture::CropMove { last } => {
                 if let Some(crop) = &mut self.crop {
                     let bounds = self.doc.bounds();
-                    crop.rect = crop.rect.translate(p.x - last.x, p.y - last.y).clamp_within(&bounds);
+                    crop.rect = crop
+                        .rect
+                        .translate(p.x - last.x, p.y - last.y)
+                        .clamp_within(&bounds);
                 }
                 self.gesture = Some(Gesture::CropMove { last: p });
             }
@@ -468,7 +519,9 @@ impl Session {
     }
 
     pub fn release(&mut self) -> bool {
-        let Some(gesture) = self.gesture.take() else { return false };
+        let Some(gesture) = self.gesture.take() else {
+            return false;
+        };
         match gesture {
             Gesture::Draw { id, .. } => {
                 let degenerate = self.doc.shape(id).is_none_or(|s| s.is_degenerate());
@@ -481,7 +534,9 @@ impl Session {
                     self.selected = Some(id);
                 }
             }
-            Gesture::Move { .. } | Gesture::Handle { .. } => self.doc.discard_checkpoint_if_unchanged(),
+            Gesture::Move { .. } | Gesture::Handle { .. } => {
+                self.doc.discard_checkpoint_if_unchanged()
+            }
             Gesture::CropDraw { .. } | Gesture::CropMove { .. } | Gesture::CropHandle { .. } => {}
         }
         true
@@ -492,7 +547,9 @@ impl Session {
         if let Some(gesture) = self.gesture {
             return match gesture {
                 Gesture::Move { .. } | Gesture::CropMove { .. } => Cursor::Grabbing,
-                Gesture::Handle { handle, .. } | Gesture::CropHandle { handle } => Cursor::Resize(handle),
+                Gesture::Handle { handle, .. } | Gesture::CropHandle { handle } => {
+                    Cursor::Resize(handle)
+                }
                 Gesture::Draw { .. } | Gesture::CropDraw { .. } => Cursor::Crosshair,
             };
         }
@@ -500,7 +557,11 @@ impl Session {
             if let Some(handle) = crop_handle_at(crop.rect, p, reach) {
                 return Cursor::Resize(handle);
             }
-            return if crop.rect.contains(p) { Cursor::Move } else { Cursor::Crosshair };
+            return if crop.rect.contains(p) {
+                Cursor::Move
+            } else {
+                Cursor::Crosshair
+            };
         }
         if let Some(handle) = self.handle_at(p, reach) {
             return Cursor::Resize(handle);
@@ -515,7 +576,11 @@ impl Session {
             Tool::Select if hit.is_some() => Cursor::Move,
             Tool::Select => Cursor::Arrow,
             Tool::Text => Cursor::Text,
-            Tool::Step if hit.is_some_and(|id| matches!(self.doc.shape(id).map(|s| &s.kind), Some(Kind::Step { .. }))) => {
+            Tool::Step
+                if hit.is_some_and(|id| {
+                    matches!(self.doc.shape(id).map(|s| &s.kind), Some(Kind::Step { .. }))
+                }) =>
+            {
                 Cursor::Move
             }
             _ if hit.is_some() && hit == self.selected => Cursor::Move,
@@ -525,9 +590,12 @@ impl Session {
 
     fn handle_at(&self, p: Point, reach: Reach) -> Option<Handle> {
         let shape = self.selected()?;
-        shape.handles().into_iter().filter(|(_, at)| at.distance(p) <= reach.handle).min_by(|a, b| {
-            a.1.distance(p).total_cmp(&b.1.distance(p))
-        }).map(|(h, _)| h)
+        shape
+            .handles()
+            .into_iter()
+            .filter(|(_, at)| at.distance(p) <= reach.handle)
+            .min_by(|a, b| a.1.distance(p).total_cmp(&b.1.distance(p)))
+            .map(|(h, _)| h)
     }
 
     fn start_move(&mut self, id: ShapeId, p: Point) {
@@ -545,7 +613,10 @@ impl Session {
             Tool::Ellipse => Kind::Ellipse { rect },
             Tool::Pen => Kind::Pen { points: vec![p] },
             Tool::Highlighter => Kind::Highlighter { points: vec![p] },
-            Tool::Redact => Kind::Redact { rect, mode: self.redaction },
+            Tool::Redact => Kind::Redact {
+                rect,
+                mode: self.redaction,
+            },
             Tool::Spotlight => Kind::Spotlight { rect },
             Tool::Select | Tool::Text | Tool::Step | Tool::Crop => return,
         };
@@ -559,9 +630,17 @@ impl Session {
     // Text.
 
     fn new_text(&mut self, p: Point) {
-        let mut shape = self.doc.make(Kind::Text { origin: p, text: String::new() }, self.style);
+        let mut shape = self.doc.make(
+            Kind::Text {
+                origin: p,
+                text: String::new(),
+            },
+            self.style,
+        );
         // Centre the first line on the click.
-        let line = shape.text_block(self.doc.scale()).map_or(0.0, |b| b.line_height() as f64);
+        let line = shape
+            .text_block(self.doc.scale())
+            .map_or(0.0, |b| b.line_height() as f64);
         shape.translate(0.0, -line / 2.0);
         let id = shape.id;
         self.doc.add(shape);
@@ -573,12 +652,19 @@ impl Session {
         self.select(Some(id));
         self.selected = None;
         self.doc.checkpoint();
-        self.text = Some(TextEdit { id, caret: self.caret_at(id, p) });
+        self.text = Some(TextEdit {
+            id,
+            caret: self.caret_at(id, p),
+        });
     }
 
     fn caret_at(&self, id: ShapeId, p: Point) -> usize {
-        let Some(shape) = self.doc.shape(id) else { return 0 };
-        let (Kind::Text { origin, .. }, Some(block)) = (&shape.kind, shape.text_block(self.doc.scale())) else {
+        let Some(shape) = self.doc.shape(id) else {
+            return 0;
+        };
+        let (Kind::Text { origin, .. }, Some(block)) =
+            (&shape.kind, shape.text_block(self.doc.scale()))
+        else {
             return 0;
         };
         block.hit((p.x - origin.x) as f32, (p.y - origin.y) as f32)
@@ -595,7 +681,11 @@ impl Session {
 
     fn edit_string(&mut self, f: impl FnOnce(&mut String, &mut usize)) {
         let Some(edit) = &mut self.text else { return };
-        if let Some(Shape { kind: Kind::Text { text, .. }, .. }) = self.doc.shape_mut(edit.id) {
+        if let Some(Shape {
+            kind: Kind::Text { text, .. },
+            ..
+        }) = self.doc.shape_mut(edit.id)
+        {
             f(text, &mut edit.caret);
         }
     }
@@ -604,7 +694,10 @@ impl Session {
         match key {
             Key::Escape => self.commit_text(),
             Key::Text(typed) => self.edit_string(|text, caret| {
-                let typed: String = typed.chars().filter(|c| !c.is_control() || *c == '\n').collect();
+                let typed: String = typed
+                    .chars()
+                    .filter(|c| !c.is_control() || *c == '\n')
+                    .collect();
                 text.insert_str(*caret, &typed);
                 *caret += typed.len();
             }),
@@ -624,13 +717,20 @@ impl Session {
                 }
             }),
             Key::Left => self.edit_string(|text, caret| {
-                *caret = text[..*caret].char_indices().next_back().map_or(0, |(i, _)| i);
+                *caret = text[..*caret]
+                    .char_indices()
+                    .next_back()
+                    .map_or(0, |(i, _)| i);
             }),
             Key::Right => self.edit_string(|text, caret| {
                 *caret += text[*caret..].chars().next().map_or(0, char::len_utf8);
             }),
-            Key::Home => self.edit_string(|text, caret| *caret = text[..*caret].rfind('\n').map_or(0, |i| i + 1)),
-            Key::End => self.edit_string(|text, caret| *caret += text[*caret..].find('\n').unwrap_or(text.len() - *caret)),
+            Key::Home => self.edit_string(|text, caret| {
+                *caret = text[..*caret].rfind('\n').map_or(0, |i| i + 1)
+            }),
+            Key::End => self.edit_string(|text, caret| {
+                *caret += text[*caret..].find('\n').unwrap_or(text.len() - *caret)
+            }),
             Key::Up | Key::Down => return Outcome::Nothing,
         }
         Outcome::Redraw
@@ -672,7 +772,9 @@ impl Session {
                     Key::Up => (0.0, -step),
                     _ => (0.0, step),
                 };
-                let Some(id) = self.selected else { return Outcome::Nothing };
+                let Some(id) = self.selected else {
+                    return Outcome::Nothing;
+                };
                 self.doc.checkpoint();
                 if let Some(shape) = self.doc.shape_mut(id) {
                     shape.translate(dx, dy);
@@ -715,7 +817,10 @@ impl Session {
     fn enter_crop(&mut self) {
         self.selected = None;
         let rect = self.doc.crop().unwrap_or_else(|| self.doc.bounds());
-        self.crop = Some(CropEdit { rect, previous_tool: self.tool });
+        self.crop = Some(CropEdit {
+            rect,
+            previous_tool: self.tool,
+        });
         self.tool = Tool::Crop;
     }
 
@@ -777,7 +882,11 @@ fn crop_handle_at(rect: Rect, p: Point, reach: Reach) -> Option<Handle> {
 }
 
 fn redraw(changed: bool) -> Outcome {
-    if changed { Outcome::Redraw } else { Outcome::Nothing }
+    if changed {
+        Outcome::Redraw
+    } else {
+        Outcome::Nothing
+    }
 }
 
 #[cfg(test)]
@@ -785,11 +894,22 @@ mod tests {
     use super::*;
     use screenie_core::{Image, PixelFormat};
 
-    const REACH: Reach = Reach { tolerance: 4.0, handle: 8.0 };
-    const NONE: Modifiers = Modifiers { shift: false, ctrl: false, alt: false };
+    const REACH: Reach = Reach {
+        tolerance: 4.0,
+        handle: 8.0,
+    };
+    const NONE: Modifiers = Modifiers {
+        shift: false,
+        ctrl: false,
+        alt: false,
+    };
 
     fn session() -> Session {
-        Session::new(Document::new(&Image::new(400, 300, PixelFormat::Rgbx), 1.0), Style::default(), false)
+        Session::new(
+            Document::new(&Image::new(400, 300, PixelFormat::Rgbx), 1.0),
+            Style::default(),
+            false,
+        )
     }
 
     fn pt(x: f64, y: f64) -> Point {
@@ -812,7 +932,10 @@ mod tests {
         let mut s = session();
         drag(&mut s, pt(10.0, 10.0), pt(100.0, 80.0));
         assert_eq!(s.doc().shapes().len(), 1);
-        assert!(matches!(s.selected().map(|s| &s.kind), Some(Kind::Arrow { .. })));
+        assert!(matches!(
+            s.selected().map(|s| &s.kind),
+            Some(Kind::Arrow { .. })
+        ));
         assert!(s.undo());
         assert!(s.doc().shapes().is_empty());
         assert!(s.selected().is_none());
@@ -836,9 +959,15 @@ mod tests {
         drag(&mut s, pt(10.0, 10.0), pt(110.0, 60.0));
         drag(&mut s, pt(110.0, 60.0), pt(150.0, 100.0));
         assert_eq!(s.doc().shapes().len(), 1);
-        assert_eq!(s.selected().unwrap().bounds(1.0), Rect::new(10.0, 10.0, 140.0, 90.0));
+        assert_eq!(
+            s.selected().unwrap().bounds(1.0),
+            Rect::new(10.0, 10.0, 140.0, 90.0)
+        );
         s.undo();
-        assert_eq!(s.doc().shapes()[0].bounds(1.0), Rect::new(10.0, 10.0, 100.0, 50.0));
+        assert_eq!(
+            s.doc().shapes()[0].bounds(1.0),
+            Rect::new(10.0, 10.0, 100.0, 50.0)
+        );
     }
 
     #[test]
@@ -850,7 +979,10 @@ mod tests {
         // On the selected shape's edge: moves it.
         drag(&mut s, pt(35.0, 10.0), pt(45.0, 20.0));
         assert_eq!(s.doc().shapes().len(), 1);
-        assert_eq!(s.doc().shapes()[0].bounds(1.0), Rect::new(20.0, 20.0, 100.0, 50.0));
+        assert_eq!(
+            s.doc().shapes()[0].bounds(1.0),
+            Rect::new(20.0, 20.0, 100.0, 50.0)
+        );
         // Elsewhere: a new rectangle.
         drag(&mut s, pt(200.0, 200.0), pt(250.0, 250.0));
         assert_eq!(s.doc().shapes().len(), 2);
@@ -968,7 +1100,10 @@ mod tests {
         // Thicker, same geometry.
         assert_eq!(after.kind, before.kind);
         s.undo();
-        assert_eq!(s.doc().shape(before.id).unwrap().style.size, before.style.size);
+        assert_eq!(
+            s.doc().shape(before.id).unwrap().style.size,
+            before.style.size
+        );
         assert_eq!(s.doc().shapes().len(), 1);
         // The style bar follows the selection back.
         assert_eq!(s.style().size, before.style.size);
@@ -1020,7 +1155,11 @@ mod tests {
         s.undo();
         assert!(s.is_copied() && !s.is_saved());
 
-        let opened = Session::new(Document::new(&Image::new(4, 4, PixelFormat::Rgbx), 1.0), Style::default(), true);
+        let opened = Session::new(
+            Document::new(&Image::new(4, 4, PixelFormat::Rgbx), 1.0),
+            Style::default(),
+            true,
+        );
         assert!(opened.is_saved());
     }
 
@@ -1028,7 +1167,10 @@ mod tests {
     fn pressing_the_redaction_key_again_switches_mode() {
         let mut s = session();
         s.key(Key::Text("b".into()), NONE);
-        assert_eq!((s.tool(), s.redaction()), (Tool::Redact, Redaction::Pixelate));
+        assert_eq!(
+            (s.tool(), s.redaction()),
+            (Tool::Redact, Redaction::Pixelate)
+        );
         s.key(Key::Text("b".into()), NONE);
         assert_eq!(s.redaction(), Redaction::Blur);
     }

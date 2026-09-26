@@ -112,7 +112,11 @@ pub(crate) struct Release<T> {
 
 impl<T> Default for Release<T> {
     fn default() -> Self {
-        Self { held: HeldKeys::default(), then: None, leaving: false }
+        Self {
+            held: HeldKeys::default(),
+            then: None,
+            leaving: false,
+        }
     }
 }
 
@@ -176,18 +180,34 @@ mod tests {
     use super::*;
 
     fn keystroke(key: &str, modifiers: Modifiers) -> Keystroke {
-        Keystroke { modifiers, key: key.into(), key_char: None }
+        Keystroke {
+            modifiers,
+            key: key.into(),
+            key_char: None,
+        }
     }
 
     fn down(key: &str, modifiers: Modifiers) -> KeyDownEvent {
-        KeyDownEvent { keystroke: keystroke(key, modifiers), is_held: false, prefer_character_input: false }
+        KeyDownEvent {
+            keystroke: keystroke(key, modifiers),
+            is_held: false,
+            prefer_character_input: false,
+        }
     }
 
     fn up(key: &str, modifiers: Modifiers) -> KeyUpEvent {
-        KeyUpEvent { keystroke: keystroke(key, modifiers) }
+        KeyUpEvent {
+            keystroke: keystroke(key, modifiers),
+        }
     }
 
-    const CTRL: Modifiers = Modifiers { control: true, alt: false, shift: false, platform: false, function: false };
+    const CTRL: Modifiers = Modifiers {
+        control: true,
+        alt: false,
+        shift: false,
+        platform: false,
+        function: false,
+    };
 
     #[test]
     fn waits_for_keys_and_modifiers() {
@@ -197,7 +217,10 @@ mod tests {
         assert_eq!(r.ready(), None);
         r.held.release(&up("w", CTRL));
         assert_eq!(r.ready(), None, "Ctrl is still down");
-        r.held.set_modifiers(&ModifiersChangedEvent { modifiers: Modifiers::default(), ..Default::default() });
+        r.held.set_modifiers(&ModifiersChangedEvent {
+            modifiers: Modifiers::default(),
+            ..Default::default()
+        });
         assert_eq!(r.ready(), Some("close"));
         assert_eq!(r.ready(), None, "only once");
         assert_eq!(r.take(), None, "not even on the timeout");

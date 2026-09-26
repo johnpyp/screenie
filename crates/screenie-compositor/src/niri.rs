@@ -27,7 +27,10 @@ impl Niri {
         let mut reply: Value = serde_json::from_str(&line)?;
         match reply.get_mut("Ok").and_then(|ok| ok.get_mut(name)) {
             Some(v) => Ok(v.take()),
-            None => Err(Error::Reply(format!("niri {name}: {}", reply.get("Err").unwrap_or(&reply)))),
+            None => Err(Error::Reply(format!(
+                "niri {name}: {}",
+                reply.get("Err").unwrap_or(&reply)
+            ))),
         }
     }
 }
@@ -50,13 +53,16 @@ impl Compositor for Niri {
     }
 }
 
-pub(crate) fn visible_windows(windows: &Value, workspaces: &Value, outputs: &Value) -> Vec<WindowInfo> {
+pub(crate) fn visible_windows(
+    windows: &Value,
+    workspaces: &Value,
+    outputs: &Value,
+) -> Vec<WindowInfo> {
     // Active workspace id -> origin of its output in the global layout.
     let origin_of = |workspace_id: u64| -> Option<(f64, f64)> {
-        let ws = workspaces
-            .as_array()?
-            .iter()
-            .find(|w| w["id"].as_u64() == Some(workspace_id) && w["is_active"].as_bool() == Some(true))?;
+        let ws = workspaces.as_array()?.iter().find(|w| {
+            w["id"].as_u64() == Some(workspace_id) && w["is_active"].as_bool() == Some(true)
+        })?;
         let logical = &outputs[ws["output"].as_str()?]["logical"];
         Some((logical["x"].as_f64()?, logical["y"].as_f64()?))
     };
@@ -74,13 +80,24 @@ pub(crate) fn visible_windows(windows: &Value, workspaces: &Value, outputs: &Val
             let tile = &layout["tile_pos_in_workspace_view"];
             let (tx, ty) = (tile[0].as_f64()?, tile[1].as_f64()?);
             let off = &layout["window_offset_in_tile"];
-            let (dx, dy) = (off[0].as_f64().unwrap_or(0.0), off[1].as_f64().unwrap_or(0.0));
+            let (dx, dy) = (
+                off[0].as_f64().unwrap_or(0.0),
+                off[1].as_f64().unwrap_or(0.0),
+            );
             let size = &layout["window_size"];
-            let rect = Rect::new(ox + tx + dx, oy + ty + dy, size[0].as_f64()?, size[1].as_f64()?);
+            let rect = Rect::new(
+                ox + tx + dx,
+                oy + ty + dy,
+                size[0].as_f64()?,
+                size[1].as_f64()?,
+            );
             let floating = w["is_floating"].as_bool().unwrap_or(false);
             let focused = w["is_focused"].as_bool().unwrap_or(false);
             let ts = &w["focus_timestamp"];
-            let recency = (ts["secs"].as_u64().unwrap_or(0), ts["nanos"].as_u64().unwrap_or(0));
+            let recency = (
+                ts["secs"].as_u64().unwrap_or(0),
+                ts["nanos"].as_u64().unwrap_or(0),
+            );
             let info = WindowInfo {
                 id: w["id"].to_string(),
                 title: w["title"].as_str().unwrap_or_default().to_string(),

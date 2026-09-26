@@ -26,7 +26,12 @@ pub(crate) struct Actions {
 }
 
 impl Actions {
-    pub fn resolve(configured: &AfterCapture, overrides: &ActionOverrides, output: Option<PathBuf>, want_file: bool) -> Self {
+    pub fn resolve(
+        configured: &AfterCapture,
+        overrides: &ActionOverrides,
+        output: Option<PathBuf>,
+        want_file: bool,
+    ) -> Self {
         Self {
             copy: overrides.copy.unwrap_or(configured.copy),
             // An explicit output path implies saving.
@@ -101,7 +106,10 @@ pub(crate) async fn screenshot(
             actions.preview = true;
         } else {
             cx.update(|cx| crate::editor::open(capture, None, actions, cx))?;
-            return Ok(Delivered { path: None, temporary: false });
+            return Ok(Delivered {
+                path: None,
+                temporary: false,
+            });
         }
     }
     let started = std::time::Instant::now();
@@ -113,7 +121,10 @@ pub(crate) async fn screenshot(
         .spawn(async move {
             let png = encode_png(&work_image)?;
             let saved = if work_actions.save {
-                let path = work_actions.output.clone().unwrap_or_else(|| screenshot_path(&config, &subject));
+                let path = work_actions
+                    .output
+                    .clone()
+                    .unwrap_or_else(|| screenshot_path(&config, &subject));
                 write_atomic(&path, &png)?;
                 Some(path)
             } else {
@@ -121,16 +132,21 @@ pub(crate) async fn screenshot(
             };
             let temp = if saved.is_none() && work_actions.want_file {
                 let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S%.3f");
-                let path = Paths::get().runtime_dir().join(format!("capture-{stamp}.png"));
+                let path = Paths::get()
+                    .runtime_dir()
+                    .join(format!("capture-{stamp}.png"));
                 write_atomic(&path, &png)?;
                 Some(path)
             } else {
                 None
             };
             let copied = work_actions.copy
-                && clipboard::copy(clipboard::Content::Image { png: png.clone(), file: saved.as_deref() })
-                    .inspect_err(|e| tracing::warn!("{e}"))
-                    .is_ok();
+                && clipboard::copy(clipboard::Content::Image {
+                    png: png.clone(),
+                    file: saved.as_deref(),
+                })
+                .inspect_err(|e| tracing::warn!("{e}"))
+                .is_ok();
             let temporary = temp.is_some();
             anyhow::Ok((saved.or(temp), temporary, png, copied))
         })
@@ -158,11 +174,18 @@ pub(crate) async fn recording(
     cx: &mut AsyncApp,
 ) {
     let path = finished.path.clone();
-    cx.update(|cx| Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Recording, Some(path))));
+    cx.update(|cx| {
+        Daemon::update(cx, |d, _| {
+            d.note_capture(CaptureKind::Recording, Some(path))
+        })
+    });
     let copied = actions.copy && {
         let path = finished.path.clone();
         cx.background_executor()
-            .spawn(async move { clipboard::copy(clipboard::Content::File(&path)).inspect_err(|e| tracing::warn!("{e}")) })
+            .spawn(async move {
+                clipboard::copy(clipboard::Content::File(&path))
+                    .inspect_err(|e| tracing::warn!("{e}"))
+            })
             .await
             .is_ok()
     };

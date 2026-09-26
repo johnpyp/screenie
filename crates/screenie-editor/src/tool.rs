@@ -89,7 +89,9 @@ impl Tool {
 
     pub fn from_key(key: &str) -> Option<Tool> {
         let mut chars = key.chars();
-        let (Some(c), None) = (chars.next(), chars.next()) else { return None };
+        let (Some(c), None) = (chars.next(), chars.next()) else {
+            return None;
+        };
         Tool::ALL.into_iter().find(|t| t.key() == c)
     }
 
@@ -112,7 +114,10 @@ impl Tool {
 
     /// Whether the tool uses a colour.
     pub fn uses_color(self) -> bool {
-        !matches!(self, Tool::Select | Tool::Redact | Tool::Spotlight | Tool::Crop)
+        !matches!(
+            self,
+            Tool::Select | Tool::Redact | Tool::Spotlight | Tool::Crop
+        )
     }
 
     /// Whether the size control means anything for the tool.

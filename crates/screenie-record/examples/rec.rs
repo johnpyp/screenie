@@ -9,25 +9,44 @@ use screenie_record::{AudioSources, Encoder, RecordSpec, Recording};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("encoders") {
         gst::init()?;
         for (encoder, ok) in Encoder::survey() {
-            let device = encoder.device.as_ref().map(|d| d.describe()).unwrap_or_default();
-            let kind = if encoder.hardware() { "hardware" } else { "software" };
+            let device = encoder
+                .device
+                .as_ref()
+                .map(|d| d.describe())
+                .unwrap_or_default();
+            let kind = if encoder.hardware() {
+                "hardware"
+            } else {
+                "software"
+            };
             println!("{:28} {kind:8} {ok:5} {device}", encoder.name());
         }
         return Ok(());
     }
-    let output = args.first().ok_or("usage: rec OUTPUT SECONDS FILE [region] [audio] [pause]")?;
+    let output = args
+        .first()
+        .ok_or("usage: rec OUTPUT SECONDS FILE [region] [audio] [pause]")?;
     let seconds: f64 = args.get(1).map(|s| s.parse()).transpose()?.unwrap_or(3.0);
-    let path = args.get(2).cloned().unwrap_or_else(|| ".cache/rec.mp4".into());
+    let path = args
+        .get(2)
+        .cloned()
+        .unwrap_or_else(|| ".cache/rec.mp4".into());
     if let Some(dir) = std::path::Path::new(&path).parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let region = args.get(3).filter(|a| a.contains('x')).map(|r| r.parse()).transpose()?;
+    let region = args
+        .get(3)
+        .filter(|a| a.contains('x'))
+        .map(|r| r.parse())
+        .transpose()?;
     let flag = |f: &str| args.iter().any(|a| a == f);
 
     let capture = CaptureContext::new();
@@ -41,7 +60,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "hw" => EncoderPreference::Hardware,
             _ => EncoderPreference::Software,
         }),
-        audio: AudioSources { system: flag("audio"), microphone: flag("mic") },
+        audio: AudioSources {
+            system: flag("audio"),
+            microphone: flag("mic"),
+        },
     };
     let recording = Recording::start(source, spec)?;
     println!("recording with {}", recording.encoder().name());

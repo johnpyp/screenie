@@ -30,7 +30,10 @@ pub(crate) const SUPPORTED_FORMATS: &[wl_shm::Format] = &[
 
 /// Pick the most preferred format from those the compositor offers.
 pub(crate) fn choose_format(offered: &[wl_shm::Format]) -> Option<wl_shm::Format> {
-    SUPPORTED_FORMATS.iter().copied().find(|f| offered.contains(f))
+    SUPPORTED_FORMATS
+        .iter()
+        .copied()
+        .find(|f| offered.contains(f))
 }
 
 /// Bytes per pixel of a supported format.
@@ -56,10 +59,22 @@ enum Layout {
 fn layout(format: wl_shm::Format) -> Layout {
     match format {
         wl_shm::Format::Rgb888 | wl_shm::Format::Bgr888 => Layout::Packed24,
-        wl_shm::Format::Xrgb2101010 => Layout::Deep { bgr: false, alpha: false },
-        wl_shm::Format::Argb2101010 => Layout::Deep { bgr: false, alpha: true },
-        wl_shm::Format::Xbgr2101010 => Layout::Deep { bgr: true, alpha: false },
-        wl_shm::Format::Abgr2101010 => Layout::Deep { bgr: true, alpha: true },
+        wl_shm::Format::Xrgb2101010 => Layout::Deep {
+            bgr: false,
+            alpha: false,
+        },
+        wl_shm::Format::Argb2101010 => Layout::Deep {
+            bgr: false,
+            alpha: true,
+        },
+        wl_shm::Format::Xbgr2101010 => Layout::Deep {
+            bgr: true,
+            alpha: false,
+        },
+        wl_shm::Format::Abgr2101010 => Layout::Deep {
+            bgr: true,
+            alpha: true,
+        },
         _ => Layout::Native,
     }
 }
@@ -70,13 +85,22 @@ fn pixel_format(format: wl_shm::Format) -> PixelFormat {
     // with garbage or zeroes on some drivers), so treat everything as padded.
     match format {
         // R in the low byte: R,G,B(,x) in memory.
-        wl_shm::Format::Xbgr8888 | wl_shm::Format::Abgr8888 | wl_shm::Format::Bgr888 => PixelFormat::Rgbx,
+        wl_shm::Format::Xbgr8888 | wl_shm::Format::Abgr8888 | wl_shm::Format::Bgr888 => {
+            PixelFormat::Rgbx
+        }
         _ => PixelFormat::Bgrx,
     }
 }
 
 /// Decode raw buffer memory into an 8-bit [`Image`], flipping rows if `y_invert`.
-fn decode(format: wl_shm::Format, mem: &[u8], width: u32, height: u32, stride: usize, y_invert: bool) -> Image {
+fn decode(
+    format: wl_shm::Format,
+    mem: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    y_invert: bool,
+) -> Image {
     let (w, h) = (width as usize, height as usize);
     let row_bytes = w * bytes_per_pixel(format) as usize;
     let layout = layout(format);
@@ -97,7 +121,11 @@ fn decode(format: wl_shm::Format, mem: &[u8], width: u32, height: u32, stride: u
                     let hi = ((v >> 20) & 0x3ff) >> 2;
                     let mid = ((v >> 10) & 0x3ff) >> 2;
                     let lo = (v & 0x3ff) >> 2;
-                    let a = if alpha { (((v >> 30) & 0x3) * 85) as u8 } else { 255 };
+                    let a = if alpha {
+                        (((v >> 30) & 0x3) * 85) as u8
+                    } else {
+                        255
+                    };
                     // Written out in our Bgrx order: xRGB has red high, xBGR blue high.
                     let (b, r) = if bgr { (hi, lo) } else { (lo, hi) };
                     data.extend_from_slice(&[b as u8, mid as u8, r as u8, a]);
@@ -105,7 +133,11 @@ fn decode(format: wl_shm::Format, mem: &[u8], width: u32, height: u32, stride: u
             }
         }
     }
-    let out_format = if matches!(layout, Layout::Deep { .. }) { PixelFormat::Bgrx } else { pixel_format(format) };
+    let out_format = if matches!(layout, Layout::Deep { .. }) {
+        PixelFormat::Bgrx
+    } else {
+        pixel_format(format)
+    };
     Image::from_raw(width, height, w * 4, out_format, data)
 }
 
@@ -128,11 +160,16 @@ impl ShmBuffer {
         qh: &QueueHandle<D>,
     ) -> Result<Self, Error>
     where
-        D: Dispatch<wayland_client::protocol::wl_shm_pool::WlShmPool, ()> + Dispatch<WlBuffer, ()> + 'static,
+        D: Dispatch<wayland_client::protocol::wl_shm_pool::WlShmPool, ()>
+            + Dispatch<WlBuffer, ()>
+            + 'static,
     {
         let size = stride as usize * height as usize;
-        let fd = memfd_create("screenie-frame", MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING)
-            .map_err(|e| Error::Io(e.into()))?;
+        let fd = memfd_create(
+            "screenie-frame",
+            MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+        )
+        .map_err(|e| Error::Io(e.into()))?;
         let file = File::from(fd);
         file.set_len(size as u64)?;
         // SAFETY: the memfd is private to us and the compositor, and we only read it
@@ -140,9 +177,24 @@ impl ShmBuffer {
         let map = unsafe { MmapMut::map_mut(&file)? };
         use std::os::fd::AsFd;
         let pool = shm.create_pool(file.as_fd(), size as i32, qh, ());
-        let wl_buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, format, qh, ());
+        let wl_buffer = pool.create_buffer(
+            0,
+            width as i32,
+            height as i32,
+            stride as i32,
+            format,
+            qh,
+            (),
+        );
         pool.destroy();
-        Ok(Self { wl_buffer, map, width, height, stride, format })
+        Ok(Self {
+            wl_buffer,
+            map,
+            width,
+            height,
+            stride,
+            format,
+        })
     }
 
     pub fn matches(&self, width: u32, height: u32, format: wl_shm::Format) -> bool {
@@ -157,7 +209,14 @@ impl ShmBuffer {
     }
 
     fn read(&self, y_invert: bool) -> Image {
-        decode(self.format, &self.map, self.width, self.height, self.stride as usize, y_invert)
+        decode(
+            self.format,
+            &self.map,
+            self.width,
+            self.height,
+            self.stride as usize,
+            y_invert,
+        )
     }
 }
 
@@ -175,7 +234,11 @@ pub fn transform_image(src: &Image, transform: Transform) -> Image {
         return src.clone();
     }
     let (sw, sh) = (src.width() as usize, src.height() as usize);
-    let (dw, dh) = if transform.swaps_axes() { (sh, sw) } else { (sw, sh) };
+    let (dw, dh) = if transform.swaps_axes() {
+        (sh, sw)
+    } else {
+        (sw, sh)
+    };
     let s = src.data();
     let stride = src.stride();
     let mut out = vec![0u8; dw * dh * 4];
@@ -247,6 +310,10 @@ mod tests {
         check(Xbgr2101010, &deep(0, 0x3ff), &deep(0x3ff, 0));
         check(Argb2101010, &deep(0x3ff, 0), &deep(0, 0x3ff));
         check(Abgr2101010, &deep(0, 0x3ff), &deep(0x3ff, 0));
-        assert_eq!(SUPPORTED_FORMATS.len(), 10, "every supported format is covered above");
+        assert_eq!(
+            SUPPORTED_FORMATS.len(),
+            10,
+            "every supported format is covered above"
+        );
     }
 }

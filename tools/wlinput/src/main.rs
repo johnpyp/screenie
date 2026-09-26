@@ -35,16 +35,26 @@ use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{wl_pointer, wl_registry, wl_seat};
 use wayland_client::{Connection, Dispatch, QueueHandle, delegate_noop};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
-    zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
+    zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
+    zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
 };
 use wayland_protocols_wlr::virtual_pointer::v1::client::{
-    zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1, zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
+    zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1,
+    zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
 };
 
 struct State;
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
-    fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &wl_registry::WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 delegate_noop!(State: ignore wl_seat::WlSeat);
 delegate_noop!(State: ZwlrVirtualPointerManagerV1);
@@ -104,9 +114,27 @@ fn keycode(name: &str) -> Option<u32> {
 /// The key and whether it needs Shift, for typing `c` on a US layout.
 fn char_key(c: char) -> Option<(u32, bool)> {
     const SHIFTED: [(char, char); 21] = [
-        ('!', '1'), ('@', '2'), ('#', '3'), ('$', '4'), ('%', '5'), ('^', '6'), ('&', '7'), ('*', '8'), ('(', '9'),
-        (')', '0'), ('_', '-'), ('+', '='), ('{', '['), ('}', ']'), (':', ';'), ('"', '\''), ('~', '`'), ('|', '\\'),
-        ('<', ','), ('>', '.'), ('?', '/'),
+        ('!', '1'),
+        ('@', '2'),
+        ('#', '3'),
+        ('$', '4'),
+        ('%', '5'),
+        ('^', '6'),
+        ('&', '7'),
+        ('*', '8'),
+        ('(', '9'),
+        (')', '0'),
+        ('_', '-'),
+        ('+', '='),
+        ('{', '['),
+        ('}', ']'),
+        (':', ';'),
+        ('"', '\''),
+        ('~', '`'),
+        ('|', '\\'),
+        ('<', ','),
+        ('>', '.'),
+        ('?', '/'),
     ];
     if c == ' ' {
         return Some((57, false));
@@ -151,7 +179,13 @@ impl Input {
     fn move_to(&mut self, x: f64, y: f64) {
         let (ox, oy, w, h) = self.extent;
         let t = self.time();
-        self.pointer.motion_absolute(t, (x - ox).max(0.0) as u32, (y - oy).max(0.0) as u32, w as u32, h as u32);
+        self.pointer.motion_absolute(
+            t,
+            (x - ox).max(0.0) as u32,
+            (y - oy).max(0.0) as u32,
+            w as u32,
+            h as u32,
+        );
         self.pointer.frame();
         self.pos = (x, y);
         self.flush();
@@ -160,14 +194,23 @@ impl Input {
     fn scroll(&mut self, clicks: i32) {
         let time = self.time();
         self.pointer.axis_source(wl_pointer::AxisSource::Wheel);
-        self.pointer.axis_discrete(time, wl_pointer::Axis::VerticalScroll, 15.0 * clicks as f64, clicks);
+        self.pointer.axis_discrete(
+            time,
+            wl_pointer::Axis::VerticalScroll,
+            15.0 * clicks as f64,
+            clicks,
+        );
         self.pointer.frame();
         self.flush();
     }
 
     fn button(&mut self, button: u32, pressed: bool) {
         let t = self.time();
-        let state = if pressed { wl_pointer::ButtonState::Pressed } else { wl_pointer::ButtonState::Released };
+        let state = if pressed {
+            wl_pointer::ButtonState::Pressed
+        } else {
+            wl_pointer::ButtonState::Released
+        };
         self.pointer.button(t, button, state);
         self.pointer.frame();
         self.flush();
@@ -188,7 +231,11 @@ impl Input {
             _ => 0,
         };
         if bit != 0 {
-            self.mods = if pressed { self.mods | bit } else { self.mods & !bit };
+            self.mods = if pressed {
+                self.mods | bit
+            } else {
+                self.mods & !bit
+            };
             kb.modifiers(self.mods, 0, 0, 0);
         }
         self.flush();
@@ -203,7 +250,9 @@ fn main() {
     }
 
     // The layout extent maps absolute motion onto global coordinates.
-    let outputs = screenie_wayland::Capturer::connect().map(|c| c.outputs()).unwrap_or_default();
+    let outputs = screenie_wayland::Capturer::connect()
+        .map(|c| c.outputs())
+        .unwrap_or_default();
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for o in &outputs {
         x0 = x0.min(o.logical.x);
@@ -219,23 +268,36 @@ fn main() {
     let (globals, mut queue) = registry_queue_init::<State>(&conn).expect("registry");
     let qh = queue.handle();
     let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=7, ()).expect("seat");
-    let pointer_manager: ZwlrVirtualPointerManagerV1 =
-        globals.bind(&qh, 1..=2, ()).expect("compositor lacks zwlr_virtual_pointer_manager_v1");
+    let pointer_manager: ZwlrVirtualPointerManagerV1 = globals
+        .bind(&qh, 1..=2, ())
+        .expect("compositor lacks zwlr_virtual_pointer_manager_v1");
     let pointer = pointer_manager.create_virtual_pointer(Some(&seat), &qh, ());
-    let keyboard = globals.bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ()).ok().map(|m| {
-        let kb = m.create_virtual_keyboard(&seat, &qh, ());
-        let ctx = xkbcommon::xkb::Context::new(xkbcommon::xkb::CONTEXT_NO_FLAGS);
-        let keymap = xkbcommon::xkb::Keymap::new_from_names(&ctx, "", "", "us", "", None, xkbcommon::xkb::KEYMAP_COMPILE_NO_FLAGS)
+    let keyboard = globals
+        .bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ())
+        .ok()
+        .map(|m| {
+            let kb = m.create_virtual_keyboard(&seat, &qh, ());
+            let ctx = xkbcommon::xkb::Context::new(xkbcommon::xkb::CONTEXT_NO_FLAGS);
+            let keymap = xkbcommon::xkb::Keymap::new_from_names(
+                &ctx,
+                "",
+                "",
+                "us",
+                "",
+                None,
+                xkbcommon::xkb::KEYMAP_COMPILE_NO_FLAGS,
+            )
             .expect("us keymap");
-        let text = keymap.get_as_string(xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1);
-        let fd = rustix::fs::memfd_create("keymap", rustix::fs::MemfdFlags::CLOEXEC).expect("memfd");
-        let file = std::fs::File::from(fd);
-        use std::io::Write;
-        (&file).write_all(text.as_bytes()).expect("write keymap");
-        (&file).write_all(&[0]).expect("write keymap");
-        kb.keymap(1, file.as_fd(), text.len() as u32 + 1);
-        kb
-    });
+            let text = keymap.get_as_string(xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1);
+            let fd =
+                rustix::fs::memfd_create("keymap", rustix::fs::MemfdFlags::CLOEXEC).expect("memfd");
+            let file = std::fs::File::from(fd);
+            use std::io::Write;
+            (&file).write_all(text.as_bytes()).expect("write keymap");
+            (&file).write_all(&[0]).expect("write keymap");
+            kb.keymap(1, file.as_fd(), text.len() as u32 + 1);
+            kb
+        });
     queue.roundtrip(&mut State).expect("roundtrip");
     // Clients drop the first key from a keyboard whose keymap they haven't seen yet, so
     // introduce it with a no-op modifiers event first.
@@ -291,7 +353,9 @@ fn run_chain(input: &mut Input, args: &[String]) -> Result<(), String> {
 
 fn run(input: &mut Input, cmd: &str, rest: &[String]) -> Result<(), String> {
     let num = |i: usize| -> Result<f64, String> {
-        rest.get(i).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{cmd}: expected a number"))
+        rest.get(i)
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| format!("{cmd}: expected a number"))
     };
     let key = |name: &str| keycode(name).ok_or_else(|| format!("unknown key {name}"));
     let pause = |ms| std::thread::sleep(Duration::from_millis(ms));

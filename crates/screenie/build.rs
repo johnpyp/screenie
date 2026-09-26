@@ -7,19 +7,32 @@ use std::process::Command;
 
 fn git(args: &[&str]) -> Option<String> {
     let dir = std::env::var("CARGO_MANIFEST_DIR").ok()?;
-    let out = Command::new("git").args(args).current_dir(dir).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 fn main() {
-    let commit = git(&["log", "-1", "--format=%h %cd", "--date=format:%Y-%m-%d %H:%M"])
-        .filter(|c| !c.is_empty())
-        .unwrap_or_else(|| "unknown commit".into());
+    let commit = git(&[
+        "log",
+        "-1",
+        "--format=%h %cd",
+        "--date=format:%Y-%m-%d %H:%M",
+    ])
+    .filter(|c| !c.is_empty())
+    .unwrap_or_else(|| "unknown commit".into());
     println!("cargo:rustc-env=SCREENIE_COMMIT={commit}");
 
     // Re-stamp when HEAD moves. Missing paths are skipped: cargo would treat them as
     // always changed and rebuild every time.
-    let Some(git_dir) = git(&["rev-parse", "--absolute-git-dir"]) else { return };
+    let Some(git_dir) = git(&["rev-parse", "--absolute-git-dir"]) else {
+        return;
+    };
     let git_dir = Path::new(&git_dir);
     let mut watch = vec![git_dir.join("HEAD"), git_dir.join("packed-refs")];
     if let Some(branch) = git(&["symbolic-ref", "-q", "HEAD"]) {

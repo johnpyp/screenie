@@ -12,12 +12,17 @@ use wl_clipboard_rs::copy::{MimeSource, MimeType, Options, Source};
 /// What to offer. Images are offered both as pixels and, when saved, as a file, so pasting
 /// into an image editor and into a file manager both do the right thing.
 pub(crate) enum Content<'a> {
-    Image { png: Vec<u8>, file: Option<&'a Path> },
+    Image {
+        png: Vec<u8>,
+        file: Option<&'a Path>,
+    },
     File(&'a Path),
 }
 
 fn file_uri(path: &Path) -> String {
-    url::Url::from_file_path(path).map(|u| u.to_string()).unwrap_or_else(|_| format!("file://{}", path.display()))
+    url::Url::from_file_path(path)
+        .map(|u| u.to_string())
+        .unwrap_or_else(|_| format!("file://{}", path.display()))
 }
 
 fn file_sources(path: &Path) -> Vec<MimeSource> {
@@ -63,5 +68,7 @@ pub(crate) fn copy(content: Content<'_>) -> anyhow::Result<()> {
     let mut options = Options::new();
     // Only real text should paste into text fields, not a file URI.
     options.omit_additional_text_mime_types(true);
-    options.copy_multi(sources).map_err(|e| anyhow::anyhow!("clipboard: {e}"))
+    options
+        .copy_multi(sources)
+        .map_err(|e| anyhow::anyhow!("clipboard: {e}"))
 }

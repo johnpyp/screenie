@@ -9,6 +9,6 @@ pub mod stream;
 
 pub use desktop::{OutputCapture, OutputInfo, Snapshot, WindowInfo};
 pub use geom::{PixelRect, Point, Rect, Size, Transform};
-pub use image::{Image, ImageError, PixelFormat};
 pub use gpu::{Dmabuf, DmabufFormat, DmabufPlane, GpuDevice, GpuOffer};
+pub use image::{Image, ImageError, PixelFormat};
 pub use stream::{Frame, FrameSource, Next, Pacer, Pixels, SourceError};

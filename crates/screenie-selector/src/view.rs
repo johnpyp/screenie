@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, BoxShadow, Context, CursorStyle, DispatchPhase, Entity, FocusHandle, Hitbox,
-    HitboxBehavior, Hsla, KeyDownEvent, KeyUpEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, RenderImage, Window, canvas, div, fill, point, px, quad, rgba, size,
+    AnyElement, Bounds, BoxShadow, Context, CursorStyle, DispatchPhase, Entity, FocusHandle,
+    Hitbox, HitboxBehavior, Hsla, KeyDownEvent, KeyUpEvent, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, RenderImage, Window, canvas, div, fill,
+    point, px, quad, rgba, size,
 };
 use screenie_core::{Image, OutputInfo, Point, Rect, Snapshot};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
@@ -44,7 +45,10 @@ impl Session {
     /// looks gone straight away.
     pub fn finish(&mut self, selection: Option<Selection>, cx: &mut Context<Self>) {
         let Some(done) = self.done.take() else { return };
-        let choice = selection.map(|selection| Choice { selection, record: self.record });
+        let choice = selection.map(|selection| Choice {
+            selection,
+            record: self.record,
+        });
         self.grab.update(cx, |grab, cx| {
             grab.when_released(
                 move |_| {
@@ -68,7 +72,10 @@ impl Session {
             .filter(|o| o.logical.intersection(&r).is_some())
             .map(|o| o.scale)
             .fold(1.0, f64::max);
-        ((r.width * scale).round() as u32, (r.height * scale).round() as u32)
+        (
+            (r.width * scale).round() as u32,
+            (r.height * scale).round() as u32,
+        )
     }
 
     /// The confirm button (Capture / Record) on `output`'s toolbar: exactly what Enter
@@ -76,7 +83,13 @@ impl Session {
     fn confirm_on(&mut self, output: &str, cx: &mut Context<Self>) {
         let selection = match self.model.confirm() {
             Outcome::Confirm(selection) => Some(selection),
-            _ => self.model.outputs().iter().find(|o| o.name == output).cloned().map(Selection::Output),
+            _ => self
+                .model
+                .outputs()
+                .iter()
+                .find(|o| o.name == output)
+                .cloned()
+                .map(Selection::Output),
         };
         if selection.is_some() {
             self.finish(selection, cx);
@@ -94,7 +107,11 @@ pub(crate) struct OutputView {
 }
 
 fn modifiers(m: &gpui::Modifiers) -> Modifiers {
-    Modifiers { shift: m.shift, ctrl: m.control, alt: m.alt }
+    Modifiers {
+        shift: m.shift,
+        ctrl: m.control,
+        alt: m.alt,
+    }
 }
 
 fn map_key(key: &str) -> Option<Key> {
@@ -130,16 +147,29 @@ fn to_px(v: f64) -> Pixels {
 }
 
 fn gbounds(r: Rect) -> Bounds<Pixels> {
-    Bounds::new(point(to_px(r.x), to_px(r.y)), size(to_px(r.width), to_px(r.height)))
+    Bounds::new(
+        point(to_px(r.x), to_px(r.y)),
+        size(to_px(r.width), to_px(r.height)),
+    )
 }
 
 /// The parts of `outer` not covered by `hole` (which lies within it).
 fn surround(outer: Rect, hole: Rect) -> impl Iterator<Item = Rect> {
     [
         Rect::new(outer.x, outer.y, outer.width, hole.y - outer.y),
-        Rect::new(outer.x, hole.bottom(), outer.width, outer.bottom() - hole.bottom()),
+        Rect::new(
+            outer.x,
+            hole.bottom(),
+            outer.width,
+            outer.bottom() - hole.bottom(),
+        ),
         Rect::new(outer.x, hole.y, hole.x - outer.x, hole.height),
-        Rect::new(hole.right(), hole.y, outer.right() - hole.right(), hole.height),
+        Rect::new(
+            hole.right(),
+            hole.y,
+            outer.right() - hole.right(),
+            hole.height,
+        ),
     ]
     .into_iter()
     .filter(|r| !r.is_empty())
@@ -168,12 +198,22 @@ impl OutputView {
         // Tests wait for this before typing (see tests/e2e).
         let name = output.name.clone();
         cx.observe_window_activation(window, move |_, window, _| {
-            tracing::debug!(output = name, active = window.is_window_active(), "selector keyboard focus");
+            tracing::debug!(
+                output = name,
+                active = window.is_window_active(),
+                "selector keyboard focus"
+            );
         })
         .detach();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        Self { session, output, frozen, focus, over_toolbar: false }
+        Self {
+            session,
+            output,
+            frozen,
+            focus,
+            over_toolbar: false,
+        }
     }
 
     fn local(&self, r: Rect) -> Rect {
@@ -209,7 +249,12 @@ impl OutputView {
         });
     }
 
-    fn on_modifiers(&mut self, event: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_modifiers(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let mods = modifiers(&event.modifiers);
         self.session.update(cx, |s, cx| {
             let outcome = s.model.set_modifiers(mods);
@@ -228,21 +273,37 @@ impl OutputView {
         canvas(
             |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
             move |bounds, hitbox: Hitbox, window, cx| {
-                let to_global = move |p: gpui::Point<Pixels>| Point::new(origin.x + f64::from(p.x), origin.y + f64::from(p.y));
+                let to_global = move |p: gpui::Point<Pixels>| {
+                    Point::new(origin.x + f64::from(p.x), origin.y + f64::from(p.y))
+                };
                 let s = session.read(cx);
                 let local = |r: Rect| r.translate(-origin.x, -origin.y);
 
                 if let Some(img) = &frozen {
-                    let _ = window.paint_image(bounds, bounds, Default::default(), img.clone(), 0, false);
+                    let _ = window.paint_image(
+                        bounds,
+                        bounds,
+                        Default::default(),
+                        img.clone(),
+                        0,
+                        false,
+                    );
                 }
 
-                let view = Rect::new(0.0, 0.0, f64::from(bounds.size.width), f64::from(bounds.size.height));
+                let view = Rect::new(
+                    0.0,
+                    0.0,
+                    f64::from(bounds.size.width),
+                    f64::from(bounds.size.height),
+                );
                 let selection = s.model.selection_rect();
                 let hover = s.model.hover_target();
                 let cutout = selection.or_else(|| hover.as_ref().map(Selection::rect));
                 let dim = color::scrim(s.config.dim as f32);
                 match cutout.map(local).and_then(|r| r.intersection(&view)) {
-                    Some(hole) => surround(view, hole).for_each(|r| window.paint_quad(fill(gbounds(r), dim))),
+                    Some(hole) => {
+                        surround(view, hole).for_each(|r| window.paint_quad(fill(gbounds(r), dim)))
+                    }
                     None => window.paint_quad(fill(bounds, dim)),
                 }
 
@@ -250,28 +311,70 @@ impl OutputView {
                     let r = local(sel);
                     // Crisp 1px white edge with a faint dark halo for light backgrounds.
                     let halo = gbounds(r.inset(-2.0));
-                    window.paint_quad(quad(halo, px(0.), gpui::transparent_black(), px(1.), rgba(0x00000059), Default::default()));
+                    window.paint_quad(quad(
+                        halo,
+                        px(0.),
+                        gpui::transparent_black(),
+                        px(1.),
+                        rgba(0x00000059),
+                        Default::default(),
+                    ));
                     let edge = gbounds(r.inset(-1.0));
-                    window.paint_quad(quad(edge, px(0.), gpui::transparent_black(), px(1.), rgba(0xfffffff2), Default::default()));
+                    window.paint_quad(quad(
+                        edge,
+                        px(0.),
+                        gpui::transparent_black(),
+                        px(1.),
+                        rgba(0xfffffff2),
+                        Default::default(),
+                    ));
                     if s.model.editing().is_some() && !s.model.is_drawing() {
                         let d = ui_px(window, 9.);
                         for h in Handle::RESIZE {
                             let p = h.position(&r);
-                            let dot = Bounds::new(point(to_px(p.x) - d / 2., to_px(p.y) - d / 2.), size(d, d));
-                            window.paint_drop_shadows(dot, (d / 2.).into(), &[shadow(0x00000059, 1.0, 3.0)]);
-                            window.paint_quad(quad(dot, d / 2., gpui::white(), px(1.), rgba(0x00000040), Default::default()));
+                            let dot = Bounds::new(
+                                point(to_px(p.x) - d / 2., to_px(p.y) - d / 2.),
+                                size(d, d),
+                            );
+                            window.paint_drop_shadows(
+                                dot,
+                                (d / 2.).into(),
+                                &[shadow(0x00000059, 1.0, 3.0)],
+                            );
+                            window.paint_quad(quad(
+                                dot,
+                                d / 2.,
+                                gpui::white(),
+                                px(1.),
+                                rgba(0x00000040),
+                                Default::default(),
+                            ));
                         }
                     }
                 } else if let Some(target) = &hover {
                     let r = gbounds(local(target.rect()));
                     match (target, s.model.mode()) {
                         (Selection::Window(_), Mode::Area) => {
-                            window.paint_quad(quad(r, px(0.), gpui::transparent_black(), px(1.5), rgba(0xffffff8c), Default::default()));
+                            window.paint_quad(quad(
+                                r,
+                                px(0.),
+                                gpui::transparent_black(),
+                                px(1.5),
+                                rgba(0xffffff8c),
+                                Default::default(),
+                            ));
                         }
                         _ => {
                             let accent = color::accent();
                             window.paint_quad(fill(r, Hsla { a: 0.10, ..accent }));
-                            window.paint_quad(quad(r, px(0.), gpui::transparent_black(), px(3.), accent, Default::default()));
+                            window.paint_quad(quad(
+                                r,
+                                px(0.),
+                                gpui::transparent_black(),
+                                px(3.),
+                                accent,
+                                Default::default(),
+                            ));
                         }
                     }
                 }
@@ -313,7 +416,12 @@ impl OutputView {
                         s.apply(outcome, cx);
                     });
                 });
-                let (sess, name, this, hb) = (session.clone(), output_name.clone(), this.clone(), hitbox.clone());
+                let (sess, name, this, hb) = (
+                    session.clone(),
+                    output_name.clone(),
+                    this.clone(),
+                    hitbox.clone(),
+                );
                 window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
                     if phase != DispatchPhase::Bubble {
                         return;
@@ -322,7 +430,9 @@ impl OutputView {
                     tracing::trace!(output = name, ?p, "pointer moved");
                     let on_backdrop = e.pressed_button.is_some() || hb.is_hovered(window);
                     sess.update(cx, |s, cx| {
-                        if e.pressed_button.is_none() && s.active_output.as_deref() != Some(name.as_str()) {
+                        if e.pressed_button.is_none()
+                            && s.active_output.as_deref() != Some(name.as_str())
+                        {
                             s.active_output = Some(name.clone());
                         }
                         s.model.set_modifiers(modifiers(&e.modifiers));
@@ -352,7 +462,9 @@ impl OutputView {
         let loupe_here = loupe
             && !self.over_toolbar
             && self.frozen.is_some()
-            && model.cursor().is_some_and(|c| self.output.logical.contains(c));
+            && model
+                .cursor()
+                .is_some_and(|c| self.output.logical.contains(c));
 
         if let Some(sel) = model.selection_rect() {
             let (pw, ph) = s.pixel_size(sel);
@@ -406,7 +518,11 @@ impl OutputView {
         }
 
         if loupe_here && let (Some(cursor), Some((_, image))) = (model.cursor(), &self.frozen) {
-            let size = model.is_drawing().then(|| model.selection_rect()).flatten().map(|r| s.pixel_size(r));
+            let size = model
+                .is_drawing()
+                .then(|| model.selection_rect())
+                .flatten()
+                .map(|r| s.pixel_size(r));
             out.push(self.loupe(cursor, image, size, k));
         }
         out
@@ -414,7 +530,13 @@ impl OutputView {
 
     /// A magnifier of the physical pixels around the cursor, with the center pixel's color
     /// and the cursor position.
-    fn loupe(&self, cursor: Point, image: &Image, selection_size: Option<(u32, u32)>, k: f64) -> AnyElement {
+    fn loupe(
+        &self,
+        cursor: Point,
+        image: &Image,
+        selection_size: Option<(u32, u32)>,
+        k: f64,
+    ) -> AnyElement {
         const CELLS: i64 = 15;
         let cell = 8.0 * k;
         let side = CELLS as f64 * cell;
@@ -439,7 +561,11 @@ impl OutputView {
         for j in 0..CELLS {
             for i in 0..CELLS {
                 let (px_x, px_y) = (cx_px + i - CELLS / 2, cy_px + j - CELLS / 2);
-                let rgba = if px_x >= 0 && px_y >= 0 && px_x < image.width() as i64 && px_y < image.height() as i64 {
+                let rgba = if px_x >= 0
+                    && px_y >= 0
+                    && px_x < image.width() as i64
+                    && px_y < image.height() as i64
+                {
                     image.rgba_at(px_x as u32, px_y as u32)
                 } else {
                     [20, 20, 20, 255]
@@ -448,7 +574,12 @@ impl OutputView {
             }
         }
         let [r, g, b, _] = image.rgba_at(cx_px as u32, cy_px as u32);
-        let center_color = gpui::Rgba { r: r as f32 / 255.0, g: g as f32 / 255.0, b: b as f32 / 255.0, a: 1.0 };
+        let center_color = gpui::Rgba {
+            r: r as f32 / 255.0,
+            g: g as f32 / 255.0,
+            b: b as f32 / 255.0,
+            a: 1.0,
+        };
 
         let grid = canvas(
             |_, _, _| {},
@@ -457,7 +588,10 @@ impl OutputView {
                 let last = CELLS - 1;
                 for (i, j, [r, g, b, _]) in &cells {
                     let cell = Bounds::new(
-                        point(o.x + px((*i as f64 * cell) as f32), o.y + px((*j as f64 * cell) as f32)),
+                        point(
+                            o.x + px((*i as f64 * cell) as f32),
+                            o.y + px((*j as f64 * cell) as f32),
+                        ),
                         size(px(cell as f32), px(cell as f32)),
                     );
                     // Round the four corner cells so the loupe's corners stay clean.
@@ -470,20 +604,58 @@ impl OutputView {
                         (i, j) if i == last && j == last => radii.bottom_right = corner,
                         _ => {}
                     }
-                    let c = gpui::Rgba { r: *r as f32 / 255.0, g: *g as f32 / 255.0, b: *b as f32 / 255.0, a: 1.0 };
-                    window.paint_quad(quad(cell, radii, c, px(0.), gpui::transparent_black(), Default::default()));
+                    let c = gpui::Rgba {
+                        r: *r as f32 / 255.0,
+                        g: *g as f32 / 255.0,
+                        b: *b as f32 / 255.0,
+                        a: 1.0,
+                    };
+                    window.paint_quad(quad(
+                        cell,
+                        radii,
+                        c,
+                        px(0.),
+                        gpui::transparent_black(),
+                        Default::default(),
+                    ));
                 }
                 let line: Hsla = rgba(0x0000001f).into();
                 for k in 1..CELLS {
                     let d = px((k as f64 * cell) as f32);
-                    window.paint_quad(fill(Bounds::new(point(o.x + d, o.y), size(px(1.), bounds.size.height)), line));
-                    window.paint_quad(fill(Bounds::new(point(o.x, o.y + d), size(bounds.size.width, px(1.))), line));
+                    window.paint_quad(fill(
+                        Bounds::new(point(o.x + d, o.y), size(px(1.), bounds.size.height)),
+                        line,
+                    ));
+                    window.paint_quad(fill(
+                        Bounds::new(point(o.x, o.y + d), size(bounds.size.width, px(1.))),
+                        line,
+                    ));
                 }
                 let c = px(((CELLS / 2) as f64 * cell) as f32);
-                let center = Bounds::new(point(o.x + c - px(1.), o.y + c - px(1.)), size(px(cell as f32 + 2.), px(cell as f32 + 2.)));
-                window.paint_quad(quad(center, px(1.), gpui::transparent_black(), px(1.), rgba(0x000000cc), Default::default()));
-                let inner = Bounds::new(point(o.x + c, o.y + c), size(px(cell as f32), px(cell as f32)));
-                window.paint_quad(quad(inner, px(0.), gpui::transparent_black(), px(1.), gpui::white(), Default::default()));
+                let center = Bounds::new(
+                    point(o.x + c - px(1.), o.y + c - px(1.)),
+                    size(px(cell as f32 + 2.), px(cell as f32 + 2.)),
+                );
+                window.paint_quad(quad(
+                    center,
+                    px(1.),
+                    gpui::transparent_black(),
+                    px(1.),
+                    rgba(0x000000cc),
+                    Default::default(),
+                ));
+                let inner = Bounds::new(
+                    point(o.x + c, o.y + c),
+                    size(px(cell as f32), px(cell as f32)),
+                );
+                window.paint_quad(quad(
+                    inner,
+                    px(0.),
+                    gpui::transparent_black(),
+                    px(1.),
+                    gpui::white(),
+                    Default::default(),
+                ));
             },
         )
         .size_full();
@@ -493,12 +665,23 @@ impl OutputView {
             .flex_row()
             .items_center()
             .gap_1p5()
-            .child(div().size(ui(10.)).rounded_full().bg(center_color).border_1().border_color(rgba(0xffffffb3)))
+            .child(
+                div()
+                    .size(ui(10.))
+                    .rounded_full()
+                    .bg(center_color)
+                    .border_1()
+                    .border_color(rgba(0xffffffb3)),
+            )
             .child(format!("#{r:02X}{g:02X}{b:02X}"))
-            .child(div().text_color(color::text_dim()).child(match selection_size {
-                Some((w, h)) => format!("{w} × {h}"),
-                None => format!("{:.0}, {:.0}", cursor.x.floor(), cursor.y.floor()),
-            }));
+            .child(
+                div()
+                    .text_color(color::text_dim())
+                    .child(match selection_size {
+                        Some((w, h)) => format!("{w} × {h}"),
+                        None => format!("{:.0}, {:.0}", cursor.x.floor(), cursor.y.floor()),
+                    }),
+            );
 
         div()
             .absolute()
@@ -514,7 +697,14 @@ impl OutputView {
                     .rounded(ui(8.))
                     .shadow(vec![shadow(0x00000073, 4.0, 14.0)])
                     .child(grid)
-                    .child(div().absolute().inset_0().rounded(ui(8.)).border_2().border_color(rgba(0xffffffe6))),
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .rounded(ui(8.))
+                            .border_2()
+                            .border_color(rgba(0xffffffe6)),
+                    ),
             )
             .child(
                 div()
@@ -540,17 +730,43 @@ impl OutputView {
         let mut bar = hud::panel();
 
         for (m, icon, tip, id) in [
-            (Mode::Area, Icon::Area, Tip::new("Area").key("1").note("Drag a region or click a window"), "mode-area"),
-            (Mode::Window, Icon::Window, Tip::new("Window").key("2").key("Space"), "mode-window"),
-            (Mode::Screen, Icon::Screen, Tip::new("Screen").key("3").also("Capture this screen").key("Enter"), "mode-screen"),
+            (
+                Mode::Area,
+                Icon::Area,
+                Tip::new("Area")
+                    .key("1")
+                    .note("Drag a region or click a window"),
+                "mode-area",
+            ),
+            (
+                Mode::Window,
+                Icon::Window,
+                Tip::new("Window").key("2").key("Space"),
+                "mode-window",
+            ),
+            (
+                Mode::Screen,
+                Icon::Screen,
+                Tip::new("Screen")
+                    .key("3")
+                    .also("Capture this screen")
+                    .key("Enter"),
+                "mode-screen",
+            ),
         ] {
             let session = self.session.clone();
-            bar = bar.child(HudButton::new(id).icon(icon).tooltip(tip).selected(mode == m).on_click(move |_, _, cx| {
-                session.update(cx, |s, cx| {
-                    let outcome = s.model.set_mode(m);
-                    s.apply(outcome, cx);
-                });
-            }));
+            bar = bar.child(
+                HudButton::new(id)
+                    .icon(icon)
+                    .tooltip(tip)
+                    .selected(mode == m)
+                    .on_click(move |_, _, cx| {
+                        session.update(cx, |s, cx| {
+                            let outcome = s.model.set_mode(m);
+                            s.apply(outcome, cx);
+                        });
+                    }),
+            );
         }
 
         if purpose == Purpose::Recording {
@@ -559,8 +775,16 @@ impl OutputView {
             let session = self.session.clone();
             bar = bar.child(
                 HudButton::new("system-audio")
-                    .icon(if rec.system_audio { Icon::Volume } else { Icon::VolumeOff })
-                    .tooltip(Tip::new("Record system audio").note(if rec.system_audio { "On" } else { "Off" }))
+                    .icon(if rec.system_audio {
+                        Icon::Volume
+                    } else {
+                        Icon::VolumeOff
+                    })
+                    .tooltip(Tip::new("Record system audio").note(if rec.system_audio {
+                        "On"
+                    } else {
+                        "Off"
+                    }))
                     .selected(rec.system_audio)
                     .on_click(move |_, _, cx| {
                         session.update(cx, |s, cx| {
@@ -572,8 +796,16 @@ impl OutputView {
             let session = self.session.clone();
             bar = bar.child(
                 HudButton::new("microphone")
-                    .icon(if rec.microphone { Icon::Mic } else { Icon::MicOff })
-                    .tooltip(Tip::new("Record microphone").note(if rec.microphone { "On" } else { "Off" }))
+                    .icon(if rec.microphone {
+                        Icon::Mic
+                    } else {
+                        Icon::MicOff
+                    })
+                    .tooltip(Tip::new("Record microphone").note(if rec.microphone {
+                        "On"
+                    } else {
+                        "Off"
+                    }))
                     .selected(rec.microphone)
                     .on_click(move |_, _, cx| {
                         session.update(cx, |s, cx| {
@@ -589,31 +821,60 @@ impl OutputView {
             let session = self.session.clone();
             let name = self.output.name.clone();
             let (action, tip) = match purpose {
-                Purpose::Screenshot => {
-                    (HudButton::new("confirm").icon(Icon::Camera).label("Capture").style(ButtonStyle::Accent), "Capture")
-                }
-                Purpose::Recording => {
-                    (HudButton::new("confirm").icon(Icon::Video).label("Record").style(ButtonStyle::Record), "Start recording")
-                }
+                Purpose::Screenshot => (
+                    HudButton::new("confirm")
+                        .icon(Icon::Camera)
+                        .label("Capture")
+                        .style(ButtonStyle::Accent),
+                    "Capture",
+                ),
+                Purpose::Recording => (
+                    HudButton::new("confirm")
+                        .icon(Icon::Video)
+                        .label("Record")
+                        .style(ButtonStyle::Record),
+                    "Start recording",
+                ),
             };
             let tip = Tip::new(tip).key("Enter");
-            let action = action.tooltip(if editing { tip.note("Arrows nudge the area · Ctrl+arrows resize it") } else { tip });
+            let action = action.tooltip(if editing {
+                tip.note("Arrows nudge the area · Ctrl+arrows resize it")
+            } else {
+                tip
+            });
             bar = bar.child(div().ml_1().child(action.on_click(move |_, _, cx| {
                 session.update(cx, |s, cx| s.confirm_on(&name, cx));
             })));
         }
 
         let session = self.session.clone();
-        bar = bar.child(HudButton::new("cancel").icon(Icon::Close).tooltip(Tip::new("Cancel").key("Esc")).on_click(move |_, _, cx| {
-            session.update(cx, |s, cx| s.finish(None, cx));
-        }));
+        bar = bar.child(
+            HudButton::new("cancel")
+                .icon(Icon::Close)
+                .tooltip(Tip::new("Cancel").key("Esc"))
+                .on_click(move |_, _, cx| {
+                    session.update(cx, |s, cx| s.finish(None, cx));
+                }),
+        );
 
         // Keep clear of a selection near the bottom edge.
         let o = &self.output.logical;
         let band = Rect::new(o.x, o.bottom() - 140.0 * k, o.width, 140.0 * k);
-        let at_top = model.selection_rect().is_some_and(|r| r.intersection(&band).is_some());
-        let row = div().absolute().left_0().right_0().flex().flex_row().justify_center();
-        let row = if at_top { row.top(ui(36.)) } else { row.bottom(ui(36.)) };
+        let at_top = model
+            .selection_rect()
+            .is_some_and(|r| r.intersection(&band).is_some());
+        let row = div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .flex()
+            .flex_row()
+            .justify_center();
+        let row = if at_top {
+            row.top(ui(36.))
+        } else {
+            row.bottom(ui(36.))
+        };
         let bar = bar.id("toolbar").on_hover(move |hovered, _, cx| {
             this.update(cx, |view, cx| {
                 view.over_toolbar = *hovered;
@@ -648,15 +909,15 @@ impl Render for OutputView {
         let s = self.session.read(cx);
         let k = f64::from(screenie_ui_kit::ui_scale(cx));
         let busy = s.model.is_drawing() || s.model.is_grabbing();
-        let show_toolbar = s.config.toolbar && !busy && s.active_output.as_deref() == Some(self.output.name.as_str());
+        let show_toolbar = s.config.toolbar
+            && !busy
+            && s.active_output.as_deref() == Some(self.output.name.as_str());
         // A toolbar that went away can't report the pointer leaving it.
         self.over_toolbar &= show_toolbar;
         let annotations = self.annotations(s, k);
         let toolbar = show_toolbar.then(|| self.toolbar(s, k, this));
 
-        root.child(scene)
-            .children(annotations)
-            .children(toolbar)
+        root.child(scene).children(annotations).children(toolbar)
     }
 }
 

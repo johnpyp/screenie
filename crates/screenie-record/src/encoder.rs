@@ -47,7 +47,9 @@ pub struct Encoder {
 enum Family {
     /// GStreamer's `va` plugin. `prefix` names the GPU's elements: `va` for the first,
     /// `varenderD129` for another.
-    Va { prefix: String },
+    Va {
+        prefix: String,
+    },
     Nvenc,
     /// The older gstreamer-vaapi plugin.
     Vaapi,
@@ -77,8 +79,14 @@ const GPU_FORMATS: [[u8; 4]; 4] = [*b"XR24", *b"AR24", *b"XB24", *b"AB24"];
 impl Encoder {
     /// Working encoders allowed by `preference` that take `size` frames, best first for
     /// frames on `gpu`.
-    pub fn candidates(preference: EncoderPreference, size: (u32, u32), gpu: Option<&GpuDevice>) -> Vec<Encoder> {
-        let forced = std::env::var("SCREENIE_ENCODER").ok().filter(|s| !s.is_empty());
+    pub fn candidates(
+        preference: EncoderPreference,
+        size: (u32, u32),
+        gpu: Option<&GpuDevice>,
+    ) -> Vec<Encoder> {
+        let forced = std::env::var("SCREENIE_ENCODER")
+            .ok()
+            .filter(|s| !s.is_empty());
         let mut all: Vec<Encoder> = discover()
             .into_iter()
             .filter(|e| match &forced {
@@ -91,15 +99,20 @@ impl Encoder {
             })
             .collect();
         all.sort_by_key(|e| e.tier(gpu));
-        all.into_iter().filter(|e| e.fits(size) && e.works()).collect()
+        all.into_iter()
+            .filter(|e| e.fits(size) && e.works())
+            .collect()
     }
 
     /// Every encoder found, with whether it works here, for diagnostics.
     pub fn survey() -> Vec<(Encoder, bool)> {
-        discover().into_iter().map(|e| {
-            let ok = e.works();
-            (e, ok)
-        }).collect()
+        discover()
+            .into_iter()
+            .map(|e| {
+                let ok = e.works();
+                (e, ok)
+            })
+            .collect()
     }
 
     pub fn hardware(&self) -> bool {
@@ -156,9 +169,16 @@ impl Encoder {
         let importable = importable(&importer);
         GPU_FORMATS.iter().map(fourcc).find_map(|code| {
             let offered = offer.formats.iter().find(|f| f.fourcc == code)?;
-            let modifiers: Vec<u64> =
-                offered.modifiers.iter().copied().filter(|m| importable.contains(&(code, *m))).collect();
-            (!modifiers.is_empty()).then_some(DmabufFormat { fourcc: code, modifiers })
+            let modifiers: Vec<u64> = offered
+                .modifiers
+                .iter()
+                .copied()
+                .filter(|m| importable.contains(&(code, *m)))
+                .collect();
+            (!modifiers.is_empty()).then_some(DmabufFormat {
+                fourcc: code,
+                modifiers,
+            })
         })
     }
 
@@ -174,7 +194,9 @@ impl Encoder {
     /// Whether its sink pad takes `width`×`height` frames. Unknown means yes (the
     /// pipeline will say otherwise).
     fn fits(&self, (width, height): (u32, u32)) -> bool {
-        let Some(factory) = gst::ElementFactory::find(&self.factory) else { return false };
+        let Some(factory) = gst::ElementFactory::find(&self.factory) else {
+            return false;
+        };
         let within = |s: &gst::StructureRef, field: &str, v: u32| match s.value(field) {
             Ok(value) => match (value.get::<gst::IntRange<i32>>(), value.get::<i32>()) {
                 (Ok(range), _) => (range.min()..=range.max()).contains(&(v as i32)),
@@ -187,7 +209,11 @@ impl Encoder {
             .static_pad_templates()
             .iter()
             .filter(|t| t.direction() == gst::PadDirection::Sink)
-            .all(|t| t.caps().iter().any(|s| within(s, "width", width) && within(s, "height", height)))
+            .all(|t| {
+                t.caps()
+                    .iter()
+                    .any(|s| within(s, "width", width) && within(s, "height", height))
+            })
     }
 
     fn works(&self) -> bool {
@@ -211,8 +237,13 @@ impl Encoder {
             self.prepare(PROBE),
             self.element()
         );
-        let Ok(pipeline) = gst::parse::launch(&desc) else { return false };
-        if let Some(encoder) = pipeline.downcast_ref::<gst::Bin>().and_then(|b| b.by_name("encoder")) {
+        let Ok(pipeline) = gst::parse::launch(&desc) else {
+            return false;
+        };
+        if let Some(encoder) = pipeline
+            .downcast_ref::<gst::Bin>()
+            .and_then(|b| b.by_name("encoder"))
+        {
             self.configure(&encoder, Quality::Medium, 30, PROBE);
         }
         let ok = runs(&pipeline);
@@ -225,7 +256,11 @@ impl Encoder {
     /// The raw format to feed it: always 4:2:0, which every player decodes (left to
     /// negotiate, videoconvert would pick 4:4:4 for RGB input).
     fn input_format(&self) -> &'static str {
-        if self.family == Family::OpenH264 { "I420" } else { "NV12" }
+        if self.family == Family::OpenH264 {
+            "I420"
+        } else {
+            "NV12"
+        }
     }
 
     /// The elements between the frames (screen pixels in memory or GPU buffers, of any
@@ -245,7 +280,11 @@ impl Encoder {
                 "glupload ! glcolorscale \
                  ! video/x-raw(memory:GLMemory),width={width},height={height},pixel-aspect-ratio=1/1 \
                  ! glcolorconvert ! video/x-raw(memory:GLMemory),format={format}{}",
-                if *family == Family::Nvenc { "" } else { " ! gldownload" }
+                if *family == Family::Nvenc {
+                    ""
+                } else {
+                    " ! gldownload"
+                }
             ),
             _ => format!(
                 "videoscale add-borders=false n-threads=0 \
@@ -274,7 +313,13 @@ impl Encoder {
     /// Set the encoder up: constant quality, no B-frames, a keyframe every two seconds.
     /// Properties are set by name where the element has them, since they differ between
     /// GStreamer versions (NVENC's changed in 1.26).
-    pub(crate) fn configure(&self, element: &gst::Element, quality: Quality, fps: u32, (width, height): (u32, u32)) {
+    pub(crate) fn configure(
+        &self,
+        element: &gst::Element,
+        quality: Quality,
+        fps: u32,
+        (width, height): (u32, u32),
+    ) {
         // Keyframes every two seconds keep seeking snappy in players and chat apps. No
         // B-frames: with variable frame rate they skew decode timestamps (and durations
         // in some players) for little gain on screen content.
@@ -350,7 +395,10 @@ impl Encoder {
             Family::OpenH264 => {
                 // openh264 only does bitrate control.
                 set("rate-control", "bitrate");
-                set("bitrate", &bits_per_second(quality, fps, (width, height)).to_string());
+                set(
+                    "bitrate",
+                    &bits_per_second(quality, fps, (width, height)).to_string(),
+                );
                 set("gop-size", &gop);
             }
         }
@@ -398,7 +446,9 @@ fn discover() -> Vec<Encoder> {
             let names: HashSet<String> = factories.iter().map(|f| f.name().to_string()).collect();
             let mut found = Vec::new();
             for name in &names {
-                let Some(family) = family(name, &names) else { continue };
+                let Some(family) = family(name, &names) else {
+                    continue;
+                };
                 let device = match &family {
                     Family::Va { .. } => va_device(name),
                     _ => None,
@@ -409,7 +459,12 @@ fn discover() -> Vec<Encoder> {
                     _ => &[Chain::Cpu],
                 };
                 for &chain in chains {
-                    found.push(Encoder { factory: name.clone(), family: family.clone(), chain, device: device.clone() });
+                    found.push(Encoder {
+                        factory: name.clone(),
+                        family: family.clone(),
+                        chain,
+                        device: device.clone(),
+                    });
                 }
             }
             found.sort_by(|a, b| a.factory.cmp(&b.factory));
@@ -427,11 +482,15 @@ fn family(name: &str, all: &HashSet<String>) -> Option<Family> {
         _ => {}
     }
     // va: vah264enc, vah264lpenc (low power), varenderD129h264enc for another GPU.
-    if let Some(prefix) = name.strip_suffix("h264enc").or_else(|| name.strip_suffix("h264lpenc"))
+    if let Some(prefix) = name
+        .strip_suffix("h264enc")
+        .or_else(|| name.strip_suffix("h264lpenc"))
         && prefix.starts_with("va")
         && !prefix.starts_with("vaapi")
     {
-        return Some(Family::Va { prefix: prefix.to_string() });
+        return Some(Family::Va {
+            prefix: prefix.to_string(),
+        });
     }
     // NVENC: nvh264enc, nvcudah264enc, nvh264device1enc. On 1.22–1.24 nvh264enc is the
     // old implementation and nvcudah264enc the new one; take the new one where both are.
@@ -455,7 +514,9 @@ fn family(name: &str, all: &HashSet<String>) -> Option<Family> {
 /// The GPU a `va` element works on.
 fn va_device(factory: &str) -> Option<GpuDevice> {
     let element = gst::ElementFactory::make(factory).build().ok()?;
-    let path: String = element.find_property("device-path").map(|_| element.property("device-path"))?;
+    let path: String = element
+        .find_property("device-path")
+        .map(|_| element.property("device-path"))?;
     GpuDevice::from_node(std::path::Path::new(&path))
 }
 
@@ -478,7 +539,9 @@ fn importable(factory: &str) -> HashSet<(u32, u64)> {
             if !features.contains("memory:DMABuf") {
                 continue;
             }
-            let Ok(value) = s.value("drm-format") else { continue };
+            let Ok(value) = s.value("drm-format") else {
+                continue;
+            };
             let strings: Vec<String> = match (value.get::<String>(), value.get::<gst::List>()) {
                 (Ok(one), _) => vec![one],
                 (_, Ok(list)) => list.iter().filter_map(|v| v.get::<String>().ok()).collect(),
@@ -488,15 +551,25 @@ fn importable(factory: &str) -> HashSet<(u32, u64)> {
         }
         let _ = element.set_state(gst::State::Null);
     }
-    tracing::debug!(factory, formats = found.len(), "GPU buffer formats it imports");
-    cache.lock().unwrap().insert(factory.to_string(), found.clone());
+    tracing::debug!(
+        factory,
+        formats = found.len(),
+        "GPU buffer formats it imports"
+    );
+    cache
+        .lock()
+        .unwrap()
+        .insert(factory.to_string(), found.clone());
     found
 }
 
 /// `XR24` (linear) or `XR24:0x0100000000000001`.
 fn parse_drm_format(s: &str) -> Option<(u32, u64)> {
     let (code, modifier) = match s.split_once(':') {
-        Some((code, m)) => (code, u64::from_str_radix(m.trim_start_matches("0x"), 16).ok()?),
+        Some((code, m)) => (
+            code,
+            u64::from_str_radix(m.trim_start_matches("0x"), 16).ok()?,
+        ),
         None => (s, MODIFIER_LINEAR),
     };
     let bytes: [u8; 4] = code.as_bytes().try_into().ok()?;
@@ -506,7 +579,11 @@ fn parse_drm_format(s: &str) -> Option<(u32, u64)> {
 /// The caps value for a GPU buffer format, as GStreamer writes it: linear bare.
 pub(crate) fn drm_format_string(code: u32, modifier: u64) -> String {
     let name = fourcc_name(code);
-    if modifier == MODIFIER_LINEAR { name } else { format!("{name}:0x{modifier:016x}") }
+    if modifier == MODIFIER_LINEAR {
+        name
+    } else {
+        format!("{name}:0x{modifier:016x}")
+    }
 }
 
 /// Whether a pipeline plays to its end without an error.
@@ -517,7 +594,10 @@ fn runs(pipeline: &gst::Element) -> bool {
                 gst::ClockTime::from_mseconds(Duration::from_secs(5).as_millis() as u64),
                 &[gst::MessageType::Eos, gst::MessageType::Error],
             );
-            matches!(msg.as_ref().map(|m| m.view()), Some(gst::MessageView::Eos(_)))
+            matches!(
+                msg.as_ref().map(|m| m.view()),
+                Some(gst::MessageView::Eos(_))
+            )
         });
     let _ = pipeline.set_state(gst::State::Null);
     ok
@@ -546,16 +626,35 @@ mod tests {
 
     #[test]
     fn families_by_name() {
-        let all = names(&["vah264enc", "varenderD129h264lpenc", "nvh264enc", "nvcudah264enc", "nvh264device1enc"]);
-        assert_eq!(family("vah264enc", &all), Some(Family::Va { prefix: "va".into() }));
-        assert_eq!(family("varenderD129h264lpenc", &all), Some(Family::Va { prefix: "varenderD129".into() }));
+        let all = names(&[
+            "vah264enc",
+            "varenderD129h264lpenc",
+            "nvh264enc",
+            "nvcudah264enc",
+            "nvh264device1enc",
+        ]);
+        assert_eq!(
+            family("vah264enc", &all),
+            Some(Family::Va {
+                prefix: "va".into()
+            })
+        );
+        assert_eq!(
+            family("varenderD129h264lpenc", &all),
+            Some(Family::Va {
+                prefix: "varenderD129".into()
+            })
+        );
         assert_eq!(family("vaapih264enc", &all), Some(Family::Vaapi));
         // The old nvh264enc gives way to the new one next to it (1.22–1.24)…
         assert_eq!(family("nvh264enc", &all), None);
         assert_eq!(family("nvcudah264enc", &all), Some(Family::Nvenc));
         assert_eq!(family("nvh264device1enc", &all), Some(Family::Nvenc));
         // …and is the new one where it's alone (1.26+).
-        assert_eq!(family("nvh264enc", &names(&["nvh264enc"])), Some(Family::Nvenc));
+        assert_eq!(
+            family("nvh264enc", &names(&["nvh264enc"])),
+            Some(Family::Nvenc)
+        );
         assert_eq!(family("nvautogpuh264enc", &all), None);
         assert_eq!(family("v4l2h264enc", &all), Some(Family::V4l2));
         assert_eq!(family("vah265enc", &all), None);
@@ -563,14 +662,29 @@ mod tests {
 
     #[test]
     fn drm_format_strings() {
-        assert_eq!(parse_drm_format("XR24"), Some((fourcc(b"XR24"), MODIFIER_LINEAR)));
-        assert_eq!(parse_drm_format("AR24:0x020000000056bb03"), Some((fourcc(b"AR24"), 0x020000000056bb03)));
+        assert_eq!(
+            parse_drm_format("XR24"),
+            Some((fourcc(b"XR24"), MODIFIER_LINEAR))
+        );
+        assert_eq!(
+            parse_drm_format("AR24:0x020000000056bb03"),
+            Some((fourcc(b"AR24"), 0x020000000056bb03))
+        );
         assert_eq!(drm_format_string(fourcc(b"XR24"), 0), "XR24");
-        assert_eq!(drm_format_string(fourcc(b"XR24"), 0x0300000000606010), "XR24:0x0300000000606010");
+        assert_eq!(
+            drm_format_string(fourcc(b"XR24"), 0x0300000000606010),
+            "XR24:0x0300000000606010"
+        );
     }
 
     fn gpu(render: &str, vendor: u16) -> GpuDevice {
-        GpuDevice { dev: 0, render_node: Some(render.into()), vendor: Some(vendor), driver: None, bus: None }
+        GpuDevice {
+            dev: 0,
+            render_node: Some(render.into()),
+            vendor: Some(vendor),
+            driver: None,
+            bus: None,
+        }
     }
 
     #[test]
@@ -579,12 +693,24 @@ mod tests {
         let nvidia = gpu("/dev/dri/renderD128", VENDOR_NVIDIA);
         let va = Encoder {
             factory: "varenderD129h264enc".into(),
-            family: Family::Va { prefix: "varenderD129".into() },
+            family: Family::Va {
+                prefix: "varenderD129".into(),
+            },
             chain: Chain::Va,
             device: Some(amd.clone()),
         };
-        let nvenc = Encoder { factory: "nvh264enc".into(), family: Family::Nvenc, chain: Chain::Gl, device: None };
-        let x264 = Encoder { factory: "x264enc".into(), family: Family::X264, chain: Chain::Cpu, device: None };
+        let nvenc = Encoder {
+            factory: "nvh264enc".into(),
+            family: Family::Nvenc,
+            chain: Chain::Gl,
+            device: None,
+        };
+        let x264 = Encoder {
+            factory: "x264enc".into(),
+            family: Family::X264,
+            chain: Chain::Cpu,
+            device: None,
+        };
         let mut list = vec![x264.clone(), va.clone(), nvenc.clone()];
         list.sort_by_key(|e| e.tier(Some(&nvidia)));
         assert_eq!(list, [nvenc.clone(), va.clone(), x264.clone()]);
@@ -596,7 +722,11 @@ mod tests {
     fn the_test_encode_fits_every_encoder() {
         gst::init().unwrap();
         for encoder in discover() {
-            assert!(encoder.fits(PROBE), "{} can't take the test encode's size", encoder.factory);
+            assert!(
+                encoder.fits(PROBE),
+                "{} can't take the test encode's size",
+                encoder.factory
+            );
         }
     }
 

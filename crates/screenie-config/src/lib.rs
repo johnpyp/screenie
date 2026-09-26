@@ -18,11 +18,20 @@ pub use schema::*;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("reading {path}: {source}")]
-    Read { path: PathBuf, source: std::io::Error },
+    Read {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("parsing {path}: {source}")]
-    Parse { path: PathBuf, source: Box<serde_saphyr::Error> },
+    Parse {
+        path: PathBuf,
+        source: Box<serde_saphyr::Error>,
+    },
     #[error("writing {path}: {source}")]
-    Write { path: PathBuf, source: std::io::Error },
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("serializing config: {0}")]
     Serialize(#[from] serde_saphyr::SerializeError),
 }
@@ -41,9 +50,15 @@ impl Config {
 
     pub fn load_from(path: &Path) -> Result<Config, Error> {
         match std::fs::read_to_string(path) {
-            Ok(text) => parse(&text).map_err(|source| Error::Parse { path: path.into(), source: Box::new(source) }),
+            Ok(text) => parse(&text).map_err(|source| Error::Parse {
+                path: path.into(),
+                source: Box::new(source),
+            }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
-            Err(source) => Err(Error::Read { path: path.into(), source }),
+            Err(source) => Err(Error::Read {
+                path: path.into(),
+                source,
+            }),
         }
     }
 
@@ -64,7 +79,10 @@ impl Config {
     pub fn save_to(&self, path: &Path) -> Result<(), Error> {
         let text = format!("{HEADER}{}", serde_saphyr::to_string(self)?);
         let write = |p: &Path| std::fs::write(p, &text);
-        let werr = |source| Error::Write { path: path.into(), source };
+        let werr = |source| Error::Write {
+            path: path.into(),
+            source,
+        };
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(werr)?;
         }
@@ -75,19 +93,29 @@ impl Config {
 
     /// The directory screenshots are saved to, with defaults and `~` resolved.
     pub fn screenshot_dir(&self) -> PathBuf {
-        resolve_dir(&self.screenshot.directory, || Paths::get().pictures_dir().join("Screenshots"))
+        resolve_dir(&self.screenshot.directory, || {
+            Paths::get().pictures_dir().join("Screenshots")
+        })
     }
 
     /// The directory recordings are saved to, with defaults and `~` resolved.
     pub fn recording_dir(&self) -> PathBuf {
-        resolve_dir(&self.recording.directory, || Paths::get().videos_dir().join("Screencasts"))
+        resolve_dir(&self.recording.directory, || {
+            Paths::get().videos_dir().join("Screencasts")
+        })
     }
 }
 
 /// Parse config text. A file with nothing in it (or only comments) is all defaults.
 fn parse(text: &str) -> Result<Config, serde_saphyr::Error> {
-    let blank = text.lines().all(|l| matches!(l.trim_start().chars().next(), None | Some('#')));
-    if blank { Ok(Config::default()) } else { serde_saphyr::from_str(text) }
+    let blank = text
+        .lines()
+        .all(|l| matches!(l.trim_start().chars().next(), None | Some('#')));
+    if blank {
+        Ok(Config::default())
+    } else {
+        serde_saphyr::from_str(text)
+    }
 }
 
 fn resolve_dir(configured: &Path, default: impl FnOnce() -> PathBuf) -> PathBuf {
@@ -116,10 +144,14 @@ mod tests {
 
         use serde_json::Value;
         fn check(example: &Value, schema: &Value, path: &str) {
-            let (Value::Object(example), Value::Object(schema)) = (example, schema) else { return };
+            let (Value::Object(example), Value::Object(schema)) = (example, schema) else {
+                return;
+            };
             for (key, value) in example {
                 let here = format!("{path}{key}");
-                let known = schema.get(key).unwrap_or_else(|| panic!("README uses unknown key {here}"));
+                let known = schema
+                    .get(key)
+                    .unwrap_or_else(|| panic!("README uses unknown key {here}"));
                 check(value, known, &format!("{here}."));
             }
         }
@@ -132,7 +164,10 @@ mod tests {
     fn partial_config_uses_defaults() {
         let cfg = parse("recording:\n  framerate: 30\n").unwrap();
         assert_eq!(cfg.recording.framerate, Framerate::Fps(30));
-        assert_eq!(cfg.recording.countdown, RecordingConfig::default().countdown);
+        assert_eq!(
+            cfg.recording.countdown,
+            RecordingConfig::default().countdown
+        );
         assert_eq!(cfg.screenshot, ScreenshotConfig::default());
     }
 
@@ -159,18 +194,31 @@ mod tests {
     fn ui_scale_is_auto_or_a_factor() {
         assert_eq!(parse("").unwrap().ui_scale, UiScale::Auto);
         assert_eq!(parse("ui_scale: auto").unwrap().ui_scale, UiScale::Auto);
-        assert_eq!(parse("ui_scale: 1.25").unwrap().ui_scale, UiScale::Fixed(1.25));
+        assert_eq!(
+            parse("ui_scale: 1.25").unwrap().ui_scale,
+            UiScale::Fixed(1.25)
+        );
         assert_eq!(parse("ui_scale: 2").unwrap().ui_scale, UiScale::Fixed(2.0));
         assert!(parse("ui_scale: big").is_err());
         assert!(parse("ui_scale: -1").is_err());
-        let text = serde_saphyr::to_string(&Config { ui_scale: UiScale::Fixed(1.5), ..Default::default() }).unwrap();
+        let text = serde_saphyr::to_string(&Config {
+            ui_scale: UiScale::Fixed(1.5),
+            ..Default::default()
+        })
+        .unwrap();
         assert_eq!(parse(&text).unwrap().ui_scale, UiScale::Fixed(1.5));
     }
 
     #[test]
     fn framerate_is_native_or_a_number() {
         assert_eq!(parse("").unwrap().recording.framerate, Framerate::Fps(60));
-        assert_eq!(parse("recording: { framerate: native }").unwrap().recording.framerate, Framerate::Native);
+        assert_eq!(
+            parse("recording: { framerate: native }")
+                .unwrap()
+                .recording
+                .framerate,
+            Framerate::Native
+        );
         assert!(parse("recording: { framerate: 0 }").is_err());
         assert!(parse("recording: { framerate: fast }").is_err());
         let mut cfg = Config::default();
@@ -180,18 +228,45 @@ mod tests {
 
     #[test]
     fn resolution_is_native_or_lines() {
-        assert_eq!(parse("").unwrap().recording.resolution, Resolution::Lines(1080));
-        assert_eq!(parse("recording: { resolution: native }").unwrap().recording.resolution, Resolution::Native);
-        assert_eq!(parse("recording: { resolution: 720p }").unwrap().recording.resolution, Resolution::Lines(720));
-        assert_eq!(parse("recording: { resolution: 4k }").unwrap().recording.resolution, Resolution::Lines(2160));
+        assert_eq!(
+            parse("").unwrap().recording.resolution,
+            Resolution::Lines(1080)
+        );
+        assert_eq!(
+            parse("recording: { resolution: native }")
+                .unwrap()
+                .recording
+                .resolution,
+            Resolution::Native
+        );
+        assert_eq!(
+            parse("recording: { resolution: 720p }")
+                .unwrap()
+                .recording
+                .resolution,
+            Resolution::Lines(720)
+        );
+        assert_eq!(
+            parse("recording: { resolution: 4k }")
+                .unwrap()
+                .recording
+                .resolution,
+            Resolution::Lines(2160)
+        );
         assert!(parse("recording: { resolution: 1080 }").is_err());
         assert!(parse("recording: { resolution: big }").is_err());
         let mut cfg = Config::default();
         cfg.recording.resolution = Resolution::Lines(1440);
         assert_eq!(parse(&serde_saphyr::to_string(&cfg).unwrap()).unwrap(), cfg);
         // A box turned to the capture's orientation.
-        assert_eq!(Resolution::Lines(1080).bounds(3840, 2160), Some((1920, 1080)));
-        assert_eq!(Resolution::Lines(1080).bounds(1000, 3000), Some((1080, 1920)));
+        assert_eq!(
+            Resolution::Lines(1080).bounds(3840, 2160),
+            Some((1920, 1080))
+        );
+        assert_eq!(
+            Resolution::Lines(1080).bounds(1000, 3000),
+            Some((1080, 1920))
+        );
         assert_eq!(Resolution::Native.bounds(3840, 2160), None);
     }
 

@@ -24,8 +24,8 @@ mod state;
 use std::time::{Duration, Instant};
 
 use screenie_core::{
-    Dmabuf, DmabufFormat, Frame, GpuDevice, GpuOffer, Image, Next, OutputCapture, OutputInfo, Pacer, PixelRect, Pixels,
-    Rect, Transform, WindowInfo,
+    Dmabuf, DmabufFormat, Frame, GpuDevice, GpuOffer, Image, Next, OutputCapture, OutputInfo,
+    Pacer, PixelRect, Pixels, Rect, Transform, WindowInfo,
 };
 use wayland_client::globals::{GlobalList, registry_queue_init};
 use wayland_client::protocol::wl_output;
@@ -33,7 +33,9 @@ use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::Options;
 
 pub use shm::transform_image;
-use state::{Capture, Constraints, Gpu, InFlight, OutputState, Phase, Protocol, State, Target, ToplevelInfo};
+use state::{
+    Capture, Constraints, Gpu, InFlight, OutputState, Phase, Protocol, State, Target, ToplevelInfo,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -108,7 +110,11 @@ impl Support {
     pub fn probe() -> Result<Support> {
         let conn = Connection::connect_to_env()?;
         let (globals, _queue) = registry_queue_init::<State>(&conn)?;
-        let has = |name: &str| globals.contents().with_list(|l| l.iter().any(|g| g.interface == name));
+        let has = |name: &str| {
+            globals
+                .contents()
+                .with_list(|l| l.iter().any(|g| g.interface == name))
+        };
         Ok(Support {
             ext_image_copy_capture: has("ext_image_copy_capture_manager_v1")
                 && has("ext_output_image_capture_source_manager_v1"),
@@ -171,7 +177,12 @@ impl Capturer {
         let backend = match preferred {
             Some(Backend::ExtImageCopyCapture) if ext => Backend::ExtImageCopyCapture,
             Some(Backend::WlrScreencopy) if wlr => Backend::WlrScreencopy,
-            Some(b) => return Err(Error::Unsupported(format!("compositor does not support {}", b.name()))),
+            Some(b) => {
+                return Err(Error::Unsupported(format!(
+                    "compositor does not support {}",
+                    b.name()
+                )));
+            }
             None if ext => Backend::ExtImageCopyCapture,
             None if wlr => Backend::WlrScreencopy,
             None => {
@@ -186,9 +197,20 @@ impl Capturer {
         // xdg_output info requested in response to the first.
         queue.roundtrip(&mut state)?;
         queue.roundtrip(&mut state)?;
-        tracing::debug!(backend = backend.name(), outputs = state.outputs.len(), "wayland capturer ready");
+        tracing::debug!(
+            backend = backend.name(),
+            outputs = state.outputs.len(),
+            "wayland capturer ready"
+        );
 
-        Ok(Self { conn, globals, queue, qh, state, backend })
+        Ok(Self {
+            conn,
+            globals,
+            queue,
+            qh,
+            state,
+            backend,
+        })
     }
 
     pub fn backend(&self) -> Backend {
@@ -197,7 +219,12 @@ impl Capturer {
 
     /// All outputs with a known mode, in compositor order.
     pub fn outputs(&self) -> Vec<OutputInfo> {
-        self.state.outputs.iter().enumerate().filter_map(|(i, o)| o.info(i)).collect()
+        self.state
+            .outputs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, o)| o.info(i))
+            .collect()
     }
 
     fn output_index(&self, name: &str) -> Result<usize> {
@@ -213,12 +240,24 @@ impl Capturer {
     /// Capture every output (or the named ones) as one consistent set of frames. Frames
     /// are requested concurrently so they are as close to simultaneous as the compositor
     /// allows.
-    pub fn capture_outputs(&mut self, names: Option<&[&str]>, cursor: bool) -> Result<Vec<OutputCapture>> {
+    pub fn capture_outputs(
+        &mut self,
+        names: Option<&[&str]>,
+        cursor: bool,
+    ) -> Result<Vec<OutputCapture>> {
         let indices: Vec<usize> = match names {
-            Some(names) => names.iter().map(|n| self.output_index(n)).collect::<Result<_>>()?,
-            None => (0..self.state.outputs.len()).filter(|&i| self.state.outputs[i].info(i).is_some()).collect(),
+            Some(names) => names
+                .iter()
+                .map(|n| self.output_index(n))
+                .collect::<Result<_>>()?,
+            None => (0..self.state.outputs.len())
+                .filter(|&i| self.state.outputs[i].info(i).is_some())
+                .collect(),
         };
-        let slots: Vec<usize> = indices.iter().map(|&i| self.new_capture(Target::Output(i), cursor, None)).collect();
+        let slots: Vec<usize> = indices
+            .iter()
+            .map(|&i| self.new_capture(Target::Output(i), cursor, None))
+            .collect();
 
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -226,7 +265,10 @@ impl Capturer {
                 self.drive(slot)?;
             }
             let pending = slots.iter().any(|&s| {
-                matches!(self.state.captures[s].phase, Phase::Negotiating | Phase::Copying)
+                matches!(
+                    self.state.captures[s].phase,
+                    Phase::Negotiating | Phase::Copying
+                )
             });
             if !pending {
                 break;
@@ -241,8 +283,13 @@ impl Capturer {
         let mut captures = Vec::with_capacity(slots.len());
         for (&slot, &output) in slots.iter().zip(&indices) {
             let image = self.take_image(slot)?;
-            let info = self.state.outputs[output].info(output).expect("filtered above");
-            captures.push(OutputCapture { output: info, image });
+            let info = self.state.outputs[output]
+                .info(output)
+                .expect("filtered above");
+            captures.push(OutputCapture {
+                output: info,
+                image,
+            });
         }
         for slot in slots {
             self.release(slot);
@@ -252,12 +299,22 @@ impl Capturer {
 
     /// Start continuous capture of one output, optionally restricted to a logical region
     /// relative to the output's top-left corner.
-    pub fn into_stream(mut self, output: &str, region: Option<Rect>, cursor: bool) -> Result<FrameStream> {
+    pub fn into_stream(
+        mut self,
+        output: &str,
+        region: Option<Rect>,
+        cursor: bool,
+    ) -> Result<FrameStream> {
         let index = self.output_index(output)?;
-        let info = self.state.outputs[index].info(index).expect("output has a mode");
+        let info = self.state.outputs[index]
+            .info(index)
+            .expect("output has a mode");
         let bounds = Rect::new(0.0, 0.0, info.logical.width, info.logical.height);
         let region = match region {
-            Some(r) => Some(r.intersection(&bounds).ok_or_else(|| Error::Capture("region is outside the output".into()))?),
+            Some(r) => Some(
+                r.intersection(&bounds)
+                    .ok_or_else(|| Error::Capture("region is outside the output".into()))?,
+            ),
             None => None,
         };
         // wlr-screencopy can copy just the region; ext always copies the whole output and
@@ -267,7 +324,10 @@ impl Capturer {
             Backend::ExtImageCopyCapture => (None, region),
         };
         let slot = self.new_capture(Target::Output(index), cursor, native_region);
-        let crop = crop.map(|region| Crop { region, logical_width: info.logical.width });
+        let crop = crop.map(|region| Crop {
+            region,
+            logical_width: info.logical.width,
+        });
         Ok(FrameStream::new(self, slot, crop))
     }
 
@@ -278,8 +338,11 @@ impl Capturer {
     /// The window is found by its toplevel identifier where the compositor's IPC reported
     /// one, otherwise by app id and title, which must then be unique.
     pub fn into_window_stream(mut self, window: &WindowInfo, cursor: bool) -> Result<FrameStream> {
-        if self.backend != Backend::ExtImageCopyCapture || self.state.ext_toplevel_sources.is_none() {
-            return Err(Error::Unsupported("this compositor can't capture a window by itself".into()));
+        if self.backend != Backend::ExtImageCopyCapture || self.state.ext_toplevel_sources.is_none()
+        {
+            return Err(Error::Unsupported(
+                "this compositor can't capture a window by itself".into(),
+            ));
         }
         let list = self
             .globals
@@ -328,7 +391,11 @@ impl Capturer {
         let cap = &mut self.state.captures[slot];
         let (target, cursor) = (cap.target, cap.cursor);
         let region = match &mut cap.protocol {
-            Protocol::Ext { session, frame, source } => {
+            Protocol::Ext {
+                session,
+                frame,
+                source,
+            } => {
                 if let Some(f) = frame.take() {
                     f.destroy();
                 }
@@ -353,31 +420,59 @@ impl Capturer {
         let _ = self.conn.flush();
     }
 
-    fn open_protocol(&mut self, target: Target, cursor: bool, region: Option<Rect>, idx: usize) -> Protocol {
+    fn open_protocol(
+        &mut self,
+        target: Target,
+        cursor: bool,
+        region: Option<Rect>,
+        idx: usize,
+    ) -> Protocol {
         match self.backend {
             Backend::ExtImageCopyCapture => {
                 let source = match target {
                     Target::Output(output) => {
-                        let wl_output = self.state.outputs[output].wl_output.as_ref().expect("bound output");
-                        let sources = self.state.ext_output_sources.as_ref().expect("checked at connect");
+                        let wl_output = self.state.outputs[output]
+                            .wl_output
+                            .as_ref()
+                            .expect("bound output");
+                        let sources = self
+                            .state
+                            .ext_output_sources
+                            .as_ref()
+                            .expect("checked at connect");
                         sources.create_source(wl_output, &self.qh, ())
                     }
                     Target::Toplevel(toplevel) => {
                         let handle = &self.state.toplevels[toplevel].handle;
-                        let sources = self.state.ext_toplevel_sources.as_ref().expect("checked by the caller");
+                        let sources = self
+                            .state
+                            .ext_toplevel_sources
+                            .as_ref()
+                            .expect("checked by the caller");
                         sources.create_source(handle, &self.qh, ())
                     }
                 };
-                let options = if cursor { Options::PaintCursors } else { Options::empty() };
-                let session = self.state.ext_copy.as_ref().expect("checked at connect").create_session(
-                    &source,
-                    options,
-                    &self.qh,
-                    idx,
-                );
-                Protocol::Ext { source, session, frame: None }
+                let options = if cursor {
+                    Options::PaintCursors
+                } else {
+                    Options::empty()
+                };
+                let session = self
+                    .state
+                    .ext_copy
+                    .as_ref()
+                    .expect("checked at connect")
+                    .create_session(&source, options, &self.qh, idx);
+                Protocol::Ext {
+                    source,
+                    session,
+                    frame: None,
+                }
             }
-            Backend::WlrScreencopy => Protocol::Wlr { frame: None, region },
+            Backend::WlrScreencopy => Protocol::Wlr {
+                frame: None,
+                region,
+            },
         }
     }
 
@@ -394,8 +489,14 @@ impl Capturer {
         if let Protocol::Wlr { frame, region } = &mut cap.protocol
             && frame.is_none()
         {
-            let manager = self.state.wlr_screencopy.as_ref().expect("checked at connect");
-            let Target::Output(output) = cap.target else { unreachable!("wlr only captures outputs") };
+            let manager = self
+                .state
+                .wlr_screencopy
+                .as_ref()
+                .expect("checked at connect");
+            let Target::Output(output) = cap.target else {
+                unreachable!("wlr only captures outputs")
+            };
             let wl_output = outputs[output].wl_output.as_ref().expect("bound output");
             let overlay = cap.cursor as i32;
             cap.incoming = Constraints::default();
@@ -426,20 +527,35 @@ impl Capturer {
             .size
             .ok_or_else(|| Error::Capture("compositor sent no buffer size".into()))?;
         let (buffer, in_flight) = if let Some(gpu) = &mut cap.gpu {
-            let linux_dmabuf = self.state.linux_dmabuf.as_ref().expect("checked by use_gpu");
+            let linux_dmabuf = self
+                .state
+                .linux_dmabuf
+                .as_ref()
+                .expect("checked by use_gpu");
             let pool = match &mut gpu.pool {
                 Some(pool) if (pool.width, pool.height) == (width, height) => pool,
                 pool => {
                     let allocator = gpu.allocator.as_ref().expect("opened by use_gpu");
-                    pool.insert(dmabuf::Pool::new(allocator, linux_dmabuf, (width, height), &gpu.format, &self.qh)?)
+                    pool.insert(dmabuf::Pool::new(
+                        allocator,
+                        linux_dmabuf,
+                        (width, height),
+                        &gpu.format,
+                        &self.qh,
+                    )?)
                 }
             };
             // Every buffer is still on its way through the consumer: try again shortly.
-            let Some(index) = pool.free() else { return Ok(()) };
+            let Some(index) = pool.free() else {
+                return Ok(());
+            };
             (pool.wl_buffer(index).clone(), InFlight::Gpu(index))
         } else {
             let format = shm::choose_format(&cap.constraints.formats).ok_or_else(|| {
-                Error::Unsupported(format!("no supported shm format among {:?}", cap.constraints.formats))
+                Error::Unsupported(format!(
+                    "no supported shm format among {:?}",
+                    cap.constraints.formats
+                ))
             })?;
             let stride = cap
                 .constraints
@@ -451,10 +567,23 @@ impl Capturer {
             if cap.buffer.is_none() {
                 cap.buffer = cap.spare.take();
             }
-            if !cap.buffer.as_ref().is_some_and(|b| b.matches(width, height, format) && b.stride == stride) {
-                cap.buffer = Some(shm::ShmBuffer::new(&shm, width, height, stride, format, &self.qh)?);
+            if !cap
+                .buffer
+                .as_ref()
+                .is_some_and(|b| b.matches(width, height, format) && b.stride == stride)
+            {
+                cap.buffer = Some(shm::ShmBuffer::new(
+                    &shm, width, height, stride, format, &self.qh,
+                )?);
             }
-            (cap.buffer.as_ref().expect("allocated above").wl_buffer.clone(), InFlight::Shm)
+            (
+                cap.buffer
+                    .as_ref()
+                    .expect("allocated above")
+                    .wl_buffer
+                    .clone(),
+                InFlight::Shm,
+            )
         };
         let buffer = &buffer;
 
@@ -493,10 +622,16 @@ impl Capturer {
         let ready = match cap.in_flight.take() {
             Some(InFlight::Gpu(index)) => {
                 let pool = cap.gpu.as_ref().and_then(|g| g.pool.as_ref());
-                Ready::Gpu(pool.ok_or_else(|| Error::Capture("no GPU buffers".into()))?.take(index, None))
+                Ready::Gpu(
+                    pool.ok_or_else(|| Error::Capture("no GPU buffers".into()))?
+                        .take(index, None),
+                )
             }
             _ => Ready::Shm {
-                buffer: cap.buffer.take().ok_or_else(|| Error::Capture("no buffer".into()))?,
+                buffer: cap
+                    .buffer
+                    .take()
+                    .ok_or_else(|| Error::Capture("no buffer".into()))?,
                 y_invert: cap.y_invert,
                 transform: cap.transform,
             },
@@ -527,19 +662,29 @@ impl Capturer {
     /// Read a ready capture out of its buffer.
     fn take_image(&mut self, slot: usize) -> Result<Image> {
         match self.take_ready(slot)? {
-            Ready::Shm { buffer, y_invert, transform } => {
+            Ready::Shm {
+                buffer,
+                y_invert,
+                transform,
+            } => {
                 let image = buffer.to_image(y_invert, transform);
                 self.recycle(slot, buffer);
                 Ok(image)
             }
-            Ready::Gpu(_) => Err(Error::Capture("a GPU frame where an image was expected".into())),
+            Ready::Gpu(_) => Err(Error::Capture(
+                "a GPU frame where an image was expected".into(),
+            )),
         }
     }
 
     fn release(&mut self, slot: usize) {
         let cap = &mut self.state.captures[slot];
         match &mut cap.protocol {
-            Protocol::Ext { source, session, frame } => {
+            Protocol::Ext {
+                source,
+                session,
+                frame,
+            } => {
                 if let Some(f) = frame.take() {
                     f.destroy();
                 }
@@ -573,7 +718,10 @@ impl Capturer {
             use rustix::event::{PollFd, PollFlags, Timespec, poll};
             let fd = guard.connection_fd();
             let mut fds = [PollFd::new(&fd, PollFlags::IN | PollFlags::ERR)];
-            let ts = Timespec { tv_sec: timeout.as_secs() as _, tv_nsec: timeout.subsec_nanos() as _ };
+            let ts = Timespec {
+                tv_sec: timeout.as_secs() as _,
+                tv_nsec: timeout.subsec_nanos() as _,
+            };
             loop {
                 match poll(&mut fds, Some(&ts)) {
                     Ok(n) => break n > 0,
@@ -587,7 +735,8 @@ impl Capturer {
         }
         match guard.read() {
             Ok(_) => {}
-            Err(wayland_client::backend::WaylandError::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(wayland_client::backend::WaylandError::Io(e))
+                if e.kind() == std::io::ErrorKind::WouldBlock => {}
             Err(e) => return Err(e.into()),
         }
         Ok(self.queue.dispatch_pending(&mut self.state)? > 0)
@@ -595,14 +744,20 @@ impl Capturer {
 }
 
 fn bind_outputs(globals: &GlobalList, qh: &QueueHandle<State>, state: &mut State) {
-    let output_globals: Vec<_> = globals
-        .contents()
-        .with_list(|list| list.iter().filter(|g| g.interface == "wl_output").cloned().collect());
+    let output_globals: Vec<_> = globals.contents().with_list(|list| {
+        list.iter()
+            .filter(|g| g.interface == "wl_output")
+            .cloned()
+            .collect()
+    });
     for global in output_globals {
         let idx = state.outputs.len();
         let version = global.version.min(4);
         let wl_output: wl_output::WlOutput = globals.registry().bind(global.name, version, qh, idx);
-        let xdg_output = state.xdg_output_manager.as_ref().map(|m| m.get_xdg_output(&wl_output, qh, idx));
+        let xdg_output = state
+            .xdg_output_manager
+            .as_ref()
+            .map(|m| m.get_xdg_output(&wl_output, qh, idx));
         state.outputs.push(OutputState {
             wl_output: Some(wl_output),
             xdg_output,
@@ -614,7 +769,11 @@ fn bind_outputs(globals: &GlobalList, qh: &QueueHandle<State>, state: &mut State
 
 /// A ready capture's buffer, before it's read.
 enum Ready {
-    Shm { buffer: shm::ShmBuffer, y_invert: bool, transform: Transform },
+    Shm {
+        buffer: shm::ShmBuffer,
+        y_invert: bool,
+        transform: Transform,
+    },
     Gpu(Dmabuf),
 }
 
@@ -633,7 +792,10 @@ fn find_toplevel<'a>(
     let mut alike = open().filter(|(_, t)| t.app_id == window.app_id && t.title == window.title);
     match (alike.next(), alike.next()) {
         (Some((i, _)), None) => Ok(i),
-        (None, _) => Err(Error::NoSuchWindow(format!("no window {:?} ({})", window.title, window.app_id))),
+        (None, _) => Err(Error::NoSuchWindow(format!(
+            "no window {:?} ({})",
+            window.title, window.app_id
+        ))),
         (Some(_), Some(_)) => Err(Error::NoSuchWindow(format!(
             "several windows are {:?} ({}), and the compositor doesn't say which",
             window.title, window.app_id
@@ -654,7 +816,8 @@ impl Crop {
     fn pixels(&self, width: u32, height: u32) -> PixelRect {
         let scale = width as f64 / self.logical_width;
         let r = self.region.to_pixels(Default::default(), scale);
-        r.intersection(&PixelRect::new(0, 0, width, height)).unwrap_or(PixelRect::new(0, 0, width, height))
+        r.intersection(&PixelRect::new(0, 0, width, height))
+            .unwrap_or(PixelRect::new(0, 0, width, height))
     }
 }
 
@@ -755,8 +918,12 @@ impl FrameStream {
                         self.stats.latency_max = self.stats.latency_max.max(took);
                     }
                     let presented = self.capture().presented;
-                    if self.capture().y_invert && matches!(self.capture().in_flight, Some(InFlight::Gpu(_))) {
-                        tracing::info!("the compositor flips GPU frames; taking them through memory");
+                    if self.capture().y_invert
+                        && matches!(self.capture().in_flight, Some(InFlight::Gpu(_)))
+                    {
+                        tracing::info!(
+                            "the compositor flips GPU frames; taking them through memory"
+                        );
                         self.upright = false;
                         self.use_gpu(None)?;
                         continue;
@@ -767,7 +934,11 @@ impl FrameStream {
                     self.request()?;
                     self.stats.frames += 1;
                     let pixels = match ready {
-                        Ready::Shm { buffer, y_invert, transform } => {
+                        Ready::Shm {
+                            buffer,
+                            y_invert,
+                            transform,
+                        } => {
                             self.upright = !y_invert;
                             let mut image = buffer.to_image(y_invert, transform);
                             self.capturer.recycle(self.slot, buffer);
@@ -778,7 +949,10 @@ impl FrameStream {
                         }
                         Ready::Gpu(mut buffer) => {
                             self.stats.gpu_frames += 1;
-                            buffer.crop = self.crop.as_ref().map(|c| c.pixels(buffer.width, buffer.height));
+                            buffer.crop = self
+                                .crop
+                                .as_ref()
+                                .map(|c| c.pixels(buffer.width, buffer.height));
                             Pixels::Gpu(buffer)
                         }
                     };
@@ -796,14 +970,19 @@ impl FrameStream {
             if self.starved() {
                 wake = wake.min(now + Duration::from_millis(2));
             }
-            self.capturer.dispatch_timeout(wake.saturating_duration_since(now))?;
+            self.capturer
+                .dispatch_timeout(wake.saturating_duration_since(now))?;
         }
     }
 
     /// The GPU the compositor renders frames on, where it says: the encoder on it is
     /// the best one even for frames in memory.
     pub fn gpu(&self) -> Option<GpuDevice> {
-        let dev = self.capture().constraints.dmabuf_device.or(self.capturer.state.feedback.main_device)?;
+        let dev = self.capture().constraints.dmabuf_device.or(self
+            .capturer
+            .state
+            .feedback
+            .main_device)?;
         Some(GpuDevice::from_dev(dev))
     }
 
@@ -812,11 +991,17 @@ impl FrameStream {
     pub fn gpu_offer(&self) -> Option<GpuOffer> {
         self.capturer.state.linux_dmabuf.as_ref()?;
         let cap = self.capture();
-        if cap.transform != Transform::Normal || !self.upright || cap.constraints.dmabuf_formats.is_empty() {
+        if cap.transform != Transform::Normal
+            || !self.upright
+            || cap.constraints.dmabuf_formats.is_empty()
+        {
             return None;
         }
         let device = GpuDevice::from_dev(cap.constraints.dmabuf_device?);
-        Some(GpuOffer { device, formats: cap.constraints.dmabuf_formats.clone() })
+        Some(GpuOffer {
+            device,
+            formats: cap.constraints.dmabuf_formats.clone(),
+        })
     }
 
     /// Take frames in GPU buffers of `format` from now on, or in shared memory (`None`).
@@ -828,17 +1013,25 @@ impl FrameStream {
             None => None,
             Some(format) => {
                 let cap = self.capture();
-                let dev = cap.constraints.dmabuf_device.ok_or_else(|| Error::Unsupported("no GPU buffers".into()))?;
-                let size = cap.constraints.size.ok_or_else(|| Error::Capture("no buffer size yet".into()))?;
-                let linux_dmabuf = self
-                    .capturer
-                    .state
-                    .linux_dmabuf
-                    .as_ref()
-                    .ok_or_else(|| Error::Unsupported("the compositor takes no GPU buffers".into()))?;
+                let dev = cap
+                    .constraints
+                    .dmabuf_device
+                    .ok_or_else(|| Error::Unsupported("no GPU buffers".into()))?;
+                let size = cap
+                    .constraints
+                    .size
+                    .ok_or_else(|| Error::Capture("no buffer size yet".into()))?;
+                let linux_dmabuf = self.capturer.state.linux_dmabuf.as_ref().ok_or_else(|| {
+                    Error::Unsupported("the compositor takes no GPU buffers".into())
+                })?;
                 let allocator = dmabuf::Allocator::open(GpuDevice::from_dev(dev))?;
-                let pool = dmabuf::Pool::new(&allocator, linux_dmabuf, size, &format, &self.capturer.qh)?;
-                Some(Gpu { format, allocator: Some(allocator), pool: Some(pool) })
+                let pool =
+                    dmabuf::Pool::new(&allocator, linux_dmabuf, size, &format, &self.capturer.qh)?;
+                Some(Gpu {
+                    format,
+                    allocator: Some(allocator),
+                    pool: Some(pool),
+                })
             }
         };
         self.capturer.state.captures[self.slot].gpu = gpu;
@@ -876,7 +1069,10 @@ impl FrameStream {
             if self.capturer.state.captures[slot].phase == Phase::Ready {
                 break self.capturer.take_image(slot);
             }
-            if matches!(self.capturer.state.captures[slot].phase, Phase::Failed(_) | Phase::Stopped) {
+            if matches!(
+                self.capturer.state.captures[slot].phase,
+                Phase::Failed(_) | Phase::Stopped
+            ) {
                 break self.capturer.take_image(slot);
             }
             let now = Instant::now();
@@ -921,7 +1117,9 @@ impl screenie_core::FrameSource for FrameStream {
     }
 
     fn snapshot(&mut self) -> Option<Image> {
-        FrameStream::snapshot(self).map_err(|e| tracing::warn!("snapshot of the stream failed: {e}")).ok()
+        FrameStream::snapshot(self)
+            .map_err(|e| tracing::warn!("snapshot of the stream failed: {e}"))
+            .ok()
     }
 }
 
@@ -946,7 +1144,12 @@ mod tests {
     use super::*;
 
     fn toplevel(identifier: &str, app_id: &str, title: &str) -> ToplevelInfo {
-        ToplevelInfo { identifier: identifier.into(), app_id: app_id.into(), title: title.into(), closed: false }
+        ToplevelInfo {
+            identifier: identifier.into(),
+            app_id: app_id.into(),
+            title: title.into(),
+            closed: false,
+        }
     }
 
     fn window(toplevel: Option<&str>, app_id: &str, title: &str) -> WindowInfo {
@@ -964,16 +1167,26 @@ mod tests {
     #[test]
     fn windows_are_found_by_identifier_first() {
         let list = [toplevel("a", "foot", "~"), toplevel("b", "foot", "~")];
-        assert_eq!(find_toplevel(list.iter(), &window(Some("b"), "foot", "~")).unwrap(), 1);
+        assert_eq!(
+            find_toplevel(list.iter(), &window(Some("b"), "foot", "~")).unwrap(),
+            1
+        );
         // Two alike windows can't be told apart without one.
         assert!(find_toplevel(list.iter(), &window(None, "foot", "~")).is_err());
     }
 
     #[test]
     fn otherwise_by_app_id_and_title() {
-        let mut list = [toplevel("a", "foot", "~"), toplevel("b", "firefox", "Docs"), toplevel("c", "foot", "~")];
+        let mut list = [
+            toplevel("a", "foot", "~"),
+            toplevel("b", "firefox", "Docs"),
+            toplevel("c", "foot", "~"),
+        ];
         list[0].closed = true;
-        assert_eq!(find_toplevel(list.iter(), &window(Some("gone"), "foot", "~")).unwrap(), 2);
+        assert_eq!(
+            find_toplevel(list.iter(), &window(Some("gone"), "foot", "~")).unwrap(),
+            2
+        );
         assert!(find_toplevel(list.iter(), &window(None, "firefox", "Mail")).is_err());
     }
 }

@@ -34,10 +34,9 @@ pub(crate) struct Allocator {
 
 impl Allocator {
     pub fn open(device: GpuDevice) -> Result<Self, Error> {
-        let node = device
-            .render_node
-            .as_ref()
-            .ok_or_else(|| Error::Unsupported(format!("no render node for GPU {}", device.describe())))?;
+        let node = device.render_node.as_ref().ok_or_else(|| {
+            Error::Unsupported(format!("no render node for GPU {}", device.describe()))
+        })?;
         let file = File::options().read(true).write(true).open(node)?;
         let gbm = gbm::Device::new(file)?;
         Ok(Self { gbm, device })
@@ -88,10 +87,20 @@ impl Pool {
     where
         D: Dispatch<ZwpLinuxBufferParamsV1, ()> + Dispatch<WlBuffer, ()> + 'static,
     {
-        let fourcc = gbm::Format::try_from(format.fourcc)
-            .map_err(|_| Error::Unsupported(format!("unknown DRM format {}", fourcc_name(format.fourcc))))?;
+        let fourcc = gbm::Format::try_from(format.fourcc).map_err(|_| {
+            Error::Unsupported(format!("unknown DRM format {}", fourcc_name(format.fourcc)))
+        })?;
         let buffers = (0..POOL_SIZE)
-            .map(|_| allocate(allocator, linux_dmabuf, (width, height), fourcc, &format.modifiers, qh))
+            .map(|_| {
+                allocate(
+                    allocator,
+                    linux_dmabuf,
+                    (width, height),
+                    fourcc,
+                    &format.modifiers,
+                    qh,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         tracing::debug!(
             width,
@@ -101,13 +110,20 @@ impl Pool {
             gpu = allocator.device.describe(),
             "GPU capture buffers"
         );
-        Ok(Self { width, height, buffers, next: 0 })
+        Ok(Self {
+            width,
+            height,
+            buffers,
+            next: 0,
+        })
     }
 
     /// The next buffer no frame holds.
     pub fn free(&mut self) -> Option<usize> {
         let n = self.buffers.len();
-        let found = (0..n).map(|k| (self.next + k) % n).find(|&i| !self.buffers[i].leased.load(Ordering::Acquire))?;
+        let found = (0..n)
+            .map(|k| (self.next + k) % n)
+            .find(|&i| !self.buffers[i].leased.load(Ordering::Acquire))?;
         self.next = (found + 1) % n;
         Some(found)
     }
@@ -154,9 +170,15 @@ where
     D: Dispatch<ZwpLinuxBufferParamsV1, ()> + Dispatch<WlBuffer, ()> + 'static,
 {
     let usage = gbm::BufferObjectFlags::RENDERING;
-    let explicit: Vec<u64> = modifiers.iter().copied().filter(|&m| m != screenie_core::gpu::MODIFIER_INVALID).collect();
+    let explicit: Vec<u64> = modifiers
+        .iter()
+        .copied()
+        .filter(|&m| m != screenie_core::gpu::MODIFIER_INVALID)
+        .collect();
     let bo = if explicit.is_empty() {
-        allocator.gbm.create_buffer_object::<()>(width, height, fourcc, usage)
+        allocator
+            .gbm
+            .create_buffer_object::<()>(width, height, fourcc, usage)
     } else {
         allocator.gbm.create_buffer_object_with_modifiers2::<()>(
             width,
@@ -172,10 +194,23 @@ where
     let params = linux_dmabuf.create_params(qh, ());
     let mut planes = Vec::new();
     for plane in 0..bo.plane_count() as i32 {
-        let fd: OwnedFd = bo.fd_for_plane(plane).map_err(|e| Error::Capture(format!("exporting a GPU buffer: {e}")))?;
+        let fd: OwnedFd = bo
+            .fd_for_plane(plane)
+            .map_err(|e| Error::Capture(format!("exporting a GPU buffer: {e}")))?;
         let (offset, stride) = (bo.offset(plane), bo.stride_for_plane(plane));
-        params.add(fd.as_fd(), plane as u32, offset, stride, (modifier >> 32) as u32, modifier as u32);
-        planes.push(DmabufPlane { fd: Arc::new(fd), offset, stride });
+        params.add(
+            fd.as_fd(),
+            plane as u32,
+            offset,
+            stride,
+            (modifier >> 32) as u32,
+            modifier as u32,
+        );
+        planes.push(DmabufPlane {
+            fd: Arc::new(fd),
+            offset,
+            stride,
+        });
     }
     let wl_buffer = params.create_immed(
         width as i32,

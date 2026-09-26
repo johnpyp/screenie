@@ -10,9 +10,13 @@ use screenie_wayland::{Backend, Capturer};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // RUST_LOG=debug shows what the compositor says about GPU buffers.
-    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let output = args.first().ok_or("usage: stream OUTPUT [SECONDS] [ext|wlr] [gpu|offer] [FPS]")?;
+    let output = args
+        .first()
+        .ok_or("usage: stream OUTPUT [SECONDS] [ext|wlr] [gpu|offer] [FPS]")?;
     let seconds: f64 = args.get(1).map(|s| s.parse()).transpose()?.unwrap_or(5.0);
     let backend = match args.get(2).map(String::as_str) {
         Some("wlr") => Some(Backend::WlrScreencopy),
@@ -29,7 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The first frame brings the compositor's buffer constraints.
     while stream.next_frame(Duration::from_millis(500))?.is_none() {}
     if mode != "shm" {
-        let offer = stream.gpu_offer().ok_or("the compositor offers no GPU buffers")?;
+        let offer = stream
+            .gpu_offer()
+            .ok_or("the compositor offers no GPU buffers")?;
         println!("GPU: {:?}", offer.device);
         for f in &offer.formats {
             let mods: Vec<String> = f.modifiers.iter().map(|m| format!("{m:#x}")).collect();
@@ -38,7 +44,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mode == "offer" {
             return Ok(());
         }
-        stream.use_gpu(Some(DmabufFormat { fourcc: fourcc(b"XR24"), modifiers: vec![MODIFIER_LINEAR] }))?;
+        stream.use_gpu(Some(DmabufFormat {
+            fourcc: fourcc(b"XR24"),
+            modifiers: vec![MODIFIER_LINEAR],
+        }))?;
     }
     let start = Instant::now();
     let (mut frames, mut waited, mut size) = (0u32, Duration::ZERO, (0, 0));

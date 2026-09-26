@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use gst::prelude::*;
 use gst_allocators::prelude::*;
-use screenie_core::{Dmabuf, Frame, Image, Pixels, PixelFormat};
+use screenie_core::{Dmabuf, Frame, Image, PixelFormat, Pixels};
 
 use crate::encoder::drm_format_string;
 use crate::{even_size, letterbox};
@@ -141,7 +141,10 @@ impl Feed {
         let caps = gst::Caps::builder("video/x-raw")
             .features(["memory:DMABuf"])
             .field("format", "DMA_DRM")
-            .field("drm-format", drm_format_string(frame.fourcc, frame.modifier))
+            .field(
+                "drm-format",
+                drm_format_string(frame.fourcc, frame.modifier),
+            )
             .field("width", frame.width as i32)
             .field("height", frame.height as i32)
             .field("framerate", gst::Fraction::new(self.fps as i32, 1))
@@ -153,7 +156,10 @@ impl Feed {
             // The capture reallocated its buffers (a resize): forget the old ones.
             self.memories.clear();
         }
-        let allocator = self.allocator.get_or_insert_with(gst_allocators::DmaBufAllocator::new).clone();
+        let allocator = self
+            .allocator
+            .get_or_insert_with(gst_allocators::DmaBufAllocator::new)
+            .clone();
         if let Entry::Vacant(slot) = self.memories.entry(frame.buffer) {
             let memories = frame
                 .planes
@@ -198,7 +204,10 @@ impl Feed {
         }
         if let Some(crop) = frame.crop {
             let (width, height) = even_size(crop.width, crop.height);
-            gst_video::VideoCropMeta::add(buf, (crop.x.max(0) as u32, crop.y.max(0) as u32, width, height));
+            gst_video::VideoCropMeta::add(
+                buf,
+                (crop.x.max(0) as u32, crop.y.max(0) as u32, width, height),
+            );
         }
         hold_until_done(buf, frame.lease.clone());
         self.pushed_gpu += 1;

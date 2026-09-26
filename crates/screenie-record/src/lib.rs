@@ -42,7 +42,9 @@ use feed::Feed;
 pub enum Error {
     #[error("GStreamer: {0}")]
     Gst(String),
-    #[error("no working H.264 encoder found (install VA-API drivers, or gstreamer1.0-plugins-ugly for x264)")]
+    #[error(
+        "no working H.264 encoder found (install VA-API drivers, or gstreamer1.0-plugins-ugly for x264)"
+    )]
     NoEncoder,
     #[error("no audio encoder found (install gstreamer1.0-libav)")]
     NoAudioEncoder,
@@ -144,7 +146,8 @@ struct Clock {
 impl Clock {
     fn elapsed(&self) -> Duration {
         let end = self.paused_at.unwrap_or_else(Instant::now);
-        end.duration_since(self.started).saturating_sub(self.paused_total)
+        end.duration_since(self.started)
+            .saturating_sub(self.paused_total)
     }
 }
 
@@ -196,8 +199,13 @@ impl Recording {
             match Pipeline::launch_gpu(source.as_mut(), &spec, &encoder, format, size, fps) {
                 Ok(pipeline) => return Ok(Self::run(source, spec, encoder, pipeline, native, cap)),
                 Err(e) => {
-                    tracing::warn!("GPU frames can't go into {} ({e}); taking them through memory", encoder.name());
-                    source.use_gpu(None).map_err(|e| Error::Source(e.to_string()))?;
+                    tracing::warn!(
+                        "GPU frames can't go into {} ({e}); taking them through memory",
+                        encoder.name()
+                    );
+                    source
+                        .use_gpu(None)
+                        .map_err(|e| Error::Source(e.to_string()))?;
                     first = None;
                 }
             }
@@ -219,12 +227,24 @@ impl Recording {
         native: (u32, u32),
         cap: Option<u32>,
     ) -> Recording {
-        let Pipeline { pipeline, feed, shared, eos, temp, first, mut cleanup } = pipeline;
+        let Pipeline {
+            pipeline,
+            feed,
+            shared,
+            eos,
+            temp,
+            first,
+            mut cleanup,
+        } = pipeline;
         // From here on, the Recording cleans up.
         cleanup.armed = false;
         let size = feed.size;
         let gpu = matches!(first.pixels, Pixels::Gpu(_));
-        let clock = Clock { started: Instant::now(), paused_at: None, paused_total: Duration::ZERO };
+        let clock = Clock {
+            started: Instant::now(),
+            paused_at: None,
+            paused_total: Duration::ZERO,
+        };
         let capture = {
             let shared = shared.clone();
             std::thread::Builder::new()
@@ -267,7 +287,8 @@ impl Recording {
 
     /// Recorded time so far, excluding pauses.
     pub fn elapsed(&self) -> Duration {
-        self.length.unwrap_or_else(|| self.clock.lock().unwrap().elapsed())
+        self.length
+            .unwrap_or_else(|| self.clock.lock().unwrap().elapsed())
     }
 
     pub fn is_paused(&self) -> bool {
@@ -302,7 +323,11 @@ impl Recording {
         }
         // A live pipeline's running time stops while PAUSED, so both audio and video
         // simply continue where they left off.
-        self.pipeline.set_state(if paused { gst::State::Paused } else { gst::State::Playing })?;
+        self.pipeline.set_state(if paused {
+            gst::State::Paused
+        } else {
+            gst::State::Playing
+        })?;
         let mut clock = self.clock.lock().unwrap();
         match (paused, clock.paused_at.take()) {
             (true, _) => clock.paused_at = Some(Instant::now()),
@@ -330,7 +355,13 @@ impl Recording {
         result?;
         let bytes = std::fs::metadata(&self.path)?.len();
         tracing::info!(path = %self.path.display(), ?duration, bytes, "recording saved");
-        Ok(Finished { path: self.path.clone(), duration, size: self.size, bytes, last_frame: last })
+        Ok(Finished {
+            path: self.path.clone(),
+            duration,
+            size: self.size,
+            bytes,
+            last_frame: last,
+        })
     }
 
     /// Stop and delete the file.
@@ -345,7 +376,9 @@ impl Recording {
     /// can't end up in it). [`Recording::stop`] then finishes the file. Blocks briefly
     /// while the capture thread hands over its last frame.
     pub fn stop_capture(&mut self) {
-        let Some(capture) = self.capture.take() else { return };
+        let Some(capture) = self.capture.take() else {
+            return;
+        };
         self.length = Some(self.elapsed());
         self.shared.stop.store(true, Ordering::Relaxed);
         let _ = capture.join();
@@ -408,7 +441,9 @@ impl Pipeline {
         size: (u32, u32),
         fps: u32,
     ) -> Result<Pipeline> {
-        source.use_gpu(Some(format)).map_err(|e| Error::Source(e.to_string()))?;
+        source
+            .use_gpu(Some(format))
+            .map_err(|e| Error::Source(e.to_string()))?;
         let first = first_frame(source)?;
         if !matches!(first.pixels, Pixels::Gpu(_)) {
             return Err(Error::Source("the first frame wasn't a GPU buffer".into()));
@@ -433,7 +468,11 @@ impl Pipeline {
         let pipeline = gst::parse::launch(&desc)?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Gst("not a pipeline".into()))?;
-        let by_name = |name: &str| pipeline.by_name(name).ok_or_else(|| Error::Gst(format!("missing {name}")));
+        let by_name = |name: &str| {
+            pipeline
+                .by_name(name)
+                .ok_or_else(|| Error::Gst(format!("missing {name}")))
+        };
         by_name("sink")?.set_property("location", spec.path.to_string_lossy().as_ref());
         by_name("mux")?.set_property("faststart-file", temp.to_string_lossy().as_ref());
         if spec.audio.system {
@@ -462,8 +501,20 @@ impl Pipeline {
 
         let shared = Arc::new(Shared::default());
         let eos = watch_bus(&pipeline, shared.clone());
-        let cleanup = Cleanup { pipeline: pipeline.clone(), paths: [spec.path.clone(), temp.clone()], armed: true };
-        let mut started = Pipeline { feed: Feed::new(appsrc, fps, size), pipeline, shared, eos, temp, first, cleanup };
+        let cleanup = Cleanup {
+            pipeline: pipeline.clone(),
+            paths: [spec.path.clone(), temp.clone()],
+            armed: true,
+        };
+        let mut started = Pipeline {
+            feed: Feed::new(appsrc, fps, size),
+            pipeline,
+            shared,
+            eos,
+            temp,
+            first,
+            cleanup,
+        };
         started.pipeline.set_state(gst::State::Playing)?;
         started.feed.push(&started.first);
         if let Some(image) = started.first.image() {
@@ -479,7 +530,9 @@ impl Pipeline {
                     return Err(Error::Gst(e));
                 }
                 if Instant::now() >= deadline {
-                    return Err(Error::Gst("the first frame didn't reach the encoder".into()));
+                    return Err(Error::Gst(
+                        "the first frame didn't reach the encoder".into(),
+                    ));
                 }
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -491,7 +544,10 @@ impl Pipeline {
 fn first_frame(source: &mut dyn FrameSource) -> Result<Frame> {
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        match source.next_frame(Duration::from_millis(250)).map_err(|e| Error::Source(e.to_string()))? {
+        match source
+            .next_frame(Duration::from_millis(250))
+            .map_err(|e| Error::Source(e.to_string()))?
+        {
             Next::Frame(frame) => return Ok(frame),
             Next::Unchanged => {}
             Next::Ended => return Err(Error::Ended),
@@ -527,7 +583,9 @@ fn letterbox(image: &Image, video: (u32, u32)) -> Option<Image> {
 /// `size` scaled down to fit `bounds` (never up), keeping its aspect ratio, in even
 /// dimensions.
 fn fit((width, height): (u32, u32), bounds: Option<(u32, u32)>) -> (u32, u32) {
-    let Some((max_w, max_h)) = bounds else { return (width, height) };
+    let Some((max_w, max_h)) = bounds else {
+        return (width, height);
+    };
     let scale = (max_w as f64 / width as f64).min(max_h as f64 / height as f64);
     if scale >= 1.0 {
         return (width, height);
@@ -540,11 +598,19 @@ fn fit((width, height): (u32, u32), bounds: Option<(u32, u32)>) -> (u32, u32) {
 /// so the file streams in browsers and chat apps). Next to the output, not in /tmp,
 /// which is often RAM.
 fn temp_path(path: &Path) -> PathBuf {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     path.with_file_name(format!(".{name}.part"))
 }
 
-fn pipeline_description(spec: &RecordSpec, encoder: &Encoder, size: (u32, u32), gpu: bool) -> Result<String> {
+fn pipeline_description(
+    spec: &RecordSpec,
+    encoder: &Encoder,
+    size: (u32, u32),
+    gpu: bool,
+) -> Result<String> {
     // Generous queues: the muxer interleaves audio and video, and encoders have latency.
     const QUEUE: &str = "queue max-size-buffers=0 max-size-bytes=0 max-size-time=3000000000";
     // Frames in memory are big (33 MB at 4K): a few decouple the capture thread from
@@ -562,15 +628,22 @@ fn pipeline_description(spec: &RecordSpec, encoder: &Encoder, size: (u32, u32), 
         let aac = encoder::audio_encoder().ok_or(Error::NoAudioEncoder)?;
         // Our clock drives timestamps; pulsesrc re-times its samples to it.
         let source = |name: &str| {
-            format!(" pulsesrc name={name} provide-clock=false ! audioconvert ! audioresample ! {QUEUE}")
+            format!(
+                " pulsesrc name={name} provide-clock=false ! audioconvert ! audioresample ! {QUEUE}"
+            )
         };
         let raw = "audio/x-raw,rate=48000,channels=2";
         if spec.audio.system && spec.audio.microphone {
-            desc += &format!(" audiomixer name=mix ! {raw} ! audioconvert ! {aac} ! {QUEUE} ! mux.");
+            desc +=
+                &format!(" audiomixer name=mix ! {raw} ! audioconvert ! {aac} ! {QUEUE} ! mux.");
             desc += &(source("speakers") + " ! mix.");
             desc += &(source("microphone") + " ! mix.");
         } else {
-            let name = if spec.audio.system { "speakers" } else { "microphone" };
+            let name = if spec.audio.system {
+                "speakers"
+            } else {
+                "microphone"
+            };
             desc += &format!("{} ! {raw} ! {aac} ! {QUEUE} ! mux.", source(name));
         }
     }
@@ -615,7 +688,13 @@ fn watch_bus(pipeline: &gst::Pipeline, shared: Arc<Shared>) -> mpsc::Receiver<Re
 ///
 /// Frames replaced before they could be pushed are counted and logged at the end: with
 /// a paced source there should be none, and many mean the pipeline couldn't keep up.
-fn capture_loop(mut source: Box<dyn FrameSource>, mut feed: Feed, shared: Arc<Shared>, first: Frame, fps: Option<u32>) {
+fn capture_loop(
+    mut source: Box<dyn FrameSource>,
+    mut feed: Feed,
+    shared: Arc<Shared>,
+    first: Frame,
+    fps: Option<u32>,
+) {
     let mut pacer = Pacer::new(fps);
     let started = Instant::now();
     pacer.tick(started); // the first frame, pushed by the caller
@@ -654,13 +733,22 @@ fn capture_loop(mut source: Box<dyn FrameSource>, mut feed: Feed, shared: Arc<Sh
                 break;
             }
         }
-        if shared.paused.load(Ordering::Relaxed) || pacer.wait_until(Instant::now()).is_some() || !feed.has_room() {
+        if shared.paused.load(Ordering::Relaxed)
+            || pacer.wait_until(Instant::now()).is_some()
+            || !feed.has_room()
+        {
             continue;
         }
-        let Some(frame) = pending.take() else { continue };
+        let Some(frame) = pending.take() else {
+            continue;
+        };
         match (&frame.pixels, &last.pixels) {
-            (Pixels::Gpu(buffer), _) if gpu_size.is_some_and(|s| s != (buffer.width, buffer.height, buffer.crop)) => {
-                tracing::info!("the recording changed size; frames come through memory from now on");
+            (Pixels::Gpu(buffer), _)
+                if gpu_size.is_some_and(|s| s != (buffer.width, buffer.height, buffer.crop)) =>
+            {
+                tracing::info!(
+                    "the recording changed size; frames come through memory from now on"
+                );
                 gpu_size = None;
                 if let Err(e) = source.use_gpu(None) {
                     shared.fail(format!("screen capture stopped: {e}"));
@@ -685,7 +773,10 @@ fn capture_loop(mut source: Box<dyn FrameSource>, mut feed: Feed, shared: Arc<Sh
     }
     if !shared.paused.load(Ordering::Relaxed) {
         // Stamped now, so the video lasts until the stop.
-        feed.push(&Frame { presented: None, ..last.clone() });
+        feed.push(&Frame {
+            presented: None,
+            ..last.clone()
+        });
     }
     if matches!(last.pixels, Pixels::Gpu(_)) {
         // The thumbnail needs the last frame's pixels in memory.
@@ -715,7 +806,8 @@ fn same_pixels(a: &Image, b: &Image) -> bool {
         return false;
     }
     let row = width as usize * 4;
-    (0..height as usize).all(|y| a.data()[y * a.stride()..][..row] == b.data()[y * b.stride()..][..row])
+    (0..height as usize)
+        .all(|y| a.data()[y * a.stride()..][..row] == b.data()[y * b.stride()..][..row])
 }
 
 #[cfg(test)]
@@ -726,7 +818,10 @@ mod tests {
 
     #[test]
     fn temp_file_sits_next_to_the_output() {
-        assert_eq!(temp_path(Path::new("/v/Rec 1.mp4")), PathBuf::from("/v/.Rec 1.mp4.part"));
+        assert_eq!(
+            temp_path(Path::new("/v/Rec 1.mp4")),
+            PathBuf::from("/v/.Rec 1.mp4.part")
+        );
     }
 
     #[test]
@@ -735,9 +830,17 @@ mod tests {
         let mut b = Image::new(5, 3, PixelFormat::Bgrx);
         assert!(same_pixels(&a, &b));
         // A change in the cropped-off column doesn't count.
-        b.blit(&Image::from_raw(1, 1, 4, PixelFormat::Bgrx, vec![9, 9, 9, 255]), 4, 0);
+        b.blit(
+            &Image::from_raw(1, 1, 4, PixelFormat::Bgrx, vec![9, 9, 9, 255]),
+            4,
+            0,
+        );
         assert!(same_pixels(&a, &b));
-        b.blit(&Image::from_raw(1, 1, 4, PixelFormat::Bgrx, vec![9, 9, 9, 255]), 1, 1);
+        b.blit(
+            &Image::from_raw(1, 1, 4, PixelFormat::Bgrx, vec![9, 9, 9, 255]),
+            1,
+            1,
+        );
         assert!(!same_pixels(&a, &b));
         // Nor are frames of another size the same.
         assert!(!same_pixels(&a, &Image::new(7, 3, PixelFormat::Bgrx)));

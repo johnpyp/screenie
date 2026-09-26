@@ -22,7 +22,8 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    Animation, AnimationExt, App, AsyncApp, Context, Entity, FontWeight, Window, WindowHandle, div, px, rgba, size,
+    Animation, AnimationExt, App, AsyncApp, Context, Entity, FontWeight, Window, WindowHandle, div,
+    px, rgba, size,
 };
 use screenie_core::{OutputInfo, Point, Rect, Size};
 use screenie_ui_kit::hud::{self, HudButton, color};
@@ -32,7 +33,10 @@ use crate::daemon::Daemon;
 
 /// Pill size in logical pixels (fixed, so it can be placed before it's laid out).
 /// As tall as a panel of buttons, so the buttons in it sit concentric with its corners.
-const PILL: Size = Size { width: 196.0, height: 38.0 };
+const PILL: Size = Size {
+    width: 196.0,
+    height: 38.0,
+};
 /// Space between the region and the chrome.
 const GAP: f64 = 12.0;
 /// The border ring sits this far outside the region.
@@ -67,7 +71,8 @@ fn place_pill(region: Rect, chrome: Chrome, home: &OutputInfo, k: f64) -> Option
     let gap = GAP * k;
     let o = home.logical;
     let fits_x = o.width >= pill.width + 2.0 * gap;
-    let centered_x = (region.center().x - pill.width / 2.0).clamp(o.x + gap, (o.right() - pill.width - gap).max(o.x));
+    let centered_x = (region.center().x - pill.width / 2.0)
+        .clamp(o.x + gap, (o.right() - pill.width - gap).max(o.x));
     let local = |x: f64, y: f64| Some(Point::new(x - o.x, y - o.y));
     if fits_x && o.bottom() - region.bottom() >= pill.height + 2.0 * gap {
         return local(centered_x, region.bottom() + gap);
@@ -75,19 +80,28 @@ fn place_pill(region: Rect, chrome: Chrome, home: &OutputInfo, k: f64) -> Option
     if fits_x && region.y - o.y >= pill.height + 2.0 * gap {
         return local(centered_x, region.y - gap - pill.height);
     }
-    let side_y = (region.bottom() - pill.height).clamp(o.y + gap, (o.bottom() - pill.height - gap).max(o.y));
+    let side_y =
+        (region.bottom() - pill.height).clamp(o.y + gap, (o.bottom() - pill.height - gap).max(o.y));
     if o.right() - region.right() >= pill.width + 2.0 * gap {
         return local(region.right() + gap, side_y);
     }
     if region.x - o.x >= pill.width + 2.0 * gap {
         return local(region.x - gap - pill.width, side_y);
     }
-    (chrome == Chrome::Window).then(|| Point::new((o.width - pill.width) / 2.0, o.height - pill.height - 48.0 * k))
+    (chrome == Chrome::Window).then(|| {
+        Point::new(
+            (o.width - pill.width) / 2.0,
+            o.height - pill.height - 48.0 * k,
+        )
+    })
 }
 
 /// The pill's size at interface scale `k`.
 fn pill_size(k: f64) -> Size {
-    Size { width: PILL.width * k, height: PILL.height * k }
+    Size {
+        width: PILL.width * k,
+        height: PILL.height * k,
+    }
 }
 
 /// What the chrome shows.
@@ -105,7 +119,11 @@ struct Layout {
 impl Layout {
     /// `covered`: a window fills the output, so nothing may stay over it.
     fn new(region: Rect, chrome: Chrome, home: &OutputInfo, covered: bool, k: f64) -> Self {
-        let pill = if covered { None } else { place_pill(region, chrome, home, k) };
+        let pill = if covered {
+            None
+        } else {
+            place_pill(region, chrome, home, k)
+        };
         Layout {
             region: region.translate(-home.logical.x, -home.logical.y),
             border: chrome == Chrome::Region && !covered && !fills(region, home),
@@ -147,7 +165,10 @@ pub(crate) fn open(
     let spec = LayerSpec::fullscreen_overlay(
         "screenie-recording",
         &home.name,
-        size(px(home.logical.width as f32), px(home.logical.height as f32)),
+        size(
+            px(home.logical.width as f32),
+            px(home.logical.height as f32),
+        ),
     )
     .passive();
     cx.update(|cx| {
@@ -160,9 +181,12 @@ pub(crate) fn open(
                 cx.spawn_in(window, async move |this, cx| {
                     let mut shown = None;
                     loop {
-                        cx.background_executor().timer(Duration::from_millis(100)).await;
+                        cx.background_executor()
+                            .timer(Duration::from_millis(100))
+                            .await;
                         let alive = this.update(cx, |_, cx| {
-                            let now = pill_status(cx).map(|(elapsed, paused)| (elapsed.as_secs(), paused));
+                            let now = pill_status(cx)
+                                .map(|(elapsed, paused)| (elapsed.as_secs(), paused));
                             if now != shown {
                                 shown = now;
                                 cx.notify();
@@ -174,7 +198,11 @@ pub(crate) fn open(
                     }
                 })
                 .detach();
-                Controls { layout, phase, hover }
+                Controls {
+                    layout,
+                    phase,
+                    hover,
+                }
             })
         })
     })
@@ -201,7 +229,10 @@ pub(crate) fn close(handle: Option<WindowHandle<Controls>>, cx: &mut App) {
     let _ = handle.map(|handle| {
         handle.update(cx, |controls, _, cx| {
             controls.hover.update(cx, |hover, cx| {
-                hover.when_released(move |cx| _ = handle.update(cx, |_, window, _| window.remove_window()), cx);
+                hover.when_released(
+                    move |cx| _ = handle.update(cx, |_, window, _| window.remove_window()),
+                    cx,
+                );
             })
         })
     });
@@ -215,7 +246,11 @@ fn pill_status(cx: &App) -> Option<(Duration, bool)> {
 
 fn format_elapsed(d: Duration) -> String {
     let s = d.as_secs();
-    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
+    }
 }
 
 impl Controls {
@@ -270,12 +305,15 @@ impl Controls {
                     .child(n.to_string())
                     .with_animation(
                         ("countdown-pop", n),
-                        Animation::new(Duration::from_millis(350)).with_easing(gpui::ease_out_quint()),
+                        Animation::new(Duration::from_millis(350))
+                            .with_easing(gpui::ease_out_quint()),
                         |el, t| el.opacity(0.4 + 0.6 * t),
                     ),
             )
             .when(self.layout.stop_hint, |el| {
-                el.child(hud::pill("Stop with your record shortcut or `screenie stop`"))
+                el.child(hud::pill(
+                    "Stop with your record shortcut or `screenie stop`",
+                ))
             })
     }
 
@@ -285,7 +323,14 @@ impl Controls {
         let size = pill_size(f64::from(screenie_ui_kit::ui_scale(cx)));
 
         // Static on purpose: an animation would repaint (and so re-encode) constantly.
-        let dot = div().size(ui(10.)).rounded_full().bg(if paused || counting { color::text_dim() } else { color::record() });
+        let dot = div()
+            .size(ui(10.))
+            .rounded_full()
+            .bg(if paused || counting {
+                color::text_dim()
+            } else {
+                color::record()
+            });
         let label = match self.phase {
             Phase::Countdown(n) => format!("Starting in {n}"),
             Phase::Recording => format_elapsed(elapsed),
@@ -306,7 +351,11 @@ impl Controls {
                     .pl_1()
                     .text_size(ui(13.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(if paused { color::text_dim() } else { color::text() })
+                    .text_color(if paused {
+                        color::text_dim()
+                    } else {
+                        color::text()
+                    })
                     .child(label),
             )
             .when(!counting, |el| {
@@ -340,7 +389,11 @@ impl Controls {
             .child(
                 HudButton::new("discard")
                     .icon(if counting { Icon::Close } else { Icon::Trash })
-                    .tooltip(if counting { "Cancel" } else { "Discard recording" })
+                    .tooltip(if counting {
+                        "Cancel"
+                    } else {
+                        "Discard recording"
+                    })
                     .on_click(|_, _, cx| {
                         cx.spawn(async move |cx| super::cancel(cx).await).detach();
                     }),
@@ -352,7 +405,12 @@ impl Controls {
 impl Render for Controls {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let k = f64::from(screenie_ui_kit::ui_scale(cx));
-        let Layout { region, border, pill, .. } = self.layout;
+        let Layout {
+            region,
+            border,
+            pill,
+            ..
+        } = self.layout;
         let counting = match self.phase {
             Phase::Countdown(n) => Some(n),
             Phase::Recording => None,
@@ -386,9 +444,21 @@ mod tests {
     #[test]
     fn pill_goes_below_then_above_then_beside() {
         let o = output("A", 0.0, 1920.0, 1080.0);
-        let p = place_pill(Rect::new(100.0, 100.0, 400.0, 300.0), Chrome::Region, &o, 1.0).unwrap();
+        let p = place_pill(
+            Rect::new(100.0, 100.0, 400.0, 300.0),
+            Chrome::Region,
+            &o,
+            1.0,
+        )
+        .unwrap();
         assert_eq!(p.y, 412.0);
-        let p = place_pill(Rect::new(100.0, 700.0, 400.0, 370.0), Chrome::Region, &o, 1.0).unwrap();
+        let p = place_pill(
+            Rect::new(100.0, 700.0, 400.0, 370.0),
+            Chrome::Region,
+            &o,
+            1.0,
+        )
+        .unwrap();
         assert_eq!(p.y, 700.0 - GAP - PILL.height);
         let p = place_pill(Rect::new(0.0, 0.0, 1400.0, 1080.0), Chrome::Region, &o, 1.0).unwrap();
         assert_eq!(p.x, 1400.0 + GAP);

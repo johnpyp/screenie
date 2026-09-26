@@ -6,8 +6,8 @@ use gpui::prelude::*;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Div, ElementId, FontWeight, Hsla, Rems,
-    SharedString, Stateful, Transformation, Window, div, percentage, point, px, rgba,
+    Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Div, ElementId, FontWeight,
+    Hsla, Rems, SharedString, Stateful, Transformation, Window, div, percentage, point, px, rgba,
 };
 
 use crate::assets::Icon;
@@ -62,7 +62,12 @@ pub mod color {
         rgba(0xffd60aff).into()
     }
     pub fn scrim(alpha: f32) -> Hsla {
-        Hsla { h: 0.0, s: 0.0, l: 0.0, a: alpha }
+        Hsla {
+            h: 0.0,
+            s: 0.0,
+            l: 0.0,
+            a: alpha,
+        }
     }
 }
 
@@ -152,11 +157,15 @@ pub fn separator() -> Div {
 /// Something is under way: a turning circle. It redraws every frame, so use it only
 /// while something's pending.
 pub fn spinner(id: impl Into<ElementId>, size: Rems, color: impl Into<Hsla>) -> impl IntoElement {
-    Icon::Loader.element().size(size).text_color(color.into()).with_animation(
-        id,
-        Animation::new(Duration::from_millis(800)).repeat(),
-        |icon, turn| icon.with_transformation(Transformation::rotate(percentage(turn))),
-    )
+    Icon::Loader
+        .element()
+        .size(size)
+        .text_color(color.into())
+        .with_animation(
+            id,
+            Animation::new(Duration::from_millis(800)).repeat(),
+            |icon, turn| icon.with_transformation(Transformation::rotate(percentage(turn))),
+        )
 }
 
 /// A keyboard key hint.
@@ -258,7 +267,9 @@ impl RenderOnce for HudButton {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let icon_only = self.label.is_none();
         let (bg, hover_bg, fg) = match self.style {
-            ButtonStyle::Plain if self.selected => (Some(color::selected()), color::selected(), color::text()),
+            ButtonStyle::Plain if self.selected => {
+                (Some(color::selected()), color::selected(), color::text())
+            }
             ButtonStyle::Plain => (None, color::hover(), color::text()),
             ButtonStyle::Accent => (Some(color::accent()), color::accent_hover(), gpui::white()),
             ButtonStyle::Record => (Some(color::record()), color::record_hover(), gpui::white()),
@@ -274,15 +285,30 @@ impl RenderOnce for HudButton {
             .rounded(inner_radius())
             .text_color(fg)
             .text_size(ui(13.))
-            .font_weight(if self.style == ButtonStyle::Plain { FontWeight::MEDIUM } else { FontWeight::SEMIBOLD });
-        el = if icon_only { el.w(ui(32.)) } else { el.px(ui(if self.style == ButtonStyle::Plain { 10. } else { 14. })) };
+            .font_weight(if self.style == ButtonStyle::Plain {
+                FontWeight::MEDIUM
+            } else {
+                FontWeight::SEMIBOLD
+            });
+        el = if icon_only {
+            el.w(ui(32.))
+        } else {
+            el.px(ui(if self.style == ButtonStyle::Plain {
+                10.
+            } else {
+                14.
+            }))
+        };
         if let Some(bg) = bg {
             el = el.bg(bg);
         }
         if self.disabled {
             el = el.opacity(0.4);
         } else {
-            el = el.cursor_pointer().hover(move |s| s.bg(hover_bg)).active(|s| s.opacity(0.85));
+            el = el
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover_bg))
+                .active(|s| s.opacity(0.85));
             if let Some(f) = self.on_click {
                 el = el.on_click(f);
             }

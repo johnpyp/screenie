@@ -19,21 +19,45 @@ pub enum Redaction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
-    Arrow { from: Point, to: Point },
-    Line { from: Point, to: Point },
-    Rectangle { rect: Rect },
-    Ellipse { rect: Rect },
+    Arrow {
+        from: Point,
+        to: Point,
+    },
+    Line {
+        from: Point,
+        to: Point,
+    },
+    Rectangle {
+        rect: Rect,
+    },
+    Ellipse {
+        rect: Rect,
+    },
     /// A freehand stroke.
-    Pen { points: Vec<Point> },
+    Pen {
+        points: Vec<Point>,
+    },
     /// A translucent (multiplied) marker stroke.
-    Highlighter { points: Vec<Point> },
+    Highlighter {
+        points: Vec<Point>,
+    },
     /// `origin` is the top-left of the first line.
-    Text { origin: Point, text: String },
+    Text {
+        origin: Point,
+        text: String,
+    },
     /// A numbered circle. Numbers follow the order of steps in the document.
-    Step { center: Point },
-    Redact { rect: Rect, mode: Redaction },
+    Step {
+        center: Point,
+    },
+    Redact {
+        rect: Rect,
+        mode: Redaction,
+    },
     /// Dims everything outside the spotlit rectangles.
-    Spotlight { rect: Rect },
+    Spotlight {
+        rect: Rect,
+    },
 }
 
 /// Appearance shared by every shape.
@@ -49,7 +73,11 @@ pub struct Style {
 
 impl Default for Style {
     fn default() -> Self {
-        Self { color: Color::rgb(0xff, 0x3b, 0x30), size: 4.0, fill: false }
+        Self {
+            color: Color::rgb(0xff, 0x3b, 0x30),
+            size: 4.0,
+            fill: false,
+        }
     }
 }
 
@@ -64,15 +92,26 @@ impl Style {
         let last = sizes.len() as i32 - 1;
         // The first preset at or above `size`; a size between two presets steps to its
         // neighbours as if it sat just below the upper one.
-        let above = sizes.iter().position(|s| *s >= size).map_or(last + 1, |i| i as i32);
+        let above = sizes
+            .iter()
+            .position(|s| *s >= size)
+            .map_or(last + 1, |i| i as i32);
         let exact = sizes.get(above as usize) == Some(&size);
-        let target = if steps > 0 && !exact { above + steps - 1 } else { above + steps };
+        let target = if steps > 0 && !exact {
+            above + steps - 1
+        } else {
+            above + steps
+        };
         sizes[target.clamp(0, last) as usize]
     }
 
     /// Where `size` sits among the presets, from 1.
     pub fn size_index(size: f32) -> usize {
-        Self::SIZES.iter().position(|s| *s >= size).unwrap_or(Self::SIZES.len() - 1) + 1
+        Self::SIZES
+            .iter()
+            .position(|s| *s >= size)
+            .unwrap_or(Self::SIZES.len() - 1)
+            + 1
     }
 
     pub fn font_size(&self) -> f32 {
@@ -132,7 +171,10 @@ impl Handle {
 
     /// Corner handles are drawn; edge handles work but stay invisible.
     pub fn is_visible(self) -> bool {
-        !matches!(self, Handle::Top | Handle::Right | Handle::Bottom | Handle::Left)
+        !matches!(
+            self,
+            Handle::Top | Handle::Right | Handle::Bottom | Handle::Left
+        )
     }
 
     /// Where this handle sits on a box.
@@ -159,14 +201,20 @@ impl Shape {
 
     /// Whether the shape draws with a soft drop shadow.
     pub fn has_shadow(&self) -> bool {
-        !matches!(self.kind, Kind::Highlighter { .. } | Kind::Redact { .. } | Kind::Spotlight { .. })
+        !matches!(
+            self.kind,
+            Kind::Highlighter { .. } | Kind::Redact { .. } | Kind::Spotlight { .. }
+        )
     }
 
     /// Whether the whole area counts when clicking, rather than just the stroke.
     fn is_solid(&self) -> bool {
         match self.kind {
             Kind::Rectangle { .. } | Kind::Ellipse { .. } => self.style.fill,
-            Kind::Text { .. } | Kind::Step { .. } | Kind::Redact { .. } | Kind::Spotlight { .. } => true,
+            Kind::Text { .. }
+            | Kind::Step { .. }
+            | Kind::Redact { .. }
+            | Kind::Spotlight { .. } => true,
             _ => false,
         }
     }
@@ -189,12 +237,24 @@ impl Shape {
     pub fn bounds(&self, scale: f32) -> Rect {
         match &self.kind {
             Kind::Arrow { from, to } | Kind::Line { from, to } => Rect::from_corners(*from, *to),
-            Kind::Rectangle { rect } | Kind::Ellipse { rect } | Kind::Redact { rect, .. } | Kind::Spotlight { rect } => *rect,
+            Kind::Rectangle { rect }
+            | Kind::Ellipse { rect }
+            | Kind::Redact { rect, .. }
+            | Kind::Spotlight { rect } => *rect,
             Kind::Pen { points } | Kind::Highlighter { points } => points_bounds(points),
             Kind::Text { origin, .. } => {
                 let block = self.text_block(scale).expect("text shape");
-                let (px, py) = if self.style.fill { self.label_padding(scale) } else { (0.0, 0.0) };
-                Rect::new(origin.x - px, origin.y - py, block.width() as f64 + px * 2.0, block.height() as f64 + py * 2.0)
+                let (px, py) = if self.style.fill {
+                    self.label_padding(scale)
+                } else {
+                    (0.0, 0.0)
+                };
+                Rect::new(
+                    origin.x - px,
+                    origin.y - py,
+                    block.width() as f64 + px * 2.0,
+                    block.height() as f64 + py * 2.0,
+                )
             }
             Kind::Step { center } => {
                 let r = (self.style.step_diameter() * scale / 2.0) as f64;
@@ -209,11 +269,18 @@ impl Shape {
         let margin = match &self.kind {
             Kind::Arrow { .. } => w * 4.0 + 8.0 * scale as f64,
             Kind::Highlighter { .. } => (self.style.highlighter_width() * scale) as f64 / 2.0 + 1.0,
-            Kind::Line { .. } | Kind::Rectangle { .. } | Kind::Ellipse { .. } | Kind::Pen { .. } => w,
+            Kind::Line { .. }
+            | Kind::Rectangle { .. }
+            | Kind::Ellipse { .. }
+            | Kind::Pen { .. } => w,
             Kind::Text { .. } | Kind::Step { .. } => 2.0 * scale as f64,
             Kind::Redact { .. } | Kind::Spotlight { .. } => 0.0,
         };
-        let shadow = if self.has_shadow() { crate::render::shadow_margin(scale) } else { 0.0 };
+        let shadow = if self.has_shadow() {
+            crate::render::shadow_margin(scale)
+        } else {
+            0.0
+        };
         self.bounds(scale).inset(-(margin + shadow + 1.0))
     }
 
@@ -221,16 +288,21 @@ impl Shape {
     pub fn hit(&self, p: Point, tolerance: f64, scale: f32) -> bool {
         let half = self.stroke(scale) / 2.0 + tolerance;
         match &self.kind {
-            Kind::Arrow { from, to } | Kind::Line { from, to } => segment_distance(p, *from, *to) <= half.max(tolerance * 1.5),
+            Kind::Arrow { from, to } | Kind::Line { from, to } => {
+                segment_distance(p, *from, *to) <= half.max(tolerance * 1.5)
+            }
             Kind::Pen { points } => polyline_distance(p, points) <= half,
             Kind::Highlighter { points } => {
-                polyline_distance(p, points) <= (self.style.highlighter_width() * scale) as f64 / 2.0 + tolerance
+                polyline_distance(p, points)
+                    <= (self.style.highlighter_width() * scale) as f64 / 2.0 + tolerance
             }
             Kind::Rectangle { rect } if !self.is_solid() => {
                 rect.inset(-half).contains(p) && !rect.inset(half).contains(p)
             }
             Kind::Ellipse { rect } => ellipse_hit(rect, p, half, self.is_solid()),
-            Kind::Step { center } => center.distance(p) <= (self.style.step_diameter() * scale) as f64 / 2.0 + tolerance,
+            Kind::Step { center } => {
+                center.distance(p) <= (self.style.step_diameter() * scale) as f64 / 2.0 + tolerance
+            }
             _ => self.bounds(scale).inset(-tolerance).contains(p),
         }
     }
@@ -238,8 +310,13 @@ impl Shape {
     /// Handles to show when selected.
     pub fn handles(&self) -> Vec<(Handle, Point)> {
         match &self.kind {
-            Kind::Arrow { from, to } | Kind::Line { from, to } => vec![(Handle::Start, *from), (Handle::End, *to)],
-            Kind::Rectangle { rect } | Kind::Ellipse { rect } | Kind::Redact { rect, .. } | Kind::Spotlight { rect } => {
+            Kind::Arrow { from, to } | Kind::Line { from, to } => {
+                vec![(Handle::Start, *from), (Handle::End, *to)]
+            }
+            Kind::Rectangle { rect }
+            | Kind::Ellipse { rect }
+            | Kind::Redact { rect, .. }
+            | Kind::Spotlight { rect } => {
                 Handle::BOX.iter().map(|h| (*h, h.position(rect))).collect()
             }
             // Freehand strokes, text and steps only move.
@@ -252,10 +329,17 @@ impl Shape {
     pub fn drag_handle(&mut self, handle: Handle, p: Point, constrain: bool) {
         match &mut self.kind {
             Kind::Arrow { from, to } | Kind::Line { from, to } => {
-                let (moving, anchor) = if handle == Handle::Start { (from, *to) } else { (to, *from) };
+                let (moving, anchor) = if handle == Handle::Start {
+                    (from, *to)
+                } else {
+                    (to, *from)
+                };
                 *moving = if constrain { snap_angle(anchor, p) } else { p };
             }
-            Kind::Rectangle { rect } | Kind::Ellipse { rect } | Kind::Redact { rect, .. } | Kind::Spotlight { rect } => {
+            Kind::Rectangle { rect }
+            | Kind::Ellipse { rect }
+            | Kind::Redact { rect, .. }
+            | Kind::Spotlight { rect } => {
                 *rect = resize_box(*rect, handle, p, constrain);
             }
             _ => {}
@@ -269,7 +353,10 @@ impl Shape {
                 mv(from);
                 mv(to);
             }
-            Kind::Rectangle { rect } | Kind::Ellipse { rect } | Kind::Redact { rect, .. } | Kind::Spotlight { rect } => {
+            Kind::Rectangle { rect }
+            | Kind::Ellipse { rect }
+            | Kind::Redact { rect, .. }
+            | Kind::Spotlight { rect } => {
                 *rect = rect.translate(dx, dy);
             }
             Kind::Pen { points } | Kind::Highlighter { points } => points.iter_mut().for_each(mv),
@@ -282,9 +369,10 @@ impl Shape {
     pub fn is_degenerate(&self) -> bool {
         match &self.kind {
             Kind::Arrow { from, to } | Kind::Line { from, to } => from.distance(*to) < 3.0,
-            Kind::Rectangle { rect } | Kind::Ellipse { rect } | Kind::Redact { rect, .. } | Kind::Spotlight { rect } => {
-                rect.width < 3.0 || rect.height < 3.0
-            }
+            Kind::Rectangle { rect }
+            | Kind::Ellipse { rect }
+            | Kind::Redact { rect, .. }
+            | Kind::Spotlight { rect } => rect.width < 3.0 || rect.height < 3.0,
             Kind::Pen { points } | Kind::Highlighter { points } => points.is_empty(),
             Kind::Text { text, .. } => text.trim().is_empty(),
             Kind::Step { .. } => false,
@@ -308,7 +396,10 @@ pub fn box_from_drag(anchor: Point, p: Point, constrain: bool) -> Rect {
     }
     let (dx, dy) = (p.x - anchor.x, p.y - anchor.y);
     let side = dx.abs().max(dy.abs());
-    Rect::from_corners(anchor, Point::new(anchor.x + side * dx.signum(), anchor.y + side * dy.signum()))
+    Rect::from_corners(
+        anchor,
+        Point::new(anchor.x + side * dx.signum(), anchor.y + side * dy.signum()),
+    )
 }
 
 /// Move one handle of a box, keeping the opposite side (or corner) in place.
@@ -335,8 +426,15 @@ pub fn resize_box(r: Rect, handle: Handle, p: Point, constrain: bool) -> Rect {
 }
 
 fn points_bounds(points: &[Point]) -> Rect {
-    let Some(first) = points.first() else { return Rect::default() };
-    points.iter().skip(1).fold(Rect::new(first.x, first.y, 0.0, 0.0), |r, p| r.union(&Rect::new(p.x, p.y, 0.0, 0.0)))
+    let Some(first) = points.first() else {
+        return Rect::default();
+    };
+    points
+        .iter()
+        .skip(1)
+        .fold(Rect::new(first.x, first.y, 0.0, 0.0), |r, p| {
+            r.union(&Rect::new(p.x, p.y, 0.0, 0.0))
+        })
 }
 
 pub(crate) fn segment_distance(p: Point, a: Point, b: Point) -> f64 {
@@ -353,7 +451,10 @@ fn polyline_distance(p: Point, points: &[Point]) -> f64 {
     match points {
         [] => f64::INFINITY,
         [only] => p.distance(*only),
-        _ => points.windows(2).map(|w| segment_distance(p, w[0], w[1])).fold(f64::INFINITY, f64::min),
+        _ => points
+            .windows(2)
+            .map(|w| segment_distance(p, w[0], w[1]))
+            .fold(f64::INFINITY, f64::min),
     }
 }
 
@@ -393,19 +494,27 @@ mod tests {
     }
 
     fn shape(kind: Kind) -> Shape {
-        Shape { id: ShapeId(1), kind, style: Style::default() }
+        Shape {
+            id: ShapeId(1),
+            kind,
+            style: Style::default(),
+        }
     }
 
     #[test]
     fn hollow_shapes_are_hit_on_the_stroke_only() {
-        let rect = shape(Kind::Rectangle { rect: Rect::new(10.0, 10.0, 100.0, 50.0) });
+        let rect = shape(Kind::Rectangle {
+            rect: Rect::new(10.0, 10.0, 100.0, 50.0),
+        });
         assert!(rect.hit(Point::new(10.0, 30.0), 3.0, 1.0));
         assert!(!rect.hit(Point::new(60.0, 35.0), 3.0, 1.0));
         let mut filled = rect.clone();
         filled.style.fill = true;
         assert!(filled.hit(Point::new(60.0, 35.0), 3.0, 1.0));
 
-        let ellipse = shape(Kind::Ellipse { rect: Rect::new(0.0, 0.0, 100.0, 50.0) });
+        let ellipse = shape(Kind::Ellipse {
+            rect: Rect::new(0.0, 0.0, 100.0, 50.0),
+        });
         assert!(ellipse.hit(Point::new(50.0, 1.0), 3.0, 1.0));
         assert!(!ellipse.hit(Point::new(50.0, 25.0), 3.0, 1.0));
         assert!(!ellipse.hit(Point::new(2.0, 2.0), 3.0, 1.0));
@@ -413,7 +522,10 @@ mod tests {
 
     #[test]
     fn lines_are_hit_near_the_segment() {
-        let arrow = shape(Kind::Arrow { from: Point::new(0.0, 0.0), to: Point::new(100.0, 0.0) });
+        let arrow = shape(Kind::Arrow {
+            from: Point::new(0.0, 0.0),
+            to: Point::new(100.0, 0.0),
+        });
         assert!(arrow.hit(Point::new(50.0, 4.0), 3.0, 1.0));
         assert!(!arrow.hit(Point::new(50.0, 12.0), 3.0, 1.0));
         assert!(!arrow.hit(Point::new(120.0, 0.0), 3.0, 1.0));
@@ -429,7 +541,9 @@ mod tests {
 
     #[test]
     fn resizing_keeps_the_opposite_corner() {
-        let mut s = shape(Kind::Rectangle { rect: Rect::new(10.0, 10.0, 20.0, 20.0) });
+        let mut s = shape(Kind::Rectangle {
+            rect: Rect::new(10.0, 10.0, 20.0, 20.0),
+        });
         s.drag_handle(Handle::TopLeft, Point::new(0.0, 5.0), false);
         assert_eq!(s.bounds(1.0), Rect::new(0.0, 5.0, 30.0, 25.0));
         // Dragging past the anchor flips instead of going negative.
@@ -442,8 +556,25 @@ mod tests {
 
     #[test]
     fn empty_things_are_degenerate() {
-        assert!(shape(Kind::Text { origin: Point::default(), text: "  ".into() }).is_degenerate());
-        assert!(shape(Kind::Arrow { from: Point::default(), to: Point::new(1.0, 1.0) }).is_degenerate());
-        assert!(!shape(Kind::Step { center: Point::default() }).is_degenerate());
+        assert!(
+            shape(Kind::Text {
+                origin: Point::default(),
+                text: "  ".into()
+            })
+            .is_degenerate()
+        );
+        assert!(
+            shape(Kind::Arrow {
+                from: Point::default(),
+                to: Point::new(1.0, 1.0)
+            })
+            .is_degenerate()
+        );
+        assert!(
+            !shape(Kind::Step {
+                center: Point::default()
+            })
+            .is_degenerate()
+        );
     }
 }

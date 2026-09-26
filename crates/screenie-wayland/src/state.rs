@@ -5,7 +5,9 @@ use screenie_core::gpu::fourcc_name;
 use screenie_core::{DmabufFormat, GpuDevice, OutputInfo, Rect, Transform};
 use wayland_client::globals::GlobalListContents;
 use wayland_client::protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool};
-use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum, delegate_noop, event_created_child};
+use wayland_client::{
+    Connection, Dispatch, Proxy, QueueHandle, WEnum, delegate_noop, event_created_child,
+};
 use wayland_protocols::ext::foreign_toplevel_list::v1::client::{
     ext_foreign_toplevel_handle_v1::{self, ExtForeignToplevelHandleV1},
     ext_foreign_toplevel_list_v1::{self, ExtForeignToplevelListV1},
@@ -92,14 +94,31 @@ impl OutputState {
     /// Assemble what we know about this output. `None` until it has a mode.
     pub fn info(&self, index: usize) -> Option<OutputInfo> {
         let (mw, mh) = self.mode?;
-        let (pw, ph) = if self.transform.swaps_axes() { (mh, mw) } else { (mw, mh) };
+        let (pw, ph) = if self.transform.swaps_axes() {
+            (mh, mw)
+        } else {
+            (mw, mh)
+        };
         let scale_int = self.scale.max(1);
-        let (lw, lh) = self.logical_size.unwrap_or((pw / scale_int, ph / scale_int));
+        let (lw, lh) = self
+            .logical_size
+            .unwrap_or((pw / scale_int, ph / scale_int));
         let (lx, ly) = self.logical_position.unwrap_or(self.position);
-        let scale = if lw > 0 { pw as f64 / lw as f64 } else { scale_int as f64 };
+        let scale = if lw > 0 {
+            pw as f64 / lw as f64
+        } else {
+            scale_int as f64
+        };
         Some(OutputInfo {
-            name: self.name.clone().unwrap_or_else(|| format!("output-{index}")),
-            description: self.description.clone().or_else(|| self.make_model.clone()).unwrap_or_default(),
+            name: self
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("output-{index}")),
+            description: self
+                .description
+                .clone()
+                .or_else(|| self.make_model.clone())
+                .unwrap_or_default(),
             logical: Rect::new(lx as f64, ly as f64, lw as f64, lh as f64),
             scale,
             transform: self.transform,
@@ -165,14 +184,20 @@ pub(crate) struct Feedback {
 impl Feedback {
     /// The modifiers the main device takes `fourcc` in.
     pub fn modifiers(&self, fourcc: u32) -> Vec<u64> {
-        self.formats.iter().find(|f| f.fourcc == fourcc).map(|f| f.modifiers.clone()).unwrap_or_default()
+        self.formats
+            .iter()
+            .find(|f| f.fourcc == fourcc)
+            .map(|f| f.modifiers.clone())
+            .unwrap_or_default()
     }
 
     /// All parameters are in: keep the formats of the main device's tranches.
     fn done(&mut self) {
         self.main_device = self.pending_main.take();
         let tranches = std::mem::take(&mut self.pending);
-        let Some(main) = self.main_device.map(GpuDevice::from_dev) else { return };
+        let Some(main) = self.main_device.map(GpuDevice::from_dev) else {
+            return;
+        };
         let mut formats: Vec<DmabufFormat> = Vec::new();
         for (device, indices) in tranches {
             if device != main.dev && !GpuDevice::from_dev(device).same_as(&main) {
@@ -182,11 +207,18 @@ impl Feedback {
                 match formats.iter_mut().find(|f| f.fourcc == fourcc) {
                     Some(f) if !f.modifiers.contains(&modifier) => f.modifiers.push(modifier),
                     Some(_) => {}
-                    None => formats.push(DmabufFormat { fourcc, modifiers: vec![modifier] }),
+                    None => formats.push(DmabufFormat {
+                        fourcc,
+                        modifiers: vec![modifier],
+                    }),
                 }
             }
         }
-        tracing::debug!(gpu = main.describe(), formats = formats.len(), "compositor GPU");
+        tracing::debug!(
+            gpu = main.describe(),
+            formats = formats.len(),
+            "compositor GPU"
+        );
         self.formats = formats;
     }
 }
@@ -300,12 +332,24 @@ impl Dispatch<wl_output::WlOutput, usize> for State {
     ) {
         let out = &mut state.outputs[*idx];
         match event {
-            wl_output::Event::Geometry { x, y, make, model, transform, .. } => {
+            wl_output::Event::Geometry {
+                x,
+                y,
+                make,
+                model,
+                transform,
+                ..
+            } => {
                 out.position = (x, y);
                 out.transform = transform_from_wl(transform);
                 out.make_model = Some(format!("{make} {model}").trim().to_string());
             }
-            wl_output::Event::Mode { flags, width, height, .. } => {
+            wl_output::Event::Mode {
+                flags,
+                width,
+                height,
+                ..
+            } => {
                 if let WEnum::Value(flags) = flags
                     && flags.contains(wl_output::Mode::Current)
                 {
@@ -333,7 +377,9 @@ impl Dispatch<ZxdgOutputV1, usize> for State {
         let out = &mut state.outputs[*idx];
         match event {
             zxdg_output_v1::Event::LogicalPosition { x, y } => out.logical_position = Some((x, y)),
-            zxdg_output_v1::Event::LogicalSize { width, height } => out.logical_size = Some((width, height)),
+            zxdg_output_v1::Event::LogicalSize { width, height } => {
+                out.logical_size = Some((width, height))
+            }
             zxdg_output_v1::Event::Name { name } => {
                 out.name.get_or_insert(name);
             }
@@ -359,7 +405,10 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, usize> for State {
         match event {
             Event::BufferSize { width, height } => {
                 // Constraints may be re-sent (e.g. on mode change); start over.
-                cap.constraints = Constraints { size: Some((width, height)), ..Default::default() };
+                cap.constraints = Constraints {
+                    size: Some((width, height)),
+                    ..Default::default()
+                };
             }
             Event::ShmFormat { format } => cap.constraints.formats.extend(shm_format(format)),
             Event::DmabufDevice { device } => cap.constraints.dmabuf_device = dev_t(&device),
@@ -370,7 +419,10 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, usize> for State {
                     .iter()
                     .map(|m| u64::from_ne_bytes(*m))
                     .collect();
-                cap.constraints.dmabuf_formats.push(DmabufFormat { fourcc: format, modifiers });
+                cap.constraints.dmabuf_formats.push(DmabufFormat {
+                    fourcc: format,
+                    modifiers,
+                });
             }
             Event::Done => cap.constraints.done = true,
             Event::Stopped => cap.phase = Phase::Stopped,
@@ -392,7 +444,11 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, usize> for State {
         let cap = &mut state.captures[*idx];
         match event {
             Event::Transform { transform } => cap.transform = transform_from_wl(transform),
-            Event::PresentationTime { tv_sec_hi, tv_sec_lo, tv_nsec } => {
+            Event::PresentationTime {
+                tv_sec_hi,
+                tv_sec_lo,
+                tv_nsec,
+            } => {
                 let secs = ((tv_sec_hi as u64) << 32) | tv_sec_lo as u64;
                 cap.presented = Some(std::time::Duration::new(secs, tv_nsec));
             }
@@ -436,19 +492,35 @@ impl Dispatch<ZwlrScreencopyFrameV1, usize> for State {
         use zwlr_screencopy_frame_v1::Event;
         let cap = &mut state.captures[*idx];
         match event {
-            Event::LinuxDmabuf { format, width, height } => {
+            Event::LinuxDmabuf {
+                format,
+                width,
+                height,
+            } => {
                 // Only the format: the modifiers and the GPU come from the feedback.
                 let modifiers = state.feedback.modifiers(format);
-                tracing::trace!(format = fourcc_name(format), modifiers = modifiers.len(), "wlr GPU buffer format");
+                tracing::trace!(
+                    format = fourcc_name(format),
+                    modifiers = modifiers.len(),
+                    "wlr GPU buffer format"
+                );
                 if let Some(device) = state.feedback.main_device
                     && !modifiers.is_empty()
                 {
                     cap.incoming.size.get_or_insert((width, height));
                     cap.incoming.dmabuf_device = Some(device);
-                    cap.incoming.dmabuf_formats.push(DmabufFormat { fourcc: format, modifiers });
+                    cap.incoming.dmabuf_formats.push(DmabufFormat {
+                        fourcc: format,
+                        modifiers,
+                    });
                 }
             }
-            Event::Buffer { format, width, height, stride } => {
+            Event::Buffer {
+                format,
+                width,
+                height,
+                stride,
+            } => {
                 if let Some(format) = shm_format(format) {
                     cap.incoming.size = Some((width, height));
                     cap.incoming.formats.push(format);
@@ -460,10 +532,16 @@ impl Dispatch<ZwlrScreencopyFrameV1, usize> for State {
                 }
             }
             Event::BufferDone => cap.take_incoming(),
-            Event::Flags { flags: WEnum::Value(flags) } => {
+            Event::Flags {
+                flags: WEnum::Value(flags),
+            } => {
                 cap.y_invert = flags.contains(zwlr_screencopy_frame_v1::Flags::YInvert);
             }
-            Event::Ready { tv_sec_hi, tv_sec_lo, tv_nsec } => {
+            Event::Ready {
+                tv_sec_hi,
+                tv_sec_lo,
+                tv_nsec,
+            } => {
                 let secs = ((tv_sec_hi as u64) << 32) | tv_sec_lo as u64;
                 cap.presented = Some(std::time::Duration::new(secs, tv_nsec));
                 frame.destroy();
@@ -496,11 +574,19 @@ impl Dispatch<ZwpLinuxDmabufFeedbackV1, ()> for State {
         use zwp_linux_dmabuf_feedback_v1::Event;
         let feedback = &mut state.feedback;
         match event {
-            Event::FormatTable { fd, size } => feedback.table = read_format_table(fd, size as usize),
+            Event::FormatTable { fd, size } => {
+                feedback.table = read_format_table(fd, size as usize)
+            }
             Event::MainDevice { device } => feedback.pending_main = dev_t(&device),
             Event::TrancheTargetDevice { device } => feedback.tranche_device = dev_t(&device),
             Event::TrancheFormats { indices } => {
-                feedback.tranche.extend(indices.as_chunks::<2>().0.iter().map(|i| u16::from_ne_bytes(*i)));
+                feedback.tranche.extend(
+                    indices
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|i| u16::from_ne_bytes(*i)),
+                );
             }
             Event::TrancheDone => {
                 let indices = std::mem::take(&mut feedback.tranche);
@@ -528,7 +614,10 @@ fn read_format_table(fd: std::os::fd::OwnedFd, size: usize) -> Vec<(u32, u64)> {
         .iter()
         .map(|entry| {
             let fourcc = u32::from_ne_bytes(entry[..4].try_into().expect("4 bytes"));
-            (fourcc, u64::from_ne_bytes(entry[8..].try_into().expect("8 bytes")))
+            (
+                fourcc,
+                u64::from_ne_bytes(entry[8..].try_into().expect("8 bytes")),
+            )
         })
         .collect()
 }
@@ -543,7 +632,10 @@ impl Dispatch<ExtForeignToplevelListV1, ()> for State {
         _: &QueueHandle<Self>,
     ) {
         if let ext_foreign_toplevel_list_v1::Event::Toplevel { toplevel } = event {
-            state.toplevels.push(Toplevel { handle: toplevel, info: ToplevelInfo::default() });
+            state.toplevels.push(Toplevel {
+                handle: toplevel,
+                info: ToplevelInfo::default(),
+            });
         }
     }
 
@@ -562,7 +654,12 @@ impl Dispatch<ExtForeignToplevelHandleV1, ()> for State {
         _: &QueueHandle<Self>,
     ) {
         use ext_foreign_toplevel_handle_v1::Event;
-        let Some(toplevel) = state.toplevels.iter_mut().find(|t| &t.handle == handle).map(|t| &mut t.info) else {
+        let Some(toplevel) = state
+            .toplevels
+            .iter_mut()
+            .find(|t| &t.handle == handle)
+            .map(|t| &mut t.info)
+        else {
             return;
         };
         match event {

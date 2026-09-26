@@ -10,7 +10,8 @@ use std::time::{Duration, Instant, SystemTime};
 use screenie_compositor::Compositor;
 use screenie_config::CaptureBackend;
 use screenie_core::{
-    DmabufFormat, Frame, FrameSource, GpuDevice, GpuOffer, Image, Next, OutputInfo, Rect, Snapshot, SourceError, WindowInfo,
+    DmabufFormat, Frame, FrameSource, GpuDevice, GpuOffer, Image, Next, OutputInfo, Rect, Snapshot,
+    SourceError, WindowInfo,
 };
 use screenie_wayland::{Backend, Capturer, Support};
 
@@ -54,7 +55,11 @@ impl CaptureContext {
             layer_shell = support.layer_shell,
             "capture context"
         );
-        Self { compositor, support, working: Mutex::new(None) }
+        Self {
+            compositor,
+            support,
+            working: Mutex::new(None),
+        }
     }
 
     pub fn compositor(&self) -> &Arc<dyn Compositor> {
@@ -110,14 +115,20 @@ impl CaptureContext {
             match capture(*b) {
                 Ok(value) => {
                     if i > 0 {
-                        tracing::info!(backend = b.name(), "capturing with the fallback protocol from now on");
+                        tracing::info!(
+                            backend = b.name(),
+                            "capturing with the fallback protocol from now on"
+                        );
                         *self.working.lock().unwrap() = Some(*b);
                     }
                     return Ok(value);
                 }
                 Err(e) => {
                     if i + 1 < candidates.len() {
-                        tracing::warn!(backend = b.name(), "capture failed ({e}); trying the next protocol");
+                        tracing::warn!(
+                            backend = b.name(),
+                            "capture failed ({e}); trying the next protocol"
+                        );
                     }
                     last = Some(e);
                 }
@@ -141,15 +152,23 @@ impl CaptureContext {
             std::thread::spawn(move || compositor.windows())
         });
 
-        let outputs =
-            self.with_backends(opts.backend, |b| Capturer::connect_with(Some(b))?.capture_outputs(None, opts.cursor))?;
+        let outputs = self.with_backends(opts.backend, |b| {
+            Capturer::connect_with(Some(b))?.capture_outputs(None, opts.cursor)
+        })?;
 
         let windows = windows
             .and_then(|h| h.join().ok())
-            .and_then(|r| r.map_err(|e| tracing::debug!("window list unavailable: {e}")).ok())
+            .and_then(|r| {
+                r.map_err(|e| tracing::debug!("window list unavailable: {e}"))
+                    .ok()
+            })
             .unwrap_or_default();
         tracing::debug!(elapsed = ?started.elapsed(), outputs = outputs.len(), windows = windows.len(), "snapshot");
-        Ok(Snapshot { outputs, windows, taken_at })
+        Ok(Snapshot {
+            outputs,
+            windows,
+            taken_at,
+        })
     }
 
     /// Start a live stream of `output`, or of `region` (logical, relative to the output's
@@ -162,7 +181,9 @@ impl CaptureContext {
         region: Option<Rect>,
         cursor: bool,
     ) -> Result<Box<dyn FrameSource>> {
-        self.with_backends(backend, |b| prime(Capturer::connect_with(Some(b))?.into_stream(output, region, cursor)?))
+        self.with_backends(backend, |b| {
+            prime(Capturer::connect_with(Some(b))?.into_stream(output, region, cursor)?)
+        })
     }
 
     /// Whether [`CaptureContext::stream_window`] can work here with `backend`.
@@ -184,11 +205,16 @@ impl CaptureContext {
 }
 
 /// Wait for `stream`'s first frame, proving the protocol can actually deliver.
-fn prime(mut stream: screenie_wayland::FrameStream) -> Result<Box<dyn FrameSource>, screenie_wayland::Error> {
+fn prime(
+    mut stream: screenie_wayland::FrameStream,
+) -> Result<Box<dyn FrameSource>, screenie_wayland::Error> {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         if let Some(frame) = stream.next_frame(Duration::from_millis(250))? {
-            return Ok(Box::new(Primed { first: Some(frame), stream }));
+            return Ok(Box::new(Primed {
+                first: Some(frame),
+                stream,
+            }));
         }
         if Instant::now() >= deadline {
             return Err(screenie_wayland::Error::Timeout);

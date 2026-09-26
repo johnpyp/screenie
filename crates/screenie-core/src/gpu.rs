@@ -34,7 +34,10 @@ pub const VENDOR_INTEL: u16 = 0x8086;
 impl GpuDevice {
     /// Look up device number `dev` (`st_rdev` of a node in `/dev/dri`).
     pub fn from_dev(dev: u64) -> Self {
-        Self::from_sysfs(dev, Path::new(&format!("/sys/dev/char/{}:{}", major(dev), minor(dev))))
+        Self::from_sysfs(
+            dev,
+            Path::new(&format!("/sys/dev/char/{}:{}", major(dev), minor(dev))),
+        )
     }
 
     /// The device behind a node like `/dev/dri/renderD128`.
@@ -45,7 +48,11 @@ impl GpuDevice {
 
     fn from_sysfs(dev: u64, node: &Path) -> Self {
         let device = node.join("device");
-        let read = |name: &str| std::fs::read_to_string(device.join(name)).ok().map(|s| s.trim().to_string());
+        let read = |name: &str| {
+            std::fs::read_to_string(device.join(name))
+                .ok()
+                .map(|s| s.trim().to_string())
+        };
         let render_node = std::fs::read_dir(device.join("drm"))
             .ok()
             .and_then(|dir| {
@@ -54,11 +61,17 @@ impl GpuDevice {
                     .find(|name| name.starts_with("renderD"))
             })
             .map(|name| Path::new("/dev/dri").join(name));
-        let link_name = |p: PathBuf| std::fs::read_link(p).ok()?.file_name().map(|n| n.to_string_lossy().into_owned());
+        let link_name = |p: PathBuf| {
+            std::fs::read_link(p)
+                .ok()?
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        };
         Self {
             dev,
             render_node,
-            vendor: read("vendor").and_then(|v| u16::from_str_radix(v.trim_start_matches("0x"), 16).ok()),
+            vendor: read("vendor")
+                .and_then(|v| u16::from_str_radix(v.trim_start_matches("0x"), 16).ok()),
             driver: link_name(device.join("driver")),
             bus: std::fs::canonicalize(&device)
                 .ok()
@@ -77,7 +90,11 @@ impl GpuDevice {
     /// For logs: "nvidia 0000:01:00.0 (/dev/dri/renderD128)".
     pub fn describe(&self) -> String {
         let driver = self.driver.as_deref().unwrap_or("unknown driver");
-        let node = self.render_node.as_ref().map(|p| format!(" ({})", p.display())).unwrap_or_default();
+        let node = self
+            .render_node
+            .as_ref()
+            .map(|p| format!(" ({})", p.display()))
+            .unwrap_or_default();
         format!("{driver} {}{node}", self.bus.as_deref().unwrap_or("?"))
     }
 }
@@ -150,7 +167,11 @@ impl std::fmt::Debug for Dmabuf {
 
 /// `XR24` for XRGB8888.
 pub fn fourcc_name(fourcc: u32) -> String {
-    fourcc.to_le_bytes().iter().map(|&b| if b.is_ascii_graphic() { b as char } else { '?' }).collect()
+    fourcc
+        .to_le_bytes()
+        .iter()
+        .map(|&b| if b.is_ascii_graphic() { b as char } else { '?' })
+        .collect()
 }
 
 pub const fn fourcc(code: &[u8; 4]) -> u32 {
@@ -163,14 +184,20 @@ mod tests {
 
     /// glibc's `gnu_dev_makedev`.
     fn makedev(major: u64, minor: u64) -> u64 {
-        ((major & 0xffff_f000) << 32) | ((major & 0xfff) << 8) | ((minor & 0xffff_ff00) << 12) | (minor & 0xff)
+        ((major & 0xffff_f000) << 32)
+            | ((major & 0xfff) << 8)
+            | ((minor & 0xffff_ff00) << 12)
+            | (minor & 0xff)
     }
 
     #[test]
     fn device_numbers_split_like_glibc() {
         assert_eq!(makedev(226, 128), 0xe280);
         for (maj, min) in [(226, 128), (0x1234, 0x56789)] {
-            assert_eq!((major(makedev(maj, min)), minor(makedev(maj, min))), (maj, min));
+            assert_eq!(
+                (major(makedev(maj, min)), minor(makedev(maj, min))),
+                (maj, min)
+            );
         }
     }
 

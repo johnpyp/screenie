@@ -21,7 +21,10 @@ impl Hyprland {
             .into_iter()
             .chain([PathBuf::from("/tmp/hypr")])
             .map(|dir| dir.join(&signature).join(".socket.sock"));
-        candidates.into_iter().find(|p| p.exists()).map(|socket| Self { socket })
+        candidates
+            .into_iter()
+            .find(|p| p.exists())
+            .map(|socket| Self { socket })
     }
 
     fn request(&self, command: &str) -> Result<Value> {
@@ -58,7 +61,12 @@ pub(crate) fn visible_windows(monitors: &Value, clients: &Value) -> Vec<WindowIn
         .as_array()
         .into_iter()
         .flatten()
-        .flat_map(|m| [m["activeWorkspace"]["id"].as_i64(), m["specialWorkspace"]["id"].as_i64()])
+        .flat_map(|m| {
+            [
+                m["activeWorkspace"]["id"].as_i64(),
+                m["specialWorkspace"]["id"].as_i64(),
+            ]
+        })
         .flatten()
         .filter(|&id| id != 0)
         .collect();
@@ -70,16 +78,30 @@ pub(crate) fn visible_windows(monitors: &Value, clients: &Value) -> Vec<WindowIn
         .filter(|c| c["mapped"].as_bool() != Some(false) && c["hidden"].as_bool() != Some(true))
         .filter(|c| {
             c["pinned"].as_bool() == Some(true)
-                || c["workspace"]["id"].as_i64().is_some_and(|id| active.contains(&id))
+                || c["workspace"]["id"]
+                    .as_i64()
+                    .is_some_and(|id| active.contains(&id))
         })
         .map(|c| {
             let n = |v: &Value, i: usize| v[i].as_f64().unwrap_or(0.0);
-            let rect = Rect::new(n(&c["at"], 0), n(&c["at"], 1), n(&c["size"], 0), n(&c["size"], 1));
+            let rect = Rect::new(
+                n(&c["at"], 0),
+                n(&c["at"], 1),
+                n(&c["size"], 0),
+                n(&c["size"], 1),
+            );
             // `fullscreen` was a bool before 0.42 and a mode integer since.
-            let fullscreen = c["fullscreen"].as_bool().unwrap_or(false) || c["fullscreen"].as_i64().unwrap_or(0) > 0;
+            let fullscreen = c["fullscreen"].as_bool().unwrap_or(false)
+                || c["fullscreen"].as_i64().unwrap_or(0) > 0;
             let floating = c["floating"].as_bool().unwrap_or(false);
             let history = c["focusHistoryID"].as_i64().unwrap_or(i64::MAX);
-            let layer = if fullscreen { 0 } else if floating { 1 } else { 2 };
+            let layer = if fullscreen {
+                0
+            } else if floating {
+                1
+            } else {
+                2
+            };
             let info = WindowInfo {
                 id: c["address"].as_str().unwrap_or_default().to_string(),
                 title: c["title"].as_str().unwrap_or_default().to_string(),
@@ -117,7 +139,10 @@ mod tests {
             {"address": "0x4", "mapped": true, "hidden": false, "at": [0, 0], "size": [50, 50],
              "workspace": {"id": 2}, "floating": false, "fullscreen": 0, "focusHistoryID": 3, "title": "other-ws", "class": "d"}
         ]);
-        let titles: Vec<_> = visible_windows(&monitors, &clients).into_iter().map(|w| w.title).collect();
+        let titles: Vec<_> = visible_windows(&monitors, &clients)
+            .into_iter()
+            .map(|w| w.title)
+            .collect();
         assert_eq!(titles, ["float-new", "float-old", "tiled"]);
     }
 }

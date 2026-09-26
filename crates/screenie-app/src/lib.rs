@@ -35,12 +35,14 @@ pub fn run(commit: &'static str) -> anyhow::Result<()> {
         // A daemon has no windows most of the time.
         .with_quit_mode(gpui::QuitMode::Explicit)
         .run(move |cx| {
-        screenie_ui_kit::init(cx);
-        cx.set_global(daemon::Daemon::new(config, capture, commit));
-        appearance::start(cx);
-        cx.spawn(async move |cx| daemon::serve(incoming, cx).await).detach();
-        cx.spawn(async move |cx| daemon::watch_config(cx).await).detach();
-    });
+            screenie_ui_kit::init(cx);
+            cx.set_global(daemon::Daemon::new(config, capture, commit));
+            appearance::start(cx);
+            cx.spawn(async move |cx| daemon::serve(incoming, cx).await)
+                .detach();
+            cx.spawn(async move |cx| daemon::watch_config(cx).await)
+                .detach();
+        });
 
     let _ = std::fs::remove_file(&socket);
     Ok(())

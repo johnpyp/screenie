@@ -22,9 +22,13 @@ pub enum Request {
     /// Open the settings window.
     Settings,
     /// Open an existing image in the editor.
-    Edit { path: PathBuf },
+    Edit {
+        path: PathBuf,
+    },
     /// Pin an image file to the screen.
-    Pin { path: PathBuf },
+    Pin {
+        path: PathBuf,
+    },
     Status,
     /// Stream status updates, one line per change (for status bars).
     Watch,
@@ -115,15 +119,21 @@ pub enum Response {
         #[serde(default)]
         temporary: bool,
     },
-    RecordingStarted { path: PathBuf },
+    RecordingStarted {
+        path: PathBuf,
+    },
     Cancelled,
     Status(Box<Status>),
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 impl Response {
     pub fn error(message: impl std::fmt::Display) -> Self {
-        Response::Error { message: message.to_string() }
+        Response::Error {
+            message: message.to_string(),
+        }
     }
 }
 
@@ -226,7 +236,10 @@ impl Status {
 
     /// Whether restarting the daemon now would interrupt the user.
     pub fn busy(&self) -> bool {
-        self.recording.is_some() || self.capturing || self.editors > 0 || self.state == State::Saving
+        self.recording.is_some()
+            || self.capturing
+            || self.editors > 0
+            || self.state == State::Saving
     }
 }
 

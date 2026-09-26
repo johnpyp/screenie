@@ -28,8 +28,10 @@ impl AssetSource for Assets {
     }
 
     fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
-        let mut out: Vec<SharedString> =
-            Icons::iter().filter(|n| n.starts_with(path)).map(|n| SharedString::from(n.to_string())).collect();
+        let mut out: Vec<SharedString> = Icons::iter()
+            .filter(|n| n.starts_with(path))
+            .map(|n| SharedString::from(n.to_string()))
+            .collect();
         out.extend(gpui_kit::assets::Assets.list(path)?);
         Ok(out)
     }
@@ -37,7 +39,9 @@ impl AssetSource for Assets {
 
 /// Register the bundled fonts with GPUI's text system.
 pub fn load_fonts(cx: &App) {
-    let fonts: Vec<Cow<'static, [u8]>> = Fonts::iter().filter_map(|f| Fonts::get(&f).map(|f| f.data)).collect();
+    let fonts: Vec<Cow<'static, [u8]>> = Fonts::iter()
+        .filter_map(|f| Fonts::get(&f).map(|f| f.data))
+        .collect();
     if let Err(e) = cx.text_system().add_fonts(fonts) {
         tracing::warn!("loading bundled fonts failed: {e}");
     }
@@ -182,12 +186,62 @@ mod tests {
     fn every_icon_is_bundled() {
         use Icon::*;
         for icon in [
-            Area, Window, Screen, Select, Arrow, Line, Rectangle, Ellipse, Pen, Highlighter, Text, Step, Pixelate,
-            Spotlight, Crop, Pin, Copy, Download, Save, Close, Mic, MicOff, Volume, VolumeOff, Video, Camera, Stop,
-            Pause, Play, Settings, Image, Ocr, Undo, Redo, Picker, Check, FolderOpen, ExternalLink, ZoomIn, ZoomOut,
-            Eraser, Trash, Timer, Film, Drag, Sparkles, Hand, Droplet, Minus, Plus,
+            Area,
+            Window,
+            Screen,
+            Select,
+            Arrow,
+            Line,
+            Rectangle,
+            Ellipse,
+            Pen,
+            Highlighter,
+            Text,
+            Step,
+            Pixelate,
+            Spotlight,
+            Crop,
+            Pin,
+            Copy,
+            Download,
+            Save,
+            Close,
+            Mic,
+            MicOff,
+            Volume,
+            VolumeOff,
+            Video,
+            Camera,
+            Stop,
+            Pause,
+            Play,
+            Settings,
+            Image,
+            Ocr,
+            Undo,
+            Redo,
+            Picker,
+            Check,
+            FolderOpen,
+            ExternalLink,
+            ZoomIn,
+            ZoomOut,
+            Eraser,
+            Trash,
+            Timer,
+            Film,
+            Drag,
+            Sparkles,
+            Hand,
+            Droplet,
+            Minus,
+            Plus,
         ] {
-            assert!(Icons::get(icon.path()).is_some(), "{icon:?} missing at {}", icon.path());
+            assert!(
+                Icons::get(icon.path()).is_some(),
+                "{icon:?} missing at {}",
+                icon.path()
+            );
         }
         assert!(Fonts::iter().count() >= 4);
     }

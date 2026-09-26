@@ -17,19 +17,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let captures = capturer.capture_outputs(None, false)?;
     println!("captured {} outputs in {:?}", captures.len(), t.elapsed());
     for c in &captures {
-        println!("  {:?} -> {}x{} {:?} (scale {:.3})", c.output, c.image.width(), c.image.height(), c.image.format(), c.scale());
-        c.image.save_png(&dir.join(format!("{}.png", c.output.name)))?;
+        println!(
+            "  {:?} -> {}x{} {:?} (scale {:.3})",
+            c.output,
+            c.image.width(),
+            c.image.height(),
+            c.image.format(),
+            c.scale()
+        );
+        c.image
+            .save_png(&dir.join(format!("{}.png", c.output.name)))?;
     }
     if let Some(pos) = args.iter().position(|a| a == "--stream") {
         let n: u64 = args[pos + 1].parse()?;
         let name = captures[0].output.name.clone();
-        let mut stream = capturer.into_stream(&name, Some(screenie_core::Rect::new(10.0, 10.0, 300.0, 200.0)), true)?;
+        let mut stream = capturer.into_stream(
+            &name,
+            Some(screenie_core::Rect::new(10.0, 10.0, 300.0, 200.0)),
+            true,
+        )?;
         let t = std::time::Instant::now();
         let mut got = 0;
         while got < n && t.elapsed().as_secs() < 10 {
             if let Some(f) = stream.next_frame(std::time::Duration::from_millis(500))? {
                 let (w, h) = f.size();
-                println!("  frame {got} {w}x{h} presented {:?} at {:?}", f.presented, t.elapsed());
+                println!(
+                    "  frame {got} {w}x{h} presented {:?} at {:?}",
+                    f.presented,
+                    t.elapsed()
+                );
                 got += 1;
             } else {
                 println!("  (no new frame)");

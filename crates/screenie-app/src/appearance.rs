@@ -49,9 +49,14 @@ async fn follow_desktop(cx: &mut AsyncApp) {
     };
     match settings.read::<f64>(NAMESPACE, KEY).await {
         Ok(scale) => desktop(scale, cx),
-        Err(e) => tracing::debug!("the settings portal has no {NAMESPACE} {KEY} ({e}); ui_scale auto means 1"),
+        Err(e) => tracing::debug!(
+            "the settings portal has no {NAMESPACE} {KEY} ({e}); ui_scale auto means 1"
+        ),
     }
-    let mut changes = match settings.receive_setting_changed_with_args::<f64>(NAMESPACE, KEY).await {
+    let mut changes = match settings
+        .receive_setting_changed_with_args::<f64>(NAMESPACE, KEY)
+        .await
+    {
         Ok(changes) => changes,
         Err(e) => return tracing::debug!("can't follow {KEY}: {e}"),
     };

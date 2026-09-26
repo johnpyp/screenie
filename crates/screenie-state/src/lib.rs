@@ -43,7 +43,10 @@ pub struct EditorState {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("writing {path}: {source}")]
-    Write { path: PathBuf, source: std::io::Error },
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("serializing state: {0}")]
     Serialize(#[from] serde_saphyr::SerializeError),
 }
@@ -89,19 +92,37 @@ impl StateFile {
     pub fn open_at(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         match load(&path) {
-            Ok(state) => Self { path, state, writable: true },
-            Err(LoadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-                Self { path, state: State::default(), writable: true }
-            }
+            Ok(state) => Self {
+                path,
+                state,
+                writable: true,
+            },
+            Err(LoadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => Self {
+                path,
+                state: State::default(),
+                writable: true,
+            },
             Err(e @ LoadError::Newer(_)) => {
                 tracing::warn!("{}: {e}; not remembering anything this run", path.display());
-                Self { path, state: State::default(), writable: false }
+                Self {
+                    path,
+                    state: State::default(),
+                    writable: false,
+                }
             }
             Err(e) => {
                 let aside = path.with_extension("yaml.bad");
-                tracing::warn!("{}: {e}; moved it to {} and starting afresh", path.display(), aside.display());
+                tracing::warn!(
+                    "{}: {e}; moved it to {} and starting afresh",
+                    path.display(),
+                    aside.display()
+                );
                 let _ = std::fs::rename(&path, &aside);
-                Self { path, state: State::default(), writable: true }
+                Self {
+                    path,
+                    state: State::default(),
+                    writable: true,
+                }
             }
         }
     }
@@ -129,8 +150,17 @@ impl StateFile {
             #[serde(flatten)]
             state: &'a State,
         }
-        let text = format!("{HEADER}{}", serde_saphyr::to_string(&OnDisk { version: VERSION, state: &self.state })?);
-        let werr = |source| Error::Write { path: self.path.clone(), source };
+        let text = format!(
+            "{HEADER}{}",
+            serde_saphyr::to_string(&OnDisk {
+                version: VERSION,
+                state: &self.state
+            })?
+        );
+        let werr = |source| Error::Write {
+            path: self.path.clone(),
+            source,
+        };
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(werr)?;
         }
@@ -147,14 +177,20 @@ fn load(path: &Path) -> Result<State, LoadError> {
 /// Read a state file of any known version as the current [`State`].
 fn parse(text: &str) -> Result<State, LoadError> {
     let mut doc: Value = serde_saphyr::from_str(text).map_err(Box::new)?;
-    let version = doc.get("version").and_then(Value::as_u64).ok_or(LoadError::NoVersion)?;
+    let version = doc
+        .get("version")
+        .and_then(Value::as_u64)
+        .ok_or(LoadError::NoVersion)?;
     if version > u64::from(VERSION) {
         return Err(LoadError::Newer(version));
     }
     if let Some(map) = doc.as_object_mut() {
         map.remove("version");
     }
-    Ok(serde_json::from_value(migrate::migrate(doc, version as u32))?)
+    Ok(serde_json::from_value(migrate::migrate(
+        doc,
+        version as u32,
+    ))?)
 }
 
 #[cfg(test)]
@@ -166,7 +202,8 @@ mod tests {
 
     impl Scratch {
         fn new(name: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("screenie-state-{}-{name}", std::process::id()));
+            let dir =
+                std::env::temp_dir().join(format!("screenie-state-{}-{name}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             Self(dir)
         }
@@ -183,7 +220,11 @@ mod tests {
     }
 
     fn remembered() -> EditorState {
-        EditorState { color: Some("#0a84ff".into()), size: Some(8.0), fill: Some(true) }
+        EditorState {
+            color: Some("#0a84ff".into()),
+            size: Some(8.0),
+            fill: Some(true),
+        }
     }
 
     #[test]
@@ -231,7 +272,11 @@ mod tests {
         assert_eq!(file.state(), &State::default());
         file.update(|s| s.editor = remembered()).unwrap();
         assert_eq!(file.state().editor, remembered(), "remembered for this run");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer, "but never written");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            newer,
+            "but never written"
+        );
     }
 
     /// Every released layout still loads, and migrating loses nothing: what a fixture
@@ -241,23 +286,31 @@ mod tests {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
         for version in 1..=VERSION {
             let path = dir.join(format!("v{version}.yaml"));
-            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             let mut doc: Value = serde_saphyr::from_str(&text).unwrap();
             doc.as_object_mut().unwrap().remove("version");
             let migrated = migrate::migrate(doc, version);
             let state: State = serde_json::from_value(migrated.clone()).unwrap();
-            assert_eq!(serde_json::to_value(&state).unwrap(), migrated, "v{version} lost something on the way");
+            assert_eq!(
+                serde_json::to_value(&state).unwrap(),
+                migrated,
+                "v{version} lost something on the way"
+            );
             assert_eq!(parse(&text).unwrap(), state);
         }
     }
 
     #[test]
     fn current_fixture_is_what_we_write() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/v{VERSION}.yaml"));
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/v{VERSION}.yaml"));
         let fixture = parse(&std::fs::read_to_string(fixture).unwrap()).unwrap();
         let scratch = Scratch::new("fixture");
         let path = scratch.state_file();
-        StateFile::open_at(&path).update(|s| *s = fixture.clone()).unwrap();
+        StateFile::open_at(&path)
+            .update(|s| *s = fixture.clone())
+            .unwrap();
         assert_eq!(StateFile::open_at(&path).state(), &fixture);
     }
 

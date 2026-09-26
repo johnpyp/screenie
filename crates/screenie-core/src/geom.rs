@@ -51,7 +51,12 @@ pub struct Rect {
 
 impl Rect {
     pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// The rectangle spanned by two opposite corners, in any order.
@@ -122,7 +127,12 @@ impl Rect {
     }
 
     pub fn inset(&self, d: f64) -> Rect {
-        Rect::new(self.x + d, self.y + d, self.width - 2.0 * d, self.height - 2.0 * d)
+        Rect::new(
+            self.x + d,
+            self.y + d,
+            self.width - 2.0 * d,
+            self.height - 2.0 * d,
+        )
     }
 
     /// Move (without resizing, where possible) so the rectangle lies inside `bounds`.
@@ -199,7 +209,12 @@ pub struct PixelRect {
 
 impl PixelRect {
     pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn right(&self) -> i32 {
@@ -244,7 +259,10 @@ impl Transform {
     pub fn swaps_axes(self) -> bool {
         matches!(
             self,
-            Transform::Rotate90 | Transform::Rotate270 | Transform::Flipped90 | Transform::Flipped270
+            Transform::Rotate90
+                | Transform::Rotate270
+                | Transform::Flipped90
+                | Transform::Flipped270
         )
     }
 }
@@ -279,9 +297,18 @@ mod tests {
 
     #[test]
     fn parse_geometry() {
-        assert_eq!("10,20 300x400".parse::<Rect>().unwrap(), Rect::new(10.0, 20.0, 300.0, 400.0));
-        assert_eq!("300x400+10+20".parse::<Rect>().unwrap(), Rect::new(10.0, 20.0, 300.0, 400.0));
-        assert_eq!("300x400+-10+20".parse::<Rect>().unwrap(), Rect::new(-10.0, 20.0, 300.0, 400.0));
+        assert_eq!(
+            "10,20 300x400".parse::<Rect>().unwrap(),
+            Rect::new(10.0, 20.0, 300.0, 400.0)
+        );
+        assert_eq!(
+            "300x400+10+20".parse::<Rect>().unwrap(),
+            Rect::new(10.0, 20.0, 300.0, 400.0)
+        );
+        assert_eq!(
+            "300x400+-10+20".parse::<Rect>().unwrap(),
+            Rect::new(-10.0, 20.0, 300.0, 400.0)
+        );
         assert!("nope".parse::<Rect>().is_err());
     }
 

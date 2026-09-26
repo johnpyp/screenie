@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions};
 use gpui::{
-    App, AsyncApp, Bounds, DisplayId, Pixels, Size, WindowBackgroundAppearance, WindowBounds, WindowKind,
-    WindowOptions, point, px,
+    App, AsyncApp, Bounds, DisplayId, Pixels, Size, WindowBackgroundAppearance, WindowBounds,
+    WindowKind, WindowOptions, point, px,
 };
 
 /// Where and how a layer surface appears.
@@ -67,7 +67,10 @@ impl LayerSpec {
 /// from the connector name.
 pub fn display_for_output(cx: &App, name: &str) -> Option<DisplayId> {
     let want = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_DNS, name.as_bytes());
-    cx.displays().into_iter().find(|d| d.uuid().ok() == Some(want)).map(|d| d.id())
+    cx.displays()
+        .into_iter()
+        .find(|d| d.uuid().ok() == Some(want))
+        .map(|d| d.id())
 }
 
 /// GPUI learns about outputs asynchronously after startup; wait (briefly) until it knows
@@ -77,14 +80,19 @@ pub async fn wait_for_displays(cx: &mut AsyncApp, count: usize) {
         if cx.update(|cx| cx.displays().len()) >= count {
             return;
         }
-        cx.background_executor().timer(Duration::from_millis(5)).await;
+        cx.background_executor()
+            .timer(Duration::from_millis(5))
+            .await;
     }
     tracing::warn!("GPUI knows fewer displays than expected ({count})");
 }
 
 /// Window options for a layer surface.
 pub fn layer_options(cx: &App, spec: &LayerSpec) -> WindowOptions {
-    let display_id = spec.output.as_deref().and_then(|name| display_for_output(cx, name));
+    let display_id = spec
+        .output
+        .as_deref()
+        .and_then(|name| display_for_output(cx, name));
     if spec.output.is_some() && display_id.is_none() {
         tracing::warn!(output = ?spec.output, "no GPUI display for output");
     }
@@ -99,7 +107,10 @@ pub fn layer_options(cx: &App, spec: &LayerSpec) -> WindowOptions {
             keyboard_interactivity: spec.keyboard,
         }),
         display_id,
-        window_bounds: Some(WindowBounds::Windowed(Bounds::new(point(px(0.), px(0.)), spec.size))),
+        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+            point(px(0.), px(0.)),
+            spec.size,
+        ))),
         window_background: WindowBackgroundAppearance::Transparent,
         focus: spec.keyboard != KeyboardInteractivity::None,
         show: true,
@@ -114,12 +125,21 @@ pub fn layer_options(cx: &App, spec: &LayerSpec) -> WindowOptions {
 /// Fallback for compositors without layer-shell: a regular (fullscreen, for overlays)
 /// window on the same display.
 pub fn fallback_options(cx: &App, spec: &LayerSpec) -> WindowOptions {
-    let display_id = spec.output.as_deref().and_then(|name| display_for_output(cx, name));
-    let covers = spec.anchor.contains(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
+    let display_id = spec
+        .output
+        .as_deref()
+        .and_then(|name| display_for_output(cx, name));
+    let covers = spec
+        .anchor
+        .contains(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
     let bounds = Bounds::new(point(px(0.), px(0.)), spec.size);
     WindowOptions {
         display_id,
-        window_bounds: Some(if covers { WindowBounds::Fullscreen(bounds) } else { WindowBounds::Windowed(bounds) }),
+        window_bounds: Some(if covers {
+            WindowBounds::Fullscreen(bounds)
+        } else {
+            WindowBounds::Windowed(bounds)
+        }),
         window_background: WindowBackgroundAppearance::Transparent,
         focus: true,
         show: true,

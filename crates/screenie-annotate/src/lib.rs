@@ -14,5 +14,7 @@ pub mod text;
 pub use color::{Color, ParseColorError};
 pub use document::{Document, State};
 pub use render::{image_from_pixmap, pixmap_from_image};
-pub use shape::{Handle, Kind, Redaction, Shape, ShapeId, Style, box_from_drag, resize_box, snap_angle};
+pub use shape::{
+    Handle, Kind, Redaction, Shape, ShapeId, Style, box_from_drag, resize_box, snap_angle,
+};
 pub use tiny_skia;

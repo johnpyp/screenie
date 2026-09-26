@@ -77,7 +77,12 @@ pub struct AfterCapture {
 impl Default for AfterCapture {
     /// For screenshots: just show the card, which copies, saves or annotates on demand.
     fn default() -> Self {
-        Self { copy: false, save: false, preview: true, edit: false }
+        Self {
+            copy: false,
+            save: false,
+            preview: true,
+            edit: false,
+        }
     }
 }
 
@@ -174,9 +179,15 @@ impl Resolution {
     /// The largest (width, height) a `width`×`height` capture may be recorded at: a 16:9
     /// box, turned to match the capture's orientation.
     pub fn bounds(self, width: u32, height: u32) -> Option<(u32, u32)> {
-        let Resolution::Lines(lines) = self else { return None };
+        let Resolution::Lines(lines) = self else {
+            return None;
+        };
         let long = (lines as u64 * 16).div_ceil(9) as u32;
-        Some(if width >= height { (long, lines) } else { (lines, long) })
+        Some(if width >= height {
+            (long, lines)
+        } else {
+            (lines, long)
+        })
     }
 }
 
@@ -189,7 +200,9 @@ impl TryFrom<String> for Resolution {
             ("native", _) => Ok(Resolution::Native),
             ("4k", _) => Ok(Resolution::Lines(2160)),
             (_, Some(n @ 144..=4320)) => Ok(Resolution::Lines(n)),
-            _ => Err("expected `native` or a size such as `720p`, `1080p`, `1440p` or `2160p`".into()),
+            _ => Err(
+                "expected `native` or a size such as `720p`, `1080p`, `1440p` or `2160p`".into(),
+            ),
         }
     }
 }
@@ -264,7 +277,12 @@ impl Default for RecordingConfig {
             system_audio: false,
             microphone: false,
             countdown: 3,
-            after_capture: AfterCapture { copy: false, save: true, preview: true, edit: false },
+            after_capture: AfterCapture {
+                copy: false,
+                save: true,
+                preview: true,
+                edit: false,
+            },
         }
     }
 }
@@ -320,7 +338,10 @@ pub struct PreviewConfig {
 
 impl Default for PreviewConfig {
     fn default() -> Self {
-        Self { position: ScreenPosition::BottomRight, timeout: 10 }
+        Self {
+            position: ScreenPosition::BottomRight,
+            timeout: 10,
+        }
     }
 }
 
@@ -380,9 +401,12 @@ pub struct EditorConfig {
 impl Default for EditorConfig {
     fn default() -> Self {
         Self {
-            palette: ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#1c1c1e"]
-                .map(String::from)
-                .to_vec(),
+            palette: [
+                "#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff",
+                "#1c1c1e",
+            ]
+            .map(String::from)
+            .to_vec(),
             mode: EditorMode::Overlay,
             default_color: "#ff3b30".into(),
             stroke_width: 4.0,
@@ -423,6 +447,9 @@ pub struct AdvancedConfig {
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
-        Self { capture_backend: CaptureBackend::Auto, daemon_idle_exit: 0 }
+        Self {
+            capture_backend: CaptureBackend::Auto,
+            daemon_idle_exit: 0,
+        }
     }
 }
