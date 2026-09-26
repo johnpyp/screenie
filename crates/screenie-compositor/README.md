@@ -26,10 +26,12 @@ Screenie depends on protocols, not compositors. IPC only adds window snapping an
 
 | Compositor | Capture | Overlay | Clipboard | Windows (IPC) | Tested |
 | --- | --- | --- | --- | --- | --- |
-| Sway | wlr / ext | layer-shell | data-control | i3 IPC | ✅ headless |
+| Sway | wlr, ext | layer-shell | data-control | i3 IPC | ✅ headless |
 | Hyprland | wlr (ext on 0.50+) | layer-shell | data-control | hyprctl socket | unit tests |
-| niri | ext / wlr | layer-shell | data-control | niri IPC | unit tests |
-| river, Wayfire, labwc | wlr | layer-shell | data-control | — (screens only) | — |
+| niri | ext, wlr | layer-shell | data-control | niri IPC | unit tests |
+| river | wlr | layer-shell | data-control | — | — |
+| Wayfire | wlr | layer-shell | data-control | — | — |
+| labwc | wlr | layer-shell | data-control | — | — |
 | COSMIC | ext | layer-shell | data-control | — | — |
 | KDE Plasma 6 | portal (planned) | layer-shell | data-control | — | — |
 | GNOME | portal (planned) | fullscreen window fallback | ❌ (no data-control) | — | — |

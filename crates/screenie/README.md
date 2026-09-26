@@ -11,7 +11,8 @@ file print its path on stdout (`screenie record` prints the path it's recording 
 
 | Command | What happens |
 | --- | --- |
-| `screenie shot` / `screenie shot pick` | Freeze all outputs, show the selector in area mode. |
+| `screenie shot` | Freeze all outputs, show the selector in area mode. |
+| `screenie shot pick` | The same. |
 | `screenie shot window` | Focused window, no UI (needs compositor IPC). |
 | `screenie shot window -i` | Selector in window mode (click a window). |
 | `screenie shot screen` | Focused output, no UI. `--output-name DP-1` picks one. |
@@ -42,8 +43,11 @@ the selector shows.
 | Command | What happens |
 | --- | --- |
 | `screenie record` | Live selector with audio toggles, then **Record**. Stops the running recording instead, if there is one. |
-| `screenie record window` / `screen` / `last` | The focused window, the focused output, or the previous region. |
-| `screenie record window -i` / `screen -i` | Live selector in window or screen mode. |
+| `screenie record window` | The focused window. |
+| `screenie record window -i` | Live selector in window mode. |
+| `screenie record screen` | The focused output. |
+| `screenie record screen -i` | Live selector in screen mode. |
+| `screenie record last` | The previous region. |
 | `screenie record --region "X,Y WxH"` | That region, no selector. |
 | `screenie stop` | Stop and save. Cancels a countdown. |
 | `screenie pause` | Pause or resume. |

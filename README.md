@@ -122,8 +122,12 @@ In the selector:
 | Alt + drag | Select from the center |
 | Space + drag | Move the selection |
 | Click | Select the window or screen under the pointer |
-| <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Area, window or screen mode |
-| Arrows | Nudge the selection. Shift moves 10px, Ctrl resizes |
+| <kbd>1</kbd> | Area mode |
+| <kbd>2</kbd> | Window mode |
+| <kbd>3</kbd> | Screen mode |
+| Arrows | Nudge the selection |
+| Shift + arrows | Nudge the selection by 10px |
+| Ctrl + arrows | Resize the selection |
 | <kbd>M</kbd> | Show or hide the magnifier |
 | <kbd>Enter</kbd> | Capture |
 | <kbd>Esc</kbd> | Cancel |
@@ -148,12 +152,16 @@ You can also hover a preview card and click the pencil.
 
 | Key | Action |
 | --- | --- |
-| Ctrl + scroll, <kbd>[</kbd> <kbd>]</kbd> | Change the size |
+| Ctrl + scroll | Change the size |
+| <kbd>[</kbd> | Smaller |
+| <kbd>]</kbd> | Bigger |
 | <kbd>F</kbd> | Fill shapes, or put text on a label |
-| Shift + drag | Straight lines, square boxes |
-| Ctrl + <kbd>Z</kbd> | Undo (Ctrl + Shift + <kbd>Z</kbd> to redo) |
+| Shift + drag | Draw straight lines and square boxes |
+| Ctrl + <kbd>Z</kbd> | Undo |
+| Ctrl + Shift + <kbd>Z</kbd> | Redo |
 | Ctrl + <kbd>C</kbd> | Copy |
-| Ctrl + <kbd>S</kbd> | Save (Ctrl + Shift + <kbd>S</kbd> to save as) |
+| Ctrl + <kbd>S</kbd> | Save |
+| Ctrl + Shift + <kbd>S</kbd> | Save as |
 | <kbd>Enter</kbd> | Done |
 | <kbd>Esc</kbd> | Back out: stop typing, deselect, close |
 
@@ -366,8 +374,12 @@ editor:
 | Sway | ✅ | ✅ |
 | Hyprland | ✅ | ✅ |
 | niri | ✅ | ✅ |
-| river, Wayfire, labwc, COSMIC | ✅ | |
-| KDE Plasma, GNOME | planned | |
+| river | ✅ | |
+| Wayfire | ✅ | |
+| labwc | ✅ | |
+| COSMIC | ✅ | |
+| KDE Plasma | planned | |
+| GNOME | planned | |
 
 Any compositor with `ext-image-copy-capture-v1` or `wlr-screencopy` should work. More
 detail is in [the compositor matrix](crates/screenie-compositor/README.md#compositor-support).

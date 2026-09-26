@@ -52,7 +52,7 @@ What happens to the result (clipboard, files) is the caller's job; see
 | H | Highlighter | Multiplied marker stroke; Shift draws it straight |
 | T | Text | Click and type. Enter adds a line; Esc or a click away commits. F puts it on a coloured label |
 | N | Numbered step | Numbers follow document order and renumber on delete |
-| B | Pixelate / blur | Press B again to switch mode |
+| B | Pixelate or blur | Press B again to switch mode |
 | S | Spotlight | Dims everything outside its rectangles |
 | C | Crop | Non-destructive. Enter, another tool, or handing the image out applies it; Esc or Cancel drops it |
 
