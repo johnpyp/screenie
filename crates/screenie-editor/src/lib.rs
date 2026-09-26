@@ -30,6 +30,11 @@ pub struct EditorOptions {
     pub style: Style,
     /// Output (connector name) to open on.
     pub output: Option<String>,
+    /// `path` holds exactly this image already, so Done needn't save it again.
+    pub on_disk: bool,
+    /// Close as soon as the image is copied / saved.
+    pub exit_on_copy: bool,
+    pub exit_on_save: bool,
 }
 
 /// Open an editor window for `image`. `on_output` receives copies, saves and the final
@@ -56,10 +61,16 @@ pub fn open(
         show: true,
         ..Default::default()
     };
-    let session = Session::new(doc, options.style);
+    let session = Session::new(doc, options.style, options.on_disk);
     let on_output: OutputHandler = Rc::new(on_output);
+    let behavior = view::Behavior {
+        palette: options.palette,
+        path: options.path,
+        exit_on_copy: options.exit_on_copy,
+        exit_on_save: options.exit_on_save,
+    };
     let handle = cx.open_window(window_options, move |window, cx| {
-        cx.new(|cx| Editor::new(session, options.palette, options.path, on_output, window, cx))
+        cx.new(|cx| Editor::new(session, behavior, on_output, window, cx))
     })?;
     handle.update(cx, |_, window, _| window.activate_window())?;
     Ok(handle)

@@ -30,6 +30,8 @@ pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx
         style.color = config.default_color.parse().unwrap_or(style.color);
         style.size = config.stroke_width as f32;
     }
+    // A path passed in holds this very image; `-o` only says where it should go.
+    let on_disk = path.is_some();
     let path = path.or_else(|| actions.output.clone());
     let title = match path.as_deref().and_then(|p| p.file_name()) {
         Some(name) => format!("{} — Screenie", name.to_string_lossy()),
@@ -42,6 +44,9 @@ pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx
         palette: if palette.is_empty() { default_palette() } else { palette },
         style,
         output: capture.output.clone(),
+        on_disk,
+        exit_on_copy: config.exit_on_copy,
+        exit_on_save: config.exit_on_save,
     };
     let image = capture.image.clone();
     let target = Rc::new(RefCell::new(path));
@@ -120,23 +125,25 @@ fn handle(
             Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Screenshot, Some(path.clone())));
             Ok(Some(format!("Saved {}", display_name(&path))))
         }
-        Output::Done(image) => {
-            let path = (actions.save || target.borrow().is_some()).then(|| save_target(target, capture, cx));
-            let (copy, preview) = (actions.copy, actions.preview);
+        Output::Done { image, copied, saved } => {
+            // Whatever was already copied or saved exactly like this isn't done again.
+            let save = (actions.save || target.borrow().is_some()) && !saved;
+            let path = (save || saved).then(|| save_target(target, capture, cx));
+            let (copy, preview) = (actions.copy && !copied, actions.preview);
             Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Screenshot, path.clone()));
             let mut edited = Capture { image: image.clone(), ..capture.clone() };
             cx.spawn(async move |cx| {
-                let saved = path.clone();
+                let file = path.clone();
                 let result = cx
                     .background_executor()
                     .spawn(async move {
                         let png = encode_png(&image)?;
-                        if let Some(path) = &saved {
-                            write_atomic(path, &png).with_context(|| format!("saving {}", path.display()))?;
+                        if save && let Some(file) = &file {
+                            write_atomic(file, &png).with_context(|| format!("saving {}", file.display()))?;
                         }
                         if copy
                             && let Err(e) =
-                                clipboard::copy(clipboard::Content::Image { png: png.clone(), file: saved.as_deref() })
+                                clipboard::copy(clipboard::Content::Image { png: png.clone(), file: file.as_deref() })
                         {
                             tracing::warn!("{e:#}");
                         }

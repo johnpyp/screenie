@@ -178,6 +178,8 @@ dim = 0.45
 palette = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#1c1c1e"]
 default_color = "#ff3b30"
 stroke_width = 4.0        # logical pixels; 2, 4, 6, 8, 12 are the presets
+exit_on_copy = false      # close the editor once the image is copied (Ctrl+C / Copy)
+exit_on_save = false      # … or saved (Ctrl+S / Save / Save As)
 ```
 
 All keys are listed in [`crates/screenie-config/src/schema.rs`](crates/screenie-config/src/schema.rs).
@@ -205,8 +207,9 @@ install -Dm755 target/release/screenie ~/.local/bin/screenie
 ```
 
 To upgrade, replace the binary. The next `screenie` command notices that the daemon
-is running a different build and restarts it, unless a recording or selector is active,
-in which case it waits for a later command. `screenie --version` and
+is running a different build and restarts it, unless it's in use (recording, selecting,
+editing), in which case it waits for a later command. `screenie daemon` does the same
+and says what it did. `screenie --version` and
 `screenie query status --json` show the git commit each side was built from.
 
 At runtime, recording uses VA-API when a driver is present (`mesa-va-drivers`,

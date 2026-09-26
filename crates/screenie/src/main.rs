@@ -52,7 +52,8 @@ enum Command {
     /// starts the daemon: if it isn't running, screenie is idle.
     #[command(subcommand)]
     Query(Query),
-    /// Run the daemon in the foreground (normally started automatically).
+    /// Run the daemon in the foreground (normally started automatically). Upgrades a
+    /// daemon running another build, unless it is in use.
     Daemon,
     /// Stop the daemon.
     Quit,
@@ -195,8 +196,39 @@ fn main() -> ExitCode {
     }));
 
     if let Command::Daemon = command {
+        let commit = env!("SCREENIE_COMMIT");
+        let describe = |s: &screenie_ipc::Status| {
+            let build = if s.commit.is_empty() { "an older build".to_string() } else { s.commit.clone() };
+            format!("{build}, pid {}", s.pid)
+        };
+        match Client::take_over() {
+            Ok(screenie_ipc::Takeover::NotRunning) => {}
+            Ok(screenie_ipc::Takeover::Replaced(old)) if old.commit == commit => {
+                eprintln!("screenie: replaced the running daemon (pid {}), a different binary of this commit", old.pid);
+            }
+            Ok(screenie_ipc::Takeover::Replaced(old)) => {
+                eprintln!("screenie: upgraded the running daemon ({}) to this build ({commit})", describe(&old));
+            }
+            Ok(screenie_ipc::Takeover::Current(s)) => {
+                eprintln!("screenie: the daemon is already running this build ({})", describe(&s));
+                return ExitCode::SUCCESS;
+            }
+            Ok(screenie_ipc::Takeover::Busy(s)) => {
+                eprintln!(
+                    "screenie: the running daemon ({}) is another build but is busy ({}); \
+                     run this again once it's done, or `screenie quit` to stop it now",
+                    describe(&s),
+                    s.state.as_str()
+                );
+                return ExitCode::from(2);
+            }
+            Err(e) => {
+                eprintln!("screenie: {e:#}");
+                return ExitCode::from(2);
+            }
+        }
         init_logging(true);
-        return match screenie_app::run(env!("SCREENIE_COMMIT")) {
+        return match screenie_app::run(commit) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("screenie daemon: {e:#}");

@@ -87,18 +87,33 @@ impl Client {
         Ok(Client { stream: UnixStream::connect(Paths::get().socket())? })
     }
 
-    /// Connect, starting the daemon first if it isn't running. A daemon running a
-    /// different executable than this one (an upgrade, or a rebuild) is replaced first,
-    /// unless it's busy, in which case it's used as-is and replaced on a later call.
+    /// Make way for a daemon running this executable: a daemon running another one (an
+    /// upgrade, or a rebuild) is stopped, unless it's busy.
+    pub fn take_over() -> Result<Takeover> {
+        let Ok(client) = Self::connect() else { return Ok(Takeover::NotRunning) };
+        let status = match client.request(&Request::Status)? {
+            Response::Status(status) => *status,
+            // Something answers, but not like a daemon: leave it be.
+            _ => return Ok(Takeover::Busy(Status::default())),
+        };
+        if status.build == exe_stamp() {
+            Ok(Takeover::Current(status))
+        } else if status.busy() {
+            Ok(Takeover::Busy(status))
+        } else {
+            tracing::info!(daemon = %status.commit, "replacing a daemon running another build");
+            Self::replace_daemon()?;
+            Ok(Takeover::Replaced(status))
+        }
+    }
+
+    /// Connect, starting the daemon first if it isn't running. A daemon running another
+    /// build is replaced first, unless it's busy, in which case it's used as-is and
+    /// replaced on a later call.
     pub fn connect_or_spawn() -> Result<Client> {
-        if let Ok(client) = Self::connect() {
-            match client.request(&Request::Status) {
-                Ok(Response::Status(status)) if status.build != exe_stamp() && !status.busy() => {
-                    tracing::info!(daemon = %status.commit, "replacing a daemon running another build");
-                    Self::replace_daemon()?;
-                }
-                _ => return Self::connect(),
-            }
+        match Self::take_over()? {
+            Takeover::Current(_) | Takeover::Busy(_) => return Self::connect(),
+            Takeover::NotRunning | Takeover::Replaced(_) => {}
         }
         spawn_daemon()?;
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -145,6 +160,19 @@ impl Client {
         }
         Ok(())
     }
+}
+
+/// What [`Client::take_over`] found.
+#[derive(Debug)]
+pub enum Takeover {
+    NotRunning,
+    /// A daemon running this very executable.
+    Current(Status),
+    /// A daemon running another build, which has been stopped.
+    Replaced(Status),
+    /// A daemon running another build, left alone because it's in use (recording,
+    /// selecting, editing).
+    Busy(Status),
 }
 
 /// Start `screenie daemon` detached from this process's session, logging to the state

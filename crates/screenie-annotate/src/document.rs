@@ -24,8 +24,6 @@ pub struct Document {
     next_id: u64,
     undo: Vec<State>,
     redo: Vec<State>,
-    /// The state last saved, for "unsaved changes".
-    saved: State,
 }
 
 const HISTORY_LIMIT: usize = 200;
@@ -36,7 +34,6 @@ impl Document {
         Self {
             base: Arc::new(crate::render::pixmap_from_image(image)),
             scale: if scale.is_finite() && scale > 0.0 { scale } else { 1.0 },
-            saved: state.clone(),
             state,
             next_id: 1,
             undo: Vec::new(),
@@ -180,15 +177,6 @@ impl Document {
         self.undo.push(std::mem::replace(&mut self.state, next));
         true
     }
-
-    /// Whether there are changes since the last [`Self::mark_saved`].
-    pub fn is_modified(&self) -> bool {
-        self.state != self.saved
-    }
-
-    pub fn mark_saved(&mut self) {
-        self.saved = self.state.clone();
-    }
 }
 
 #[cfg(test)]
@@ -210,10 +198,8 @@ mod tests {
     #[test]
     fn undo_and_redo_walk_history() {
         let mut d = doc();
-        assert!(!d.is_modified());
         let a = step(&mut d, 20.0);
         let b = step(&mut d, 80.0);
-        assert!(d.is_modified());
         assert_eq!(d.shapes().len(), 2);
         assert!(d.undo());
         assert_eq!(d.shapes().len(), 1);
@@ -225,11 +211,6 @@ mod tests {
         d.undo();
         step(&mut d, 150.0);
         assert!(!d.can_redo());
-        // Undoing back to the saved state isn't a modification.
-        d.mark_saved();
-        step(&mut d, 10.0);
-        d.undo();
-        assert!(!d.is_modified());
     }
 
     #[test]

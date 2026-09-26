@@ -26,8 +26,10 @@ pub enum Output {
     /// Save over the capture's file (or to a new one if it was never saved).
     Save(Image),
     SaveAs(Image, PathBuf),
-    /// Save, copy, and close.
-    Done(Image),
+    /// Finished: apply the after-capture actions, then the window closes. `copied` and
+    /// `saved` say the image is already on the clipboard / saved exactly like this, so
+    /// there's no need to do it again.
+    Done { image: Image, copied: bool, saved: bool },
     /// The window closed; the last style, to start the next editor with.
     Closed { style: Style },
 }
@@ -85,13 +87,24 @@ pub struct Editor {
     /// Asking whether to save before closing.
     confirm_close: bool,
     closed: bool,
+    exit_on_copy: bool,
+    exit_on_save: bool,
+}
+
+/// How the editor behaves (from the config).
+pub(crate) struct Behavior {
+    pub palette: Vec<Color>,
+    pub path: Option<PathBuf>,
+    /// Close as soon as the image is copied.
+    pub exit_on_copy: bool,
+    /// Close as soon as the image is saved.
+    pub exit_on_save: bool,
 }
 
 impl Editor {
     pub(crate) fn new(
         session: Session,
-        palette: Vec<Color>,
-        path: Option<PathBuf>,
+        behavior: Behavior,
         on_output: OutputHandler,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -103,8 +116,10 @@ impl Editor {
         Self {
             session,
             raster: Raster::default(),
-            palette,
-            path,
+            palette: behavior.palette,
+            path: behavior.path,
+            exit_on_copy: behavior.exit_on_copy,
+            exit_on_save: behavior.exit_on_save,
             focus,
             on_output,
             pointer: None,
@@ -147,31 +162,43 @@ impl Editor {
         .detach();
     }
 
-    fn copy(&mut self, cx: &mut Context<Self>) {
+    fn copy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let image = self.session.export();
-        self.emit(Output::Copy(image), cx);
-        cx.notify();
-    }
-
-    fn save(&mut self, cx: &mut Context<Self>) {
-        let image = self.session.export();
-        if self.emit(Output::Save(image), cx) {
-            self.session.mark_saved();
+        if self.emit(Output::Copy(image), cx) {
+            self.session.mark_copied();
+            if self.exit_on_copy {
+                self.close(window, cx);
+            }
         }
         cx.notify();
     }
 
-    fn save_as(&mut self, cx: &mut Context<Self>) {
+    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let image = self.session.export();
+        if self.emit(Output::Save(image), cx) {
+            self.saved(window, cx);
+        }
+        cx.notify();
+    }
+
+    fn saved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.session.mark_saved();
+        if self.exit_on_save {
+            self.close(window, cx);
+        }
+    }
+
+    fn save_as(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let dir = self.path.as_ref().and_then(|p| p.parent()).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
         let name = self.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
         let chosen = cx.prompt_for_new_path(&dir, name.as_deref());
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(path))) = chosen.await else { return };
-            let _ = this.update(cx, |e, cx| {
+            let _ = this.update_in(cx, |e, window, cx| {
                 let image = e.session.export();
                 if e.emit(Output::SaveAs(image, path.clone()), cx) {
-                    e.session.mark_saved();
                     e.path = Some(path);
+                    e.saved(window, cx);
                 }
                 cx.notify();
             });
@@ -181,16 +208,16 @@ impl Editor {
 
     fn done(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let image = self.session.export();
-        if self.emit(Output::Done(image), cx) {
-            self.session.mark_saved();
+        let (copied, saved) = (self.session.is_copied(), self.session.is_saved());
+        if self.emit(Output::Done { image, copied, saved }, cx) {
             self.close(window, cx);
         }
     }
 
-    /// Close, asking first if there are unsaved changes.
+    /// Close, asking first if annotations would be lost.
     fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.session.commit_text();
-        if self.session.doc().is_modified() {
+        if self.session.has_unsaved_work() {
             self.confirm_close = true;
             cx.notify();
         } else {
@@ -213,7 +240,7 @@ impl Editor {
     /// The window manager's close button.
     fn should_close(&mut self, cx: &mut Context<Self>) -> bool {
         self.session.commit_text();
-        if self.session.doc().is_modified() && !self.closed {
+        if self.session.has_unsaved_work() && !self.closed {
             self.confirm_close = true;
             cx.notify();
             return false;
@@ -246,9 +273,9 @@ impl Editor {
                 ("z", true) | ("y", _) => {
                     self.session.redo();
                 }
-                ("c", _) if self.session.text_edit().is_none() => self.copy(cx),
-                ("s", false) => self.save(cx),
-                ("s", true) => self.save_as(cx),
+                ("c", _) if self.session.text_edit().is_none() => self.copy(window, cx),
+                ("s", false) => self.save(window, cx),
+                ("s", true) => self.save_as(window, cx),
                 ("d", _) => {
                     self.session.duplicate_selected();
                 }
@@ -443,9 +470,9 @@ impl Editor {
 
     fn action_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         hud::panel()
-            .child(self.button_for("copy", cx, |e, _, cx| e.copy(cx)).icon(Icon::Copy).tooltip("Copy  Ctrl+C"))
+            .child(self.button_for("copy", cx, |e, window, cx| e.copy(window, cx)).icon(Icon::Copy).tooltip("Copy  Ctrl+C"))
             .child(
-                self.button_for("save", cx, |e, _, cx| e.save(cx))
+                self.button_for("save", cx, |e, window, cx| e.save(window, cx))
                     .icon(Icon::Download)
                     .tooltip("Save  Ctrl+S · Save as  Ctrl+Shift+S"),
             )
@@ -628,7 +655,7 @@ impl Editor {
 
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        window.set_window_edited(self.session.doc().is_modified());
+        window.set_window_edited(self.session.has_unsaved_work());
         let this = cx.entity();
         let canvas = canvas(
             |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),

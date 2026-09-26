@@ -91,7 +91,13 @@ Bold, with system fonts as fallback for emoji and CJK.
 - **Save** overwrites the capture's file, or picks a new screenshot name if the
   capture was never saved.
 - **Save As** uses the portal file chooser.
-- **Done** saves, copies, closes, and shows a preview card for the result.
+- **Done** applies the after-capture settings (copy, and save if it's on or the
+  capture already has a file), closes, and shows a preview card. Anything already
+  copied or saved exactly as it is now isn't done again.
+- `editor.exit_on_copy` / `editor.exit_on_save` close the editor right after a copy
+  or save.
+- Closing asks "Save your changes?" only if the current annotations were neither
+  copied nor saved.
 
 The last colour and size are remembered for the next editor while the daemon runs.
 

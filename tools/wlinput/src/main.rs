@@ -10,7 +10,7 @@
 //! wlinput click X Y                move, press, release
 //! wlinput drag X1 Y1 X2 Y2 [STEPS] press at 1, glide to 2, release
 //! wlinput key NAME...              tap keys (escape enter space tab left right up down, letters, digits)
-//! wlinput hold NAME / release NAME hold or release one key (e.g. shift)
+//! wlinput hold NAME / release NAME hold or release one key (shift, ctrl, alt, super)
 //! wlinput sleep MS
 //! ```
 //! Several commands can be chained: `wlinput move 10 10 , sleep 100 , click 50 50`.
@@ -92,6 +92,8 @@ struct Input {
     extent: (f64, f64, f64, f64),
     start: Instant,
     pos: (f64, f64),
+    /// Held modifiers (xkb mask). Virtual keyboards report these themselves.
+    mods: u32,
 }
 
 impl Input {
@@ -126,6 +128,18 @@ impl Input {
             return;
         };
         kb.key(self.time(), code, if pressed { 1 } else { 0 });
+        // The us keymap's modifier bits: Shift, Control, Mod1 (Alt), Mod4 (Super).
+        let bit = match code {
+            42 => 1,
+            29 => 4,
+            56 => 8,
+            125 => 64,
+            _ => 0,
+        };
+        if bit != 0 {
+            self.mods = if pressed { self.mods | bit } else { self.mods & !bit };
+            kb.modifiers(self.mods, 0, 0, 0);
+        }
         self.flush();
     }
 }
@@ -187,6 +201,7 @@ fn main() {
         extent: (x0, y0, x1 - x0, y1 - y0),
         start: Instant::now(),
         pos: (0.0, 0.0),
+        mods: 0,
     };
 
     let num = |s: Option<&String>| -> f64 { s.and_then(|v| v.parse().ok()).expect("expected a number") };

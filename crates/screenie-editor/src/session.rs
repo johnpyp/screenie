@@ -2,7 +2,9 @@
 //! driving a [`Document`]. The view translates pointer and key events into calls here,
 //! in image-pixel coordinates.
 
-use screenie_annotate::{Document, Handle, Kind, Redaction, Shape, ShapeId, Style, box_from_drag, resize_box, snap_angle};
+use screenie_annotate::{
+    Document, Handle, Kind, Redaction, Shape, ShapeId, State, Style, box_from_drag, resize_box, snap_angle,
+};
 use screenie_core::{Point, Rect};
 
 use crate::tool::Tool;
@@ -97,11 +99,21 @@ pub struct Session {
     gesture: Option<Gesture>,
     text: Option<TextEdit>,
     crop: Option<CropEdit>,
+    /// The document as opened, and as last copied and saved: to skip copying or saving
+    /// again what already was, and to know when closing would lose work.
+    pristine: State,
+    copied: Option<State>,
+    saved: Option<State>,
 }
 
 impl Session {
-    pub fn new(doc: Document, style: Style) -> Self {
+    /// `on_disk`: the image is already saved as it is (opened from a file).
+    pub fn new(doc: Document, style: Style, on_disk: bool) -> Self {
+        let pristine = doc.state().clone();
         Self {
+            saved: on_disk.then(|| pristine.clone()),
+            copied: None,
+            pristine,
             doc,
             tool: Tool::Arrow,
             style,
@@ -283,9 +295,30 @@ impl Session {
         true
     }
 
+    /// The current annotations are on the clipboard.
+    pub fn mark_copied(&mut self) {
+        self.commit_text();
+        self.copied = Some(self.doc.state().clone());
+    }
+
+    /// The current annotations are saved.
     pub fn mark_saved(&mut self) {
         self.commit_text();
-        self.doc.mark_saved();
+        self.saved = Some(self.doc.state().clone());
+    }
+
+    pub fn is_copied(&self) -> bool {
+        self.copied.as_ref() == Some(self.doc.state())
+    }
+
+    pub fn is_saved(&self) -> bool {
+        self.saved.as_ref() == Some(self.doc.state())
+    }
+
+    /// Whether closing now would lose annotations: there are some, and they were
+    /// neither copied nor saved. (Undoing back to a delivered state counts as safe.)
+    pub fn has_unsaved_work(&self) -> bool {
+        *self.doc.state() != self.pristine && !self.is_copied() && !self.is_saved()
     }
 
     /// The finished image. Commits any text being typed first.
@@ -731,7 +764,7 @@ mod tests {
     const NONE: Modifiers = Modifiers { shift: false, ctrl: false, alt: false };
 
     fn session() -> Session {
-        Session::new(Document::new(&Image::new(400, 300, PixelFormat::Rgbx), 1.0), Style::default())
+        Session::new(Document::new(&Image::new(400, 300, PixelFormat::Rgbx), 1.0), Style::default(), false)
     }
 
     fn pt(x: f64, y: f64) -> Point {
@@ -910,6 +943,26 @@ mod tests {
         assert_eq!(s.key(Key::Escape, NONE), Outcome::Redraw);
         assert_eq!(s.key(Key::Escape, NONE), Outcome::Close);
         assert_eq!(s.key(Key::Enter, NONE), Outcome::Done);
+    }
+
+    #[test]
+    fn copies_and_saves_are_tracked_per_state() {
+        let mut s = session();
+        assert!(!s.has_unsaved_work() && !s.is_saved() && !s.is_copied());
+        drag(&mut s, pt(10.0, 10.0), pt(100.0, 80.0));
+        assert!(s.has_unsaved_work());
+        s.mark_copied();
+        assert!(s.is_copied() && !s.is_saved() && !s.has_unsaved_work());
+        drag(&mut s, pt(10.0, 200.0), pt(100.0, 280.0));
+        assert!(!s.is_copied() && s.has_unsaved_work());
+        s.mark_saved();
+        assert!(s.is_saved());
+        // Back to what was copied: copied again, but not saved.
+        s.undo();
+        assert!(s.is_copied() && !s.is_saved());
+
+        let opened = Session::new(Document::new(&Image::new(4, 4, PixelFormat::Rgbx), 1.0), Style::default(), true);
+        assert!(opened.is_saved());
     }
 
     #[test]

@@ -187,6 +187,10 @@ pub struct EditorConfig {
     pub palette: Vec<String>,
     pub default_color: String,
     pub stroke_width: f64,
+    /// Close the editor as soon as the image is copied (Ctrl+C or the Copy button).
+    pub exit_on_copy: bool,
+    /// Close the editor as soon as the image is saved (Ctrl+S, Save or Save As).
+    pub exit_on_save: bool,
 }
 
 impl Default for EditorConfig {
@@ -197,6 +201,8 @@ impl Default for EditorConfig {
                 .to_vec(),
             default_color: "#ff3b30".into(),
             stroke_width: 4.0,
+            exit_on_copy: false,
+            exit_on_save: false,
         }
     }
 }
