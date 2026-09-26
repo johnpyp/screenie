@@ -19,9 +19,9 @@ screenie record   # record one
   - Pixel-exact on fractional scaling
 - Screen recording
   - Area, window or screen
-  - System audio and microphone
-  - GPU encoding on AMD, Intel and NVIDIA
-  - Pause and resume
+  - System audio & microphone
+  - GPU encoding on AMD, Intel & NVIDIA
+  - Pause & resume
 - Annotation
   - Markup
   - Redact
