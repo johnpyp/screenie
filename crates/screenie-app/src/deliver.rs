@@ -87,10 +87,22 @@ pub(crate) fn encode_png(image: &Image) -> anyhow::Result<Vec<u8>> {
 
 /// Run the after-capture actions for a screenshot. When editing, nothing is saved or
 /// copied yet: the editor does that when it's done.
-pub(crate) async fn screenshot(capture: Capture, actions: Actions, config: Config, cx: &mut AsyncApp) -> anyhow::Result<Delivered> {
+pub(crate) async fn screenshot(
+    capture: Capture,
+    mut actions: Actions,
+    config: Config,
+    cx: &mut AsyncApp,
+) -> anyhow::Result<Delivered> {
     if actions.edit && !actions.want_file {
-        cx.update(|cx| crate::editor::open(capture, None, actions, cx))?;
-        return Ok(Delivered { path: None, temporary: false });
+        // Overlay mode edits one capture at a time. Another one waits as a preview card,
+        // to be picked up once this edit is done.
+        if cx.update(|cx| screenie_editor::overlay_open(cx)) {
+            actions.edit = false;
+            actions.preview = true;
+        } else {
+            cx.update(|cx| crate::editor::open(capture, None, actions, cx))?;
+            return Ok(Delivered { path: None, temporary: false });
+        }
     }
     let started = std::time::Instant::now();
     let work_image = capture.image.clone();

@@ -12,7 +12,7 @@ Recordings get the same card; see [recording](recording.md).
 | `copy` | false | Put the image on the clipboard. The card's Copy button does it on demand. |
 | `save` | false | Write a PNG into `screenshot.directory` (default `~/Pictures/Screenshots`). The card's Save button does it on demand. |
 | `preview` | true | Show the floating preview card. |
-| `edit` | false | Open the editor straight away. Nothing is copied or saved until it's done; then `copy` and `save` apply, and no card is shown. |
+| `edit` | false | Open the editor straight away. Nothing is copied or saved until it's done; then `copy` and `save` apply, and no card is shown. If an overlay editor is already open, the capture goes to a card instead (as if `edit` were off, with `preview` on). |
 
 Recordings are always saved (`recording.after_capture` defaults to save + preview).
 

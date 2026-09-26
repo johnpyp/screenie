@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::{
-    App, AppContext as _, Bounds, Size, WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowHandle,
+    App, AppContext as _, Bounds, Context, Size, WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowHandle,
     WindowOptions, px, size,
 };
 use screenie_annotate::{Color, Document, Style};
@@ -97,19 +97,30 @@ pub(crate) struct Overlays {
 
 impl gpui::Global for Overlays {}
 
-/// Overlay mode allows one editor at a time: if one is open, show it `message` and
-/// return true.
+/// Whether an overlay editor is open (or stepped aside for Save As). Overlay mode
+/// allows one at a time.
+pub fn overlay_open(cx: &App) -> bool {
+    cx.try_global::<Overlays>().is_some_and(|o| !o.open.is_empty() || o.parked > 0)
+}
+
+/// Call `f` whenever an overlay editor opens or closes.
+pub fn observe_overlays<V: 'static>(
+    cx: &mut Context<V>,
+    f: impl FnMut(&mut V, &mut Context<V>) + 'static,
+) -> gpui::Subscription {
+    cx.observe_global::<Overlays>(f)
+}
+
+/// If an overlay editor is open, show it `message` and return true.
 pub fn overlay_busy(message: &str, cx: &mut App) -> bool {
-    let Some(overlays) = cx.try_global::<Overlays>() else { return false };
-    let (current, parked) = (overlays.open.last().copied(), overlays.parked > 0);
-    if let Some(handle) = current {
+    if let Some(handle) = cx.try_global::<Overlays>().and_then(|o| o.open.last().copied()) {
         let message = message.to_string();
         let _ = handle.update(cx, |editor, window, cx| {
             editor.show_toast(message, cx);
             window.activate_window();
         });
     }
-    current.is_some() || parked
+    overlay_open(cx)
 }
 
 /// Open an editor for `image`. `on_output` receives copies, saves and the final result.

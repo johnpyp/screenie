@@ -22,7 +22,7 @@ const ALREADY_EDITING: &str = "Already editing a capture: finish this one first"
 /// Overlay mode allows one editor at a time; if one is open, it says so and this is an
 /// error.
 pub(crate) fn ensure_free(cx: &mut App) -> anyhow::Result<()> {
-    if Daemon::get(cx).config.editor.mode == EditorMode::Overlay && screenie_editor::overlay_busy(ALREADY_EDITING, cx) {
+    if screenie_editor::overlay_busy(ALREADY_EDITING, cx) {
         anyhow::bail!("already editing a capture; finish that edit first");
     }
     Ok(())

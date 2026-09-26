@@ -120,6 +120,7 @@ work.
 
 ```sh
 screenie query status            # state, elapsed, path: "recording\t1:23\t/…/Recording.mp4", "idle\t\t"
+screenie status                  # the same, shorter
 screenie query status --watch    # a line per change, every second while recording; survives daemon restarts
 screenie query status --json     # everything, including the last captures
 screenie query status --format waybar --watch   # a waybar custom module (empty when idle)

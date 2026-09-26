@@ -211,6 +211,7 @@ impl PreviewStack {
     fn new(position: ScreenPosition, output: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Nothing is interactive until the first card is laid out.
         window.set_input_region(Some(&[]));
+        screenie_editor::observe_overlays(cx, |_, cx| cx.notify()).detach();
         cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_millis(200)).await;
@@ -532,7 +533,8 @@ impl PreviewStack {
                 .when(saved, |d| {
                     d.child(div().absolute().bottom(px(6.)).left(px(6.)).child(corner(Icon::Trash, "Delete", Self::delete, cx)))
                 })
-                .when(screenshot, |d| {
+                // One overlay editor at a time: no pencil while it's open.
+                .when(screenshot && !screenie_editor::overlay_open(cx), |d| {
                     d.child(div().absolute().top(px(6.)).right(px(6.)).child(corner(Icon::Pen, "Annotate", Self::edit, cx)))
                 })
         });

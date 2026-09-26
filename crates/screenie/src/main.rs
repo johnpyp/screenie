@@ -52,6 +52,8 @@ enum Command {
     /// starts the daemon: if it isn't running, screenie is idle.
     #[command(subcommand)]
     Query(Query),
+    /// What screenie is doing (short for `query status`).
+    Status(StatusArgs),
     /// Run the daemon in the foreground (normally started automatically). Upgrades a
     /// daemon running another build, unless it is in use.
     Daemon,
@@ -310,8 +312,8 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
             println!("{}", render(&status));
             return Ok(ExitCode::SUCCESS);
         }
-        Command::Query(Query::Status { format, json, watch }) => {
-            return status(if json { StatusFormat::Json } else { format }, watch);
+        Command::Query(Query::Status(args)) | Command::Status(args) => {
+            return status(if args.json { StatusFormat::Json } else { args.format }, args.watch);
         }
         Command::Quit => match Client::connect() {
             Ok(client) => client.request(&Request::Quit)?,
@@ -403,18 +405,7 @@ enum StatusFormat {
 enum Query {
     /// What screenie is doing: idle, selecting, editing, countdown, recording, paused or
     /// saving, with the elapsed time and path while recording.
-    Status {
-        /// Output format.
-        #[arg(long, value_enum, default_value_t)]
-        format: StatusFormat,
-        /// Same as `--format json`.
-        #[arg(long, conflicts_with = "format")]
-        json: bool,
-        /// Keep printing a line on every change (every second while recording). Keeps
-        /// running across daemon restarts, for status bars.
-        #[arg(long)]
-        watch: bool,
-    },
+    Status(StatusArgs),
     /// The most recent capture, as three tab-separated fields: kind (`screenshot` or
     /// `recording`), time (Unix seconds) and path (empty if it was only copied). Prints
     /// nothing, and exits 1, if there's none yet.
@@ -429,6 +420,20 @@ enum Query {
         #[arg(long)]
         watch: bool,
     },
+}
+
+#[derive(clap::Args)]
+struct StatusArgs {
+    /// Output format.
+    #[arg(long, value_enum, default_value_t)]
+    format: StatusFormat,
+    /// Same as `--format json`.
+    #[arg(long, conflicts_with = "format")]
+    json: bool,
+    /// Keep printing a line on every change (every second while recording). Keeps
+    /// running across daemon restarts, for status bars.
+    #[arg(long)]
+    watch: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]

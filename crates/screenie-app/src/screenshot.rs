@@ -48,11 +48,7 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
         let d = Daemon::get(cx);
         (d.config.clone(), d.capture.clone(), d.last_region)
     });
-    // Overlay mode edits one capture at a time: refuse another before taking it.
     let actions = Actions::resolve(&config.screenshot.after_capture, &req.actions, req.output.clone(), req.want_file);
-    if actions.edit && !actions.want_file {
-        cx.update(crate::editor::ensure_free)?;
-    }
     if req.delay > 0 {
         cx.background_executor().timer(std::time::Duration::from_secs(req.delay as u64)).await;
     }

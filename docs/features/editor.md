@@ -28,10 +28,11 @@ drawing) and CleanShot X.
   (GNOME) it's a fullscreen window.
 - **`window`**: a regular, resizable window (app id `dev.johnpyp.Screenie`).
 
-In overlay mode there is **one editor at a time**. While it's open, anything else that
-would open one is refused and the open editor says so: `shot --edit`, before the
-selector even appears, `screenie edit`, and the preview card's pencil. Plain captures
-still work.
+In overlay mode there is **one editor at a time**. While it's open, captures still
+work, and one that would open the editor (`shot --edit`, or `after_capture.edit`) goes
+to a preview card instead, preview on or not, to be picked up once this edit is done.
+Cards hide their pencil meanwhile. `screenie edit FILE` is refused, and the open
+editor says so.
 
 **Save As** would open the portal file chooser underneath the overlay. So the overlay
 steps aside while the chooser is up, then comes back exactly as it was.
