@@ -7,6 +7,11 @@ Screenie's GPUI look and feel, shared by every window.
 - **`hud`**: the translucent dark HUD language: `color` tokens, `panel()`, `pill()`,
   `keycap()`, `separator()`, and `HudButton` (icon or label, tooltip, selected,
   accent/record styles).
+- **`tip`**: `Tip`, the one tooltip look: a title, its shortcut as keycaps
+  (`.key("Ctrl+Shift+Z")`, more than one are alternatives), related actions under it
+  (`.also("Save as").key(...)`), and a short `.note(...)` only where the control doesn't
+  explain itself. `HudButton::tooltip` takes one (or a plain title); other elements use
+  `.tooltip(tip.builder())`.
 - **`layer`**: `LayerSpec` describes a layer-shell surface (fullscreen overlay or floating
   panel) targeted to an output by connector name. `layer_options` turns it into GPUI
   window options, and `fallback_options` gives a plain window where layer-shell is

@@ -11,7 +11,7 @@ use gpui::{
 };
 use screenie_core::{Image, OutputInfo, Point, Rect, Snapshot};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
-use screenie_ui_kit::{Icon, KeyboardGrab, ui, ui_px};
+use screenie_ui_kit::{Icon, KeyboardGrab, Tip, ui, ui_px};
 
 use crate::model::{Handle, Key, Mode, Model, Modifiers, Outcome, Purpose, Selection};
 use crate::{Choice, RecordOptions, SelectorConfig};
@@ -86,6 +86,8 @@ pub(crate) struct OutputView {
     output: OutputInfo,
     frozen: Option<(Arc<RenderImage>, Image)>,
     focus: FocusHandle,
+    /// The pointer is on the toolbar, where the loupe would only cover its tooltips.
+    over_toolbar: bool,
 }
 
 fn modifiers(m: &gpui::Modifiers) -> Modifiers {
@@ -168,7 +170,7 @@ impl OutputView {
         .detach();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        Self { session, output, frozen, focus }
+        Self { session, output, frozen, focus, over_toolbar: false }
     }
 
     fn local(&self, r: Rect) -> Rect {
@@ -341,6 +343,7 @@ impl OutputView {
 
         let loupe = s.magnifier && !model.is_grabbing() && model.editing().is_none();
         let loupe_here = loupe
+            && !self.over_toolbar
             && self.frozen.is_some()
             && model.cursor().is_some_and(|c| self.output.logical.contains(c));
 
@@ -522,17 +525,21 @@ impl OutputView {
             .into_any_element()
     }
 
-    fn toolbar(&self, s: &Session, k: f64) -> AnyElement {
+    fn toolbar(&self, s: &Session, k: f64, this: Entity<Self>) -> AnyElement {
         let model = &s.model;
         let editing = model.editing().is_some();
         let purpose = model.purpose();
         let mode = model.mode();
         let mut bar = hud::panel();
 
+        let area_note = match purpose {
+            Purpose::Screenshot => "Drag a region or click a window · Enter for the screen",
+            Purpose::Recording => "Drag a region or click a window",
+        };
         for (m, icon, tip, id) in [
-            (Mode::Area, Icon::Area, "Area  1", "mode-area"),
-            (Mode::Window, Icon::Window, "Window  2 · Space", "mode-window"),
-            (Mode::Screen, Icon::Screen, "Screen  3", "mode-screen"),
+            (Mode::Area, Icon::Area, Tip::new("Area").key("1").note(area_note), "mode-area"),
+            (Mode::Window, Icon::Window, Tip::new("Window").key("2").key("Space").note("Click a window"), "mode-window"),
+            (Mode::Screen, Icon::Screen, Tip::new("Screen").key("3").note("Click a screen"), "mode-screen"),
         ] {
             let session = self.session.clone();
             bar = bar.child(HudButton::new(id).icon(icon).tooltip(tip).selected(mode == m).on_click(move |_, _, cx| {
@@ -542,17 +549,6 @@ impl OutputView {
                 });
             }));
         }
-        bar = bar.child(hud::separator());
-
-        let hint = match (purpose, mode, editing) {
-            (Purpose::Screenshot, _, true) => "Drag handles to adjust · Enter to capture",
-            (Purpose::Recording, _, true) => "Adjust the area, then record",
-            (Purpose::Screenshot, Mode::Area, false) => "Drag an area, click a window, or press Enter to capture the whole screen",
-            (Purpose::Recording, Mode::Area, false) => "Drag to select an area · Click a window",
-            (_, Mode::Window, false) => "Click a window",
-            (_, Mode::Screen, false) => "Click a screen",
-        };
-        bar = bar.child(div().px_2().text_color(color::text_dim()).text_size(ui(12.5)).child(hint));
 
         if purpose == Purpose::Recording {
             bar = bar.child(hud::separator());
@@ -561,7 +557,7 @@ impl OutputView {
             bar = bar.child(
                 HudButton::new("system-audio")
                     .icon(if rec.system_audio { Icon::Volume } else { Icon::VolumeOff })
-                    .tooltip(if rec.system_audio { "System audio: on" } else { "System audio: off" })
+                    .tooltip(Tip::new("Record system audio").note(if rec.system_audio { "On" } else { "Off" }))
                     .selected(rec.system_audio)
                     .on_click(move |_, _, cx| {
                         session.update(cx, |s, cx| {
@@ -574,7 +570,7 @@ impl OutputView {
             bar = bar.child(
                 HudButton::new("microphone")
                     .icon(if rec.microphone { Icon::Mic } else { Icon::MicOff })
-                    .tooltip(if rec.microphone { "Microphone: on" } else { "Microphone: off" })
+                    .tooltip(Tip::new("Record microphone").note(if rec.microphone { "On" } else { "Off" }))
                     .selected(rec.microphone)
                     .on_click(move |_, _, cx| {
                         session.update(cx, |s, cx| {
@@ -589,17 +585,23 @@ impl OutputView {
         if show_action {
             let session = self.session.clone();
             let name = self.output.name.clone();
-            let action = match purpose {
-                Purpose::Screenshot => HudButton::new("confirm").icon(Icon::Camera).label("Capture").style(ButtonStyle::Accent),
-                Purpose::Recording => HudButton::new("confirm").icon(Icon::Video).label("Record").style(ButtonStyle::Record),
+            let (action, tip) = match purpose {
+                Purpose::Screenshot => {
+                    (HudButton::new("confirm").icon(Icon::Camera).label("Capture").style(ButtonStyle::Accent), "Capture")
+                }
+                Purpose::Recording => {
+                    (HudButton::new("confirm").icon(Icon::Video).label("Record").style(ButtonStyle::Record), "Start recording")
+                }
             };
+            let tip = Tip::new(tip).key("Enter");
+            let action = action.tooltip(if editing { tip.note("Arrows nudge the area · Ctrl+arrows resize it") } else { tip });
             bar = bar.child(div().ml_1().child(action.on_click(move |_, _, cx| {
                 session.update(cx, |s, cx| s.confirm_on(&name, cx));
             })));
         }
 
         let session = self.session.clone();
-        bar = bar.child(HudButton::new("cancel").icon(Icon::Close).tooltip("Cancel  Esc").on_click(move |_, _, cx| {
+        bar = bar.child(HudButton::new("cancel").icon(Icon::Close).tooltip(Tip::new("Cancel").key("Esc")).on_click(move |_, _, cx| {
             session.update(cx, |s, cx| s.finish(None, cx));
         }));
 
@@ -609,6 +611,12 @@ impl OutputView {
         let at_top = model.selection_rect().is_some_and(|r| r.intersection(&band).is_some());
         let row = div().absolute().left_0().right_0().flex().flex_row().justify_center();
         let row = if at_top { row.top(ui(36.)) } else { row.bottom(ui(36.)) };
+        let bar = bar.id("toolbar").on_hover(move |hovered, _, cx| {
+            this.update(cx, |view, cx| {
+                view.over_toolbar = *hovered;
+                cx.notify();
+            })
+        });
         row.child(bar).into_any_element()
     }
 }
@@ -633,12 +641,15 @@ impl Render for OutputView {
             return root;
         }
         let scene = self.scene(cx);
+        let this = cx.entity();
         let s = self.session.read(cx);
         let k = f64::from(screenie_ui_kit::ui_scale(cx));
-        let annotations = self.annotations(s, k);
         let busy = s.model.is_drawing() || s.model.is_grabbing();
         let show_toolbar = s.config.toolbar && !busy && s.active_output.as_deref() == Some(self.output.name.as_str());
-        let toolbar = show_toolbar.then(|| self.toolbar(s, k));
+        // A toolbar that went away can't report the pointer leaving it.
+        self.over_toolbar &= show_toolbar;
+        let annotations = self.annotations(s, k);
+        let toolbar = show_toolbar.then(|| self.toolbar(s, k, this));
 
         root.child(scene)
             .children(annotations)

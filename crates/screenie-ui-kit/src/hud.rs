@@ -10,6 +10,7 @@ use gpui::{
 
 use crate::assets::Icon;
 use crate::scale::ui;
+use crate::tip::Tip;
 
 pub mod color {
     use gpui::{Hsla, rgba};
@@ -160,7 +161,7 @@ pub struct HudButton {
     icon: Option<Icon>,
     icon_color: Option<Hsla>,
     label: Option<SharedString>,
-    tooltip: Option<SharedString>,
+    tooltip: Option<Tip>,
     selected: bool,
     disabled: bool,
     style: ButtonStyle,
@@ -197,7 +198,7 @@ impl HudButton {
         self
     }
 
-    pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
+    pub fn tooltip(mut self, tooltip: impl Into<Tip>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
     }
@@ -263,7 +264,7 @@ impl RenderOnce for HudButton {
             el = el.child(label);
         }
         if let Some(tip) = self.tooltip {
-            el = el.tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx));
+            el = el.tooltip(tip.builder());
         }
         el
     }

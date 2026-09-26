@@ -18,7 +18,7 @@ use gpui::{
 };
 use screenie_core::{OutputInfo, Point, Rect, Size};
 use screenie_ui_kit::hud::{self, HudButton, color};
-use screenie_ui_kit::{Icon, LayerSpec, layer_options, ui};
+use screenie_ui_kit::{Icon, LayerSpec, Tip, layer_options, ui};
 
 use crate::daemon::Daemon;
 
@@ -307,7 +307,7 @@ impl Controls {
                         .hover(|s| s.bg(color::record_hover()))
                         .cursor_pointer()
                         .child(div().size(ui(10.)).rounded(ui(2.5)).bg(gpui::white()))
-                        .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Stop and save").build(window, cx))
+                        .tooltip(Tip::new("Stop and save").builder())
                         .on_click(|_, _, cx| {
                             cx.spawn(async move |cx| super::stop(cx).await).detach();
                         }),

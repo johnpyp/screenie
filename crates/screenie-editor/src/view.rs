@@ -15,7 +15,7 @@ use gpui::{
 };
 use screenie_annotate::{Color, Handle, Kind, Redaction, Shape, Style};
 use screenie_core::{Image, Point, Rect};
-use screenie_ui_kit::{Icon, KeyboardGrab, ui};
+use screenie_ui_kit::{Icon, KeyboardGrab, Tip, ui};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
 
 use crate::raster::Raster;
@@ -601,7 +601,11 @@ impl Editor {
             if tool == Tool::Crop {
                 bar = bar.child(hud::separator());
             }
-            let tip = format!("{}  {}", tool.name(), tool.key().to_ascii_uppercase());
+            let tip = Tip::new(tool.name()).key(tool.key().to_ascii_uppercase().to_string());
+            let tip = match tool.note() {
+                Some(note) => tip.note(note),
+                None => tip,
+            };
             bar = bar.child(
                 self.button_for(tool_id(tool), cx, move |e, _, _| e.session.set_tool(tool))
                     .icon(tool.icon())
@@ -620,7 +624,7 @@ impl Editor {
                     e.session.undo();
                 })
                 .icon(Icon::Undo)
-                .tooltip("Undo  Ctrl+Z")
+                .tooltip(Tip::new("Undo").key("Ctrl+Z"))
                 .disabled(!doc.can_undo()),
             )
             .child(
@@ -628,25 +632,25 @@ impl Editor {
                     e.session.redo();
                 })
                 .icon(Icon::Redo)
-                .tooltip("Redo  Ctrl+Shift+Z")
+                .tooltip(Tip::new("Redo").key("Ctrl+Shift+Z"))
                 .disabled(!doc.can_redo()),
             )
     }
 
     fn action_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         hud::panel()
-            .child(self.button_for("copy", cx, |e, window, cx| e.copy(window, cx)).icon(Icon::Copy).tooltip("Copy  Ctrl+C"))
+            .child(self.button_for("copy", cx, |e, window, cx| e.copy(window, cx)).icon(Icon::Copy).tooltip(Tip::new("Copy").key("Ctrl+C")))
             .child(
                 self.button_for("save", cx, |e, window, cx| e.save(window, cx))
                     .icon(Icon::Download)
-                    .tooltip("Save  Ctrl+S · Save as  Ctrl+Shift+S"),
+                    .tooltip(Tip::new("Save").key("Ctrl+S").also("Save as…").key("Ctrl+Shift+S")),
             )
             .child(
                 div().ml_1().child(
                     self.button_for("done", cx, |e, window, cx| e.done(window, cx))
                         .icon(Icon::Check)
                         .label("Done")
-                        .tooltip(format!("{}  Enter", self.done_says().0))
+                        .tooltip(Tip::new(self.done_says().0).key("Enter"))
                         .style(ButtonStyle::Accent),
                 ),
             )
@@ -720,7 +724,7 @@ impl Editor {
         }
         if tool.uses_fill() {
             let fill = style.fill;
-            let tip = if tool == Tool::Text { "Label background  F" } else { "Fill  F" };
+            let tip = Tip::new(if tool == Tool::Text { "Label background" } else { "Fill" }).key("F");
             let this = cx.entity();
             bar = bar.child(hud::separator()).child(
                 div()
@@ -733,7 +737,7 @@ impl Editor {
                     .cursor_pointer()
                     .when(fill, |d| d.bg(color::selected()))
                     .hover(|d| d.bg(color::hover()))
-                    .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx))
+                    .tooltip(tip.builder())
                     .child(
                         div()
                             .size(ui(14.))
@@ -767,7 +771,7 @@ impl Editor {
             .child(
                 self.button_for("size-down", cx, |e, _, _| e.session.step_size(-1))
                     .icon(Icon::Minus)
-                    .tooltip("Smaller  [")
+                    .tooltip(Tip::new("Smaller").key("["))
                     .disabled(size <= smallest),
             )
             .child(
@@ -778,10 +782,11 @@ impl Editor {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .tooltip(move |window, cx| {
-                        let tip = format!("Size {index} of {}  ·  Ctrl+scroll, 1–9, 0", Style::SIZES.len());
-                        gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
-                    })
+                    .tooltip(
+                        Tip::new(format!("Size {index} of {}", Style::SIZES.len()))
+                            .note("Scroll or 1–9, 0 to change")
+                            .builder(),
+                    )
                     .on_scroll_wheel(move |e, _, cx| {
                         this.update(cx, |editor, cx| editor.scroll_size(e.delta, cx));
                     })
@@ -790,7 +795,7 @@ impl Editor {
             .child(
                 self.button_for("size-up", cx, |e, _, _| e.session.step_size(1))
                     .icon(Icon::Plus)
-                    .tooltip("Larger  ]")
+                    .tooltip(Tip::new("Larger").key("]"))
                     .disabled(size >= largest),
             )
     }
@@ -806,13 +811,13 @@ impl Editor {
             )
             .child(hud::separator())
             .child(self.button_for("crop-reset", cx, |e, _, _| e.session.reset_crop()).label("Reset"))
-            .child(self.button_for("crop-cancel", cx, |e, _, _| e.session.cancel_crop()).label("Cancel").tooltip("Esc"))
+            .child(self.button_for("crop-cancel", cx, |e, _, _| e.session.cancel_crop()).label("Cancel").tooltip(Tip::new("Cancel crop").key("Esc")))
             .child(
                 div().ml_1().child(
                     self.button_for("crop-apply", cx, |e, _, _| e.session.apply_crop())
                         .icon(Icon::Crop)
                         .label("Crop")
-                        .tooltip("Enter")
+                        .tooltip(Tip::new("Apply crop").key("Enter"))
                         .style(ButtonStyle::Accent),
                 ),
             )

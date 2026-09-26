@@ -24,7 +24,7 @@ use gpui::{
 use screenie_config::{Align, ScreenPosition};
 use screenie_core::Image;
 use screenie_ui_kit::hud::{self, color};
-use screenie_ui_kit::{Icon, LayerSpec, layer_options, ui};
+use screenie_ui_kit::{Icon, LayerSpec, Tip, layer_options, ui};
 
 use crate::clipboard;
 use crate::deliver::Capture;
@@ -438,7 +438,7 @@ impl PreviewStack {
                 .rounded_full()
                 .cursor_pointer()
                 .child(icon.element().text_color(gpui::white()))
-                .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx))
+                .tooltip(Tip::new(tip).builder())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
                     action(this, id, cx)

@@ -53,6 +53,22 @@ impl Tool {
         }
     }
 
+    /// What the tooltip adds to the name, where the tool has more to it than it shows.
+    pub fn note(self) -> Option<&'static str> {
+        match self {
+            Tool::Select => Some("Drag to move · Handles resize"),
+            Tool::Arrow | Tool::Line => Some("Shift: snap to 15°"),
+            Tool::Rectangle => Some("Shift: square · F: filled"),
+            Tool::Ellipse => Some("Shift: circle · F: filled"),
+            Tool::Highlighter => Some("Shift: straight"),
+            Tool::Text => Some("F: on a label"),
+            Tool::Step => Some("Click to place the next number"),
+            Tool::Redact => Some("B again: pixelate or blur"),
+            Tool::Spotlight => Some("Dims everything outside it"),
+            Tool::Pen | Tool::Crop => None,
+        }
+    }
+
     /// The single-key shortcut.
     pub fn key(self) -> char {
         match self {
