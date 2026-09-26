@@ -42,7 +42,9 @@ beneath, which then sees it pressed and gets its release (an Esc leaking into yo
 terminal). Attach the grab with `KeyboardGrab::track` (capture phase, so a view can't
 hide keys from it) and close through `when_released`: the action runs once, outside
 event dispatch, when every key and modifier is up (or after a timeout). While leaving,
-the surface should render as gone, and the grab swallows further key events.
+the surface should render as gone, and the grab swallows further key events. A surface
+that owns the keyboard for as long as it's open (the editor) makes its grab with
+`KeyboardGrab::for_window`, so `Hover` can hand the keyboard back to it (below).
 
 **Surfaces that float over other apps** (preview cards, the recording pill) open with no
 keyboard interactivity and use `Hover`:
@@ -64,6 +66,11 @@ one of its areas, and until the keys pressed there are let go.
   lifts the lock.
 - **Keys go where the pointer is.** Esc on a card dismisses the card, rather than going
   to the game beneath.
+- **The keyboard goes back to its owner.** Letting go, a hover surface first re-asserts
+  the claim of any surface that owns the keyboard (an open editor, even on another
+  output). sway looks for such a surface only on the output being arranged, and
+  otherwise gives the keys to the last focused window, so an editor on one screen would
+  lose its keys to a card on another.
 - **It doesn't grab a resting pointer.** A surface gets its input region only once it's
   on screen. Compositors re-pick the pointer's surface when a surface maps, not when a
   region grows, so an overlay appearing under a resting pointer isn't entered until the

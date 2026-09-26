@@ -17,6 +17,9 @@
 //! doesn't take the typing of someone whose mouse happens to be there) until the pointer
 //! moves.
 //!
+//! Letting go of the keyboard, it goes back to a surface that owns it, if one is open
+//! (see [`crate::KeyboardGrab::for_window`]).
+//!
 //! Hover follows the raw pointer events, in the capture phase, so no element can hide a
 //! move from it, and it's exact at the edges of the areas it hands the keyboard over at.
 //!
@@ -38,7 +41,7 @@ use gpui::{
     MouseMoveEvent, Pixels, Point, Window, canvas,
 };
 
-use crate::keys::{RELEASE_TIMEOUT, Release, Then, run};
+use crate::keys::{RELEASE_TIMEOUT, Release, Then, owners, run};
 
 /// Input for one layer surface opened without keyboard interactivity. `K` names its
 /// interactive areas. Observe it to redraw when the hovered area changes.
@@ -280,9 +283,20 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
         } else {
             KeyboardInteractivity::None
         };
+        // Letting go, the keyboard goes back to a surface that owns it (an editor) if
+        // there is one. Compositors don't do that themselves: sway only looks for another
+        // keyboard-owning surface on this surface's output, and otherwise gives the keys
+        // to the last focused window. Re-asserting the owner's claim first moves focus
+        // straight there, never through the window beneath.
+        let owners = if take { Vec::new() } else { owners(cx) };
         // Not from inside the window's own event dispatch.
         let window = self.window;
         cx.defer(move |cx| {
+            for owner in owners {
+                let _ = owner.update(cx, |_, window, _| {
+                    window.set_keyboard_interactivity(KeyboardInteractivity::Exclusive)
+                });
+            }
             let _ = window.update(cx, |_, window, _| {
                 window.set_keyboard_interactivity(interactivity)
             });
