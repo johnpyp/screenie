@@ -153,6 +153,10 @@ pub enum State {
     Paused,
     /// A recording is being finalized.
     Saving,
+    /// A state this build doesn't know, from a newer daemon. A status bar started by an
+    /// older binary keeps running rather than failing to read it.
+    #[serde(other)]
+    Unknown,
 }
 
 impl State {
@@ -165,6 +169,7 @@ impl State {
             State::Recording => "recording",
             State::Paused => "paused",
             State::Saving => "saving",
+            State::Unknown => "unknown",
         }
     }
 }
@@ -195,29 +200,25 @@ pub struct LastCapture {
     pub time: u64,
 }
 
+/// Every field has a default, so daemons older and newer than this build (with fields
+/// added or dropped) can still be read.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Status {
     /// The one-word summary, for status bars.
-    #[serde(default)]
     pub state: State,
     pub recording: Option<RecordingStatus>,
     /// Open annotation editors.
-    #[serde(default)]
     pub editors: u32,
-    #[serde(default)]
     pub last_screenshot: Option<LastCapture>,
-    #[serde(default)]
     pub last_recording: Option<LastCapture>,
     /// A selector or other capture UI is on screen.
-    #[serde(default)]
     pub capturing: bool,
     pub pid: u32,
     pub version: String,
     /// Git commit and commit time the daemon was built from.
-    #[serde(default)]
     pub commit: String,
     /// Identity of the daemon's executable (see [`crate::exe_stamp`]).
-    #[serde(default)]
     pub build: String,
     pub compositor: String,
     pub capture_backend: String,
@@ -239,11 +240,13 @@ impl Status {
         self.recording.is_some()
             || self.capturing
             || self.editors > 0
-            || self.state == State::Saving
+            // A newer daemon doing something we can't name: assume it matters.
+            || matches!(self.state, State::Saving | State::Unknown)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RecordingStatus {
     pub path: PathBuf,
     pub elapsed_secs: f64,

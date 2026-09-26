@@ -6355,6 +6355,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "rustix",
  "screenie-app",
  "screenie-config",
  "screenie-core",

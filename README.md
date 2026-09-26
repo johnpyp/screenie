@@ -129,7 +129,10 @@ screenie query last recording    # or: screenshot. Exits 1 if there's none yet
 screenie query last --watch      # a line whenever a new capture lands
 ```
 
-States: `idle`, `selecting`, `editing`, `countdown`, `recording`, `paused`, `saving`.
+States: `idle`, `selecting`, `editing`, `countdown`, `recording`, `paused`, `saving`
+(and `unknown`, when a newer daemon reports a state this binary doesn't know yet).
+`--watch` runs until whatever reads it goes away, through daemon restarts, upgrades and
+connection errors alike, which it shows as `idle`.
 
 ```sh
 # swaybar / i3blocks: show a recording indicator

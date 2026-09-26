@@ -307,6 +307,18 @@ mod tests {
         assert!(!status.busy());
     }
 
+    /// A status bar started by an older binary must keep reading a newer daemon.
+    #[test]
+    fn a_newer_daemon_status_still_reads() {
+        let newer = r#"{"type":"status","state":"rendering","recording":{"path":"/r.mp4","elapsed_secs":3.0,"paused":false,"fps":60},"editors":0,"sparkles":true}"#;
+        let Response::Status(status) = serde_json::from_str(newer).unwrap() else {
+            panic!("not a status")
+        };
+        assert_eq!(status.state, State::Unknown);
+        assert_eq!(status.state.as_str(), "unknown");
+        assert!(status.busy());
+    }
+
     #[test]
     fn exe_stamp_is_stable_and_known() {
         assert_eq!(exe_stamp(), exe_stamp());

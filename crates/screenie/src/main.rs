@@ -270,6 +270,8 @@ fn main() -> ExitCode {
 
     match run(command) {
         Ok(code) => code,
+        // Whoever read our output stopped (`| head -1`): nothing left to say.
+        Err(e) if stdout_closed(&e) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("screenie: {e:#}");
             ExitCode::from(2)
@@ -364,11 +366,11 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
             let status = current_status()?;
             if status.last(kind).is_none() {
                 if json {
-                    println!("null");
+                    print("null")?;
                 }
                 return Ok(ExitCode::from(1));
             }
-            println!("{}", render(&status));
+            print(render(&status))?;
             return Ok(ExitCode::SUCCESS);
         }
         Command::Query(Query::Status(args)) | Command::Status(args) => {
@@ -452,19 +454,19 @@ fn report(response: Response, to_stdout: bool) -> anyhow::Result<ExitCode> {
                         let _ = std::fs::remove_file(p);
                     }
                 }
-                (Some(p), false) => println!("{}", p.display()),
+                (Some(p), false) => print(p.display())?,
                 (None, _) => {}
             }
             Ok(ExitCode::SUCCESS)
         }
         // Like captures: the file's path on stdout, so `f=$(screenie record)` works.
         Response::RecordingStarted { path } => {
-            println!("{}", path.display());
+            print(path.display())?;
             Ok(ExitCode::SUCCESS)
         }
         Response::Cancelled => Ok(ExitCode::from(1)),
         Response::Status(status) => {
-            println!("{}", serde_json::to_string_pretty(&status)?);
+            print(serde_json::to_string_pretty(&status)?)?;
             Ok(ExitCode::SUCCESS)
         }
         Response::Error { message } => {
@@ -532,8 +534,21 @@ fn status(format: StatusFormat, watch: bool) -> anyhow::Result<ExitCode> {
     if watch {
         return follow(render);
     }
-    println!("{}", render(&current_status()?));
+    print(render(&current_status()?))?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// Write a line to stdout. Unlike `println!`, a reader that went away is an error to
+/// return (see [`stdout_closed`]), not a panic.
+fn print(line: impl std::fmt::Display) -> std::io::Result<()> {
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{line}")?;
+    out.flush()
+}
+
+fn stdout_closed(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<std::io::Error>()
+        .is_some_and(|e| e.kind() == std::io::ErrorKind::BrokenPipe)
 }
 
 /// The daemon's status. No daemon counts as idle: a bar polling this shouldn't start one.
@@ -548,33 +563,56 @@ fn current_status() -> anyhow::Result<Status> {
 }
 
 /// Print `render(status)` whenever it changes, forever, across daemon restarts (no
-/// daemon counts as idle). Stops when stdout goes away.
+/// daemon counts as idle). Stops only when stdout goes away: a status bar starts this
+/// once per session and won't restart it.
 fn follow(render: impl Fn(&Status) -> String) -> anyhow::Result<ExitCode> {
+    exit_when_stdout_closes();
     let mut last: Option<String> = None;
+    // False once stdout is gone.
     let mut emit = |s: &Status| {
         let line = render(s);
-        if last.as_ref() != Some(&line) {
-            println!("{line}");
-            last = Some(line);
+        if last.as_ref() == Some(&line) {
+            return true;
         }
-        std::io::stdout().flush().is_ok()
+        let open = print(&line).is_ok();
+        last = Some(line);
+        open
     };
     loop {
-        if let Ok(client) = Client::connect() {
-            let mut open = true;
+        let mut open = true;
+        // Any failure counts as the daemon being away: none running, one quitting as we
+        // connect, or a message this build can't read (from a newer daemon). Show idle
+        // and try again shortly.
+        let watched = Client::connect().and_then(|client| {
             client.watch(|s| {
                 open = emit(&s);
                 open
-            })?;
-            if !open {
-                return Ok(ExitCode::SUCCESS);
-            }
+            })
+        });
+        if let Err(e) = watched {
+            tracing::debug!("status watch: {e}");
         }
-        if !emit(&Status::default()) {
+        if !open || !emit(&Status::default()) {
             return Ok(ExitCode::SUCCESS);
         }
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
+}
+
+/// End the process once whoever reads stdout has gone. Writing would notice too, but
+/// [`follow`] only writes when something changes, which may be never.
+fn exit_when_stdout_closes() {
+    use rustix::event::{PollFd, PollFlags, poll};
+    std::thread::spawn(|| {
+        let stdout = std::io::stdout();
+        // Asking for no events still reports these: the reader closing a pipe, or a
+        // terminal hanging up.
+        let mut fds = [PollFd::new(&stdout, PollFlags::empty())];
+        while poll(&mut fds, None).is_err_and(|e| e == rustix::io::Errno::INTR) {}
+        if fds[0].revents().intersects(PollFlags::ERR | PollFlags::HUP) {
+            std::process::exit(0);
+        }
+    });
 }
 
 fn format_status(s: &Status, format: StatusFormat) -> String {
