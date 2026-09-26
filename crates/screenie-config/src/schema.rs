@@ -216,6 +216,9 @@ pub struct EditorConfig {
     pub exit_on_copy: bool,
     /// Close the editor as soon as the image is saved (Ctrl+S, Save or Save As).
     pub exit_on_save: bool,
+    /// Ask before closing (Esc, Done with nothing to do, the window's close button) if
+    /// the annotations were neither copied nor saved. Off: they're discarded silently.
+    pub confirm_on_unsaved: bool,
 }
 
 impl Default for EditorConfig {
@@ -229,6 +232,7 @@ impl Default for EditorConfig {
             stroke_width: 4.0,
             exit_on_copy: false,
             exit_on_save: false,
+            confirm_on_unsaved: true,
         }
     }
 }

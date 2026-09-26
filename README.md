@@ -184,6 +184,7 @@ editor:
   stroke_width: 4.0       # logical pixels; sizes are 1 2 4 6 8 12 16 20 26 32
   exit_on_copy: false     # close the editor once the image is copied (Ctrl+C / Copy)
   exit_on_save: false     # … or saved (Ctrl+S / Save / Save As)
+  confirm_on_unsaved: true  # ask before closing with annotations neither copied nor saved
 ```
 
 All keys are listed in [`crates/screenie-config/src/schema.rs`](crates/screenie-config/src/schema.rs).

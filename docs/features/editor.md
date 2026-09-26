@@ -135,7 +135,8 @@ Bold, with system fonts as fallback for emoji and CJK.
 - Closing asks "Keep your annotations?" only if the current annotations were neither
   copied nor saved. Its main button does what Done would (Copy, Save, or Save & copy).
   When Done would only close (the defaults), Done asks too, and the prompt offers Copy
-  and Save instead.
+  and Save instead. `editor.confirm_on_unsaved: false` turns the prompt off everywhere
+  (Esc, Done, a window's close button): unkept annotations are then discarded.
 
 The last colour and size are remembered for the next editor while the daemon runs.
 

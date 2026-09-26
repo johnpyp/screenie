@@ -67,6 +67,7 @@ pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx
         on_done: OnDone { copy: actions.copy, save: actions.save },
         exit_on_copy: config.exit_on_copy,
         exit_on_save: config.exit_on_save,
+        confirm_on_unsaved: config.confirm_on_unsaved,
     };
     let image = capture.image.clone();
     let target = Rc::new(RefCell::new(path));

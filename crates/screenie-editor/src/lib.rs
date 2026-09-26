@@ -59,6 +59,8 @@ pub struct EditorOptions {
     /// Close as soon as the image is copied / saved.
     pub exit_on_copy: bool,
     pub exit_on_save: bool,
+    /// Ask before closing with annotations neither copied nor saved.
+    pub confirm_on_unsaved: bool,
 }
 
 /// What the owner does with the image on Done (see [`Output::Done`]).
@@ -81,6 +83,7 @@ pub(crate) struct Setup {
     pub on_done: OnDone,
     pub exit_on_copy: bool,
     pub exit_on_save: bool,
+    pub confirm_on_unsaved: bool,
     pub on_output: OutputHandler,
 }
 
@@ -127,6 +130,7 @@ pub fn open(
         on_done: options.on_done,
         exit_on_copy: options.exit_on_copy,
         exit_on_save: options.exit_on_save,
+        confirm_on_unsaved: options.confirm_on_unsaved,
         on_output: Rc::new(on_output),
     });
     open_session(session, options.path, setup, cx)
