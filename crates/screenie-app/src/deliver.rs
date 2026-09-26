@@ -267,7 +267,8 @@ pub(crate) async fn screenshot(
     if actions.preview {
         let saved = if temporary { None } else { path.clone() };
         let output = capture.output.clone();
-        let item = PreviewItem::screenshot(capture, Arc::new(png), saved, copied, cx).await;
+        let item =
+            PreviewItem::screenshot(capture, Arc::new(png), actions, saved, copied, cx).await;
         cx.update(|cx| preview::show(item, output, cx));
     }
     if let Some(e) = failed {

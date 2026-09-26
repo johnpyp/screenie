@@ -30,7 +30,7 @@ use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, layer_options, ui};
 
 use crate::clipboard;
 use crate::daemon::Daemon;
-use crate::deliver::Capture;
+use crate::deliver::{Actions, Capture};
 
 /// Largest card edge; thumbnails are fit within it.
 const CARD_MAX: f32 = 236.0;
@@ -154,6 +154,9 @@ pub(crate) enum Media {
     Screenshot {
         capture: Capture,
         png: Arc<Vec<u8>>,
+        /// What it was taken to do (`--copy`, `--no-save`…): the editor does it when
+        /// it's done.
+        actions: Actions,
     },
     Recording {
         duration: Duration,
@@ -184,10 +187,12 @@ pub(crate) struct PreviewItem {
 }
 
 impl PreviewItem {
-    /// `copied`: it was just put on the clipboard.
+    /// `actions`: the ones it was taken with. `copied`: it was just put on the
+    /// clipboard.
     pub async fn screenshot(
         capture: Capture,
         png: Arc<Vec<u8>>,
+        actions: Actions,
         path: Option<PathBuf>,
         copied: bool,
         cx: &mut AsyncApp,
@@ -195,7 +200,11 @@ impl PreviewItem {
         let bytes = png.len() as u64;
         let image = capture.image.clone();
         Self::new(
-            Media::Screenshot { capture, png },
+            Media::Screenshot {
+                capture,
+                png,
+                actions,
+            },
             image,
             bytes,
             path,
@@ -772,7 +781,7 @@ impl PreviewStack {
         if item.path.is_some() {
             return;
         }
-        let Media::Screenshot { png, capture } = item.media.clone() else {
+        let Media::Screenshot { png, capture, .. } = item.media.clone() else {
             return;
         };
         let path = crate::deliver::screenshot_path(&Daemon::get(cx).config, &capture);
@@ -813,20 +822,33 @@ impl PreviewStack {
     /// Annotate the capture; the card makes way for the editor.
     fn edit(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(item) = self.item(id) else { return };
-        let Media::Screenshot { mut capture, .. } = item.media.clone() else {
+        let Media::Screenshot {
+            mut capture,
+            actions,
+            ..
+        } = item.media.clone()
+        else {
             return;
         };
         // The card stays if another edit is under way.
         if crate::editor::ensure_free(cx).is_err() {
             return;
         }
-        let path = item.path.clone();
+        let (path, copied) = (item.path.clone(), item.is_copied());
         capture.output = capture.output.or_else(|| self.output.clone());
         // Picked up again later, it opens centred rather than where it was taken.
         capture.placement = None;
         self.remove(id, cx);
-        let config = &Daemon::get(cx).config.screenshot.after_capture;
-        let actions = crate::deliver::Actions::resolve(config, &Default::default(), None, false);
+        // Done does what the capture was taken to do. And if it's on the clipboard, the
+        // edit replaces it there: pasting the original after blurring something out of
+        // it would defeat the point.
+        let actions = Actions {
+            copy: actions.copy || copied,
+            preview: false,
+            edit: false,
+            want_file: false,
+            ..actions
+        };
         if let Err(e) = crate::editor::open(capture, path, actions, cx) {
             tracing::warn!("{e:#}");
         }

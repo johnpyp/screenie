@@ -146,7 +146,10 @@ Bold, with system fonts as fallback for emoji and CJK.
 - **Done** applies the after-capture settings and closes. It saves only if `save` is
   on or the capture already has a file (opened from one, given `-o`, or saved in the
   editor), and copies only if `copy` is on. Anything already copied or saved exactly as
-  it is now isn't done again. Done's tooltip says what it will do: "Copy and close",
+  it is now isn't done again. From a preview card, the settings are the ones the
+  capture was taken with (`--copy`, `--no-save`…), and Done also copies if the card's
+  capture is still on the clipboard, so the unedited original isn't left there to
+  paste. Done's tooltip says what it will do: "Copy and close",
   "Save, copy and close", or just "Close". Editing ends there: no preview card follows.
 - `editor.exit_on_copy` / `editor.exit_on_save` close the editor once a copy or save
   has gone through (unless more was drawn meanwhile).
