@@ -629,7 +629,10 @@ impl PreviewStack {
     }
 
     fn push(&mut self, mut item: PreviewItem, cx: &mut Context<Self>) {
-        item.deadline = Self::timeout(cx).map(|t| Instant::now() + t);
+        // A card moved from another surface keeps its time.
+        if !item.arrived {
+            item.deadline = Self::timeout(cx).map(|t| Instant::now() + t);
+        }
         self.items.push(item);
         if self.items.len() > MAX_CARDS {
             // The oldest that isn't in use: never the one under the pointer, or a
