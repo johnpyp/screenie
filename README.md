@@ -13,26 +13,19 @@ screenie record   # record one
 
 ## Features
 
-- **Frozen selector**: the screen holds still while you drag an area, click a window, or
-  pick a screen, with a magnifier for exact edges
-- **Preview cards**: each capture waits in a corner with copy, save, annotate and dismiss
-  buttons
-- **Annotation editor**: arrows, shapes, text, numbered steps, highlighter, pixelate and
-  blur, spotlight and crop, drawn right over the screen you captured
-- **Screen recording**: MP4 with system audio and microphone, pause and resume, and
-  hardware encoding on AMD, Intel and NVIDIA
-- **Pixel-exact on every screen**, including fractional and mixed scaling
-- **Scriptable**: every command prints the file it made, and `screenie query` feeds
-  status bars like waybar
-- **One YAML config**, applied as soon as you save it
-- **Batteries included**: no piping `slurp` into `grim` into `wl-copy`
-- **Works on Sway, Hyprland, niri, river, Wayfire, COSMIC** and other wlroots-style
-  compositors
+- Screenshots of an area, a window or a whole screen
+- Screen recording with system audio and microphone
+- Hardware video encoding with VA-API and NVENC
+- Preview cards to copy, save or annotate each capture
+- Annotation editor with arrows, shapes, text, numbered steps, pixelate, blur, spotlight and crop
+- Pixel-exact captures on fractional and mixed scaling
+- Status bar integration with waybar and swaybar
+- Support for Sway, Hyprland, niri, river, Wayfire and COSMIC
 
 | | |
 | :-: | :-: |
 | ![Dragging out a region on the frozen screen, with the magnifier and its size](docs/media/select-area.webp) | ![Customer emails in a log, pixelated in the editor](docs/media/pixelate.webp) |
-| **Select any area**, down to the pixel | **Pixelate or blur** anything private |
+| Select an area | Pixelate or blur |
 
 ## Installing
 
@@ -260,8 +253,7 @@ $ screenie shot screen --save
 
 ## Configuration
 
-The config lives in `~/.config/screenie/config.yaml`. Every key is optional, and changes
-apply as soon as you save.
+The config lives in `~/.config/screenie/config.yaml`. Every key is optional.
 
 ```yaml
 ui_scale: auto            # or a size, like 1.25
@@ -305,7 +297,7 @@ Every key is in [`schema.rs`](crates/screenie-config/src/schema.rs).
 Paste one into `config.yaml` to make screenie work like another screenshot tool.
 
 <details>
-<summary><b>CleanShot X</b>: the card waits until you're done with it</summary>
+<summary>CleanShot X</summary>
 
 ```yaml
 screenshot:
@@ -321,7 +313,7 @@ editor:
 </details>
 
 <details>
-<summary><b>Screendrop</b>: the card waits, and the editor stays open after saving</summary>
+<summary>Screendrop</summary>
 
 ```yaml
 screenshot:
@@ -339,7 +331,7 @@ editor:
 </details>
 
 <details>
-<summary><b>Flameshot</b>: annotate in place, then copy or save and be done</summary>
+<summary>Flameshot</summary>
 
 ```yaml
 screenshot:
