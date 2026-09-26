@@ -532,14 +532,10 @@ impl OutputView {
         let mode = model.mode();
         let mut bar = hud::panel();
 
-        let area_note = match purpose {
-            Purpose::Screenshot => "Drag a region or click a window · Enter for the screen",
-            Purpose::Recording => "Drag a region or click a window",
-        };
         for (m, icon, tip, id) in [
-            (Mode::Area, Icon::Area, Tip::new("Area").key("1").note(area_note), "mode-area"),
+            (Mode::Area, Icon::Area, Tip::new("Area").key("1").note("Drag a region or click a window"), "mode-area"),
             (Mode::Window, Icon::Window, Tip::new("Window").key("2").key("Space").note("Click a window"), "mode-window"),
-            (Mode::Screen, Icon::Screen, Tip::new("Screen").key("3").note("Click a screen"), "mode-screen"),
+            (Mode::Screen, Icon::Screen, Tip::new("Screen").key("3").note("Click a screen · Enter: the one under the pointer"), "mode-screen"),
         ] {
             let session = self.session.clone();
             bar = bar.child(HudButton::new(id).icon(icon).tooltip(tip).selected(mode == m).on_click(move |_, _, cx| {
