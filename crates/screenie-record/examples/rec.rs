@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use screenie_capture::CaptureContext;
-use screenie_config::{CaptureBackend, EncoderPreference, Quality};
+use screenie_config::{CaptureBackend, EncoderPreference, Framerate, Quality, Resolution};
 use screenie_record::{AudioSources, Encoder, RecordSpec, Recording};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,7 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let source = capture.stream(CaptureBackend::Auto, output, region, true)?;
     let spec = RecordSpec {
         path: std::fs::canonicalize(".")?.join(path),
-        framerate: 60,
+        framerate: Framerate::default(),
+        resolution: Resolution::Native,
         quality: Quality::High,
         encoder: std::env::var("ENCODER").map_or(EncoderPreference::Auto, |e| match e.as_str() {
             "hw" => EncoderPreference::Hardware,

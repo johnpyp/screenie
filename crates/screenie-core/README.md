@@ -14,6 +14,7 @@ The vocabulary every other crate shares. It has no Wayland or GUI dependencies.
   highest scale when it spans several.
 - **`stream`**: the `FrameSource` trait, a live view of the screen or of one window
   that yields frames as it changes (`Next::Frame`), nothing (`Unchanged`), or `Ended`.
-  The recorder consumes it; screencopy (and later PipeWire) implement it.
+  The recorder consumes it; screencopy (and later PipeWire) implement it. `pace(fps)`
+  asks a source for fewer frames, and `Pacer` is the fixed clock both sides tick on.
   `WindowInfo::toplevel` carries the window's `ext-foreign-toplevel-list` identifier
   where the compositor's IPC reports it.

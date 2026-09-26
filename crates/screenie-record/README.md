@@ -15,8 +15,13 @@ let finished = recording.stop()?; // path, duration, size, bytes, last frame
 - The frame pump runs on its own thread. It caps the frame rate, holds early frames
   rather than dropping them, skips identical frames, and hands pixels to GStreamer
   without copying.
-- The video is the first frame's size. Frames of another size (a recorded window being
-  resized) are scaled to fit, letterboxed.
+- `RecordSpec::framerate` paces the source (`FrameSource::pace`), so the compositor
+  only copies frames that get recorded. `resolution` caps the video's size.
+- The video is the first frame's size, capped. Frames of another size (a recorded
+  window being resized) are scaled to fit, letterboxed. Scaling and colour conversion
+  run on the GPU (`vapostproc`) with VA-API encoders.
+- Each recording logs how many frames it received, pushed and skipped: skips mean the
+  pipeline couldn't keep up.
 - `stop()` blocks until the file is finalized. `cancel()` or dropping the recording
   deletes it. `failure()` reports a broken pipeline so the caller can salvage the file,
   and `ended()` a source that went away (a recorded window closed).

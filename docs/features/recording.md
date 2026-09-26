@@ -59,21 +59,43 @@ it, and the pill can sit over the window, since nothing on screen is recorded.
 ## Pipeline (`screenie-record`)
 
 ```
-FrameSource (screencopy stream) ─ capture thread ─▶ appsrc ─▶ videoconvert ─▶ videoscale ─▶ H.264 ─┐
-pulsesrc @DEFAULT_MONITOR@ ─┐                                                                       ├─▶ mp4mux ─▶ file
-pulsesrc (default mic) ─────┴─▶ audiomixer ─▶ AAC ──────────────────────────────────────────────────┘
+FrameSource (paced screencopy) ─ capture thread ─▶ appsrc ─▶ scale + convert (GPU with VA-API) ─▶ H.264 ─┐
+pulsesrc @DEFAULT_MONITOR@ ─┐                                                                             ├─▶ mp4mux ─▶ file
+pulsesrc (default mic) ─────┴─▶ audiomixer ─▶ AAC ────────────────────────────────────────────────────────┘
 ```
+
+Settings:
+
+- `recording.framerate` (default `60`, or `native`): the most frames a second. It paces
+  the capture itself: the compositor is asked for a frame only when one is due, on a
+  fixed clock (`screenie_core::Pacer`), so a game drawing 280 frames a second costs 60
+  copies, not 280. `native` takes every frame the screen or window shows.
+- `recording.resolution` (default `1080p`, or `native`, `720p`, `1440p`, `2160p`/`4k`):
+  the most lines the video may have, in a 16:9 box turned to match the recording's
+  orientation. It never scales up and keeps the aspect ratio. A 4K screen at `1080p`
+  is a quarter of the pixels to encode and store.
 
 - **Encoders** are probed once by actually encoding test frames. The order is
   `vah264enc` → `vah264lpenc` → `vaapih264enc` → `x264enc` → `openh264enc`, and
   `recording.encoder` (`auto`/`hardware`/`software`) filters it. Constant quality (CQP /
   CRF) comes from `recording.quality`, with no B-frames and keyframes every 2 s.
-- **Frames** are damage-driven, capped at `recording.framerate`, and identical frames are
-  skipped. A static screen costs almost nothing, and the output is variable frame rate.
-  Buffers wrap the captured pixels without copying. Odd sizes lose their last row or
-  column, since 4:2:0 needs even dimensions. The video is the first frame's size. The
-  appsrc's caps follow each frame, and `videoscale` fits frames of another size into
-  it (letterboxed); for a region that's a no-op.
+- **Frames** are damage-driven and paced, and identical frames are skipped. A static
+  screen costs almost nothing, and the output is variable frame rate. Buffers wrap the
+  captured pixels without copying. Odd sizes lose their last row or column, since 4:2:0
+  needs even dimensions. The video is the first frame's size, capped by the resolution.
+  The appsrc's caps follow each frame, so frames of another size (a resized window) are
+  scaled to fit, letterboxed.
+- **Scaling and conversion** to the encoder's 4:2:0 input happen on the GPU with
+  `vapostproc` when the encoder is VA-API (with the upload, so it costs almost no CPU;
+  scaling 4K to 1080p on the CPU takes a whole core). Software encoders get
+  `videoscale ! videoconvert`, scaling first.
+- **Falling behind**: the capture loop only pushes when the pipeline has room (two raw
+  frames) and otherwise holds the newest frame. Frames replaced before they could be
+  pushed are counted. Each recording logs `recorded frames received=… pushed=…
+  skipped=… fps=… longest_gap=…`, and warns when more than 5% were skipped.
+- **Measuring**: `tools/rec_stress.py` records an uncapped fullscreen `weston-simple-egl`
+  on a temporary 4K output of the headless session and reports the video's frame rate
+  and gaps. On the dev machine: 60 fps at 1080p, ~57 at native 4K.
 - **Timing**: buffers carry the pipeline's running time. Pausing sets the live
   pipeline to PAUSED, which stops running time for audio and video alike, so resumed
   segments join seamlessly.

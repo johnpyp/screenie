@@ -7,7 +7,8 @@ to grim.
 - `Capturer` discovers outputs (with `xdg-output` logical geometry) and captures them:
   - `capture_outputs(names, cursor)` grabs stills of several outputs concurrently.
   - `into_stream(output, region, cursor)` returns a `FrameStream` of damage-driven
-    frames for recording.
+    frames for recording. `set_max_rate(fps)` paces it: the next frame is only asked
+    for when it's due, so the compositor doesn't copy frames that would be dropped.
   - `into_window_stream(window, cursor)` streams one window by itself
     (`ext-foreign-toplevel-image-capture-source-v1`), found through
     `ext-foreign-toplevel-list-v1` by identifier, or by app id and title. Its frames
@@ -19,4 +20,5 @@ to grim.
 
 ```sh
 cargo run -p screenie-wayland --example snap -- [dir] [ext|wlr] [--stream N]
+cargo run --release -p screenie-wayland --example stream -- OUTPUT [SECONDS] [ext|wlr]  # capture rate alone
 ```

@@ -290,6 +290,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     let spec = RecordSpec {
         path: path.clone(),
         framerate: config.recording.framerate,
+        resolution: config.recording.resolution,
         quality: config.recording.quality,
         encoder: config.recording.encoder,
         audio: AudioSources { system: audio.system_audio, microphone: audio.microphone },

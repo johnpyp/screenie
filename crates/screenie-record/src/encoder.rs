@@ -59,12 +59,13 @@ impl Encoder {
         ok
     }
 
+    /// Encode a few frames the way a recording does: screen pixels in, scaled.
     fn test_encode(&self) -> bool {
         let desc = format!(
-            "videotestsrc num-buffers=3 ! video/x-raw,format={},width=320,height=240,framerate=30/1 \
-             ! {} ! h264parse ! fakesink",
-            self.input_format(),
-            self.element(Quality::Medium, 30, (320, 240))
+            "videotestsrc num-buffers=3 ! video/x-raw,format=BGRx,width=320,height=240,framerate=30/1 \
+             ! {} ! {} ! h264parse ! fakesink",
+            self.prepare((160, 120)),
+            self.element(Quality::Medium, 30, (160, 120))
         );
         let Ok(pipeline) = gst::parse::launch(&desc) else { return false };
         let ok = pipeline.set_state(gst::State::Playing).is_ok()
@@ -81,8 +82,28 @@ impl Encoder {
 
     /// The raw format to feed it: always 4:2:0, which every player decodes (left to
     /// negotiate, videoconvert would pick 4:4:4 for RGB input).
-    pub(crate) fn input_format(&self) -> &'static str {
+    fn input_format(&self) -> &'static str {
         if self.factory == "openh264enc" { "I420" } else { "NV12" }
+    }
+
+    /// The elements between screen pixels (BGRx and friends, of any size) and this
+    /// encoder: scaled to `width`×`height` (letterboxed if the aspect differs) and
+    /// converted to its input format. VA-API encoders get it done on the GPU along with
+    /// the upload, which at 4K saves a whole CPU core; the rest on the CPU, scaling
+    /// first so the conversion has fewer pixels to do.
+    pub(crate) fn prepare(&self, (width, height): (u32, u32)) -> String {
+        let format = self.input_format();
+        match self.factory {
+            "vah264enc" | "vah264lpenc" => format!(
+                "vapostproc add-borders=true \
+                 ! video/x-raw(memory:VAMemory),format={format},width={width},height={height},pixel-aspect-ratio=1/1"
+            ),
+            _ => format!(
+                "videoscale add-borders=true n-threads=0 \
+                 ! video/x-raw,width={width},height={height},pixel-aspect-ratio=1/1 \
+                 ! videoconvert n-threads=0 ! video/x-raw,format={format}"
+            ),
+        }
     }
 
     /// The element description for a `gst::parse::launch` pipeline.

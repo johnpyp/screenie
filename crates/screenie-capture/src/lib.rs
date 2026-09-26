@@ -207,6 +207,10 @@ impl FrameSource for Primed {
             None => FrameSource::next_frame(&mut self.stream, timeout),
         }
     }
+
+    fn pace(&mut self, fps: u32) {
+        self.stream.set_max_rate(fps);
+    }
 }
 
 impl Default for CaptureContext {

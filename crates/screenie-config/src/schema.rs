@@ -105,6 +105,112 @@ impl Default for ScreenshotConfig {
     }
 }
 
+/// `recording.framerate`: `native`, or frames per second such as `60`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "WordOr<u32>", into = "WordOr<u32>")]
+pub enum Framerate {
+    /// Every frame the screen (or window) shows. A game drawing 280 frames a second makes
+    /// the compositor copy 280, which can starve the recording and the game alike.
+    Native,
+    /// At most this many a second; the compositor is only asked for as many.
+    Fps(u32),
+}
+
+impl Default for Framerate {
+    fn default() -> Self {
+        Framerate::Fps(60)
+    }
+}
+
+impl Framerate {
+    /// The cap, if any.
+    pub fn fps(self) -> Option<u32> {
+        match self {
+            Framerate::Native => None,
+            Framerate::Fps(n) => Some(n),
+        }
+    }
+}
+
+impl TryFrom<WordOr<u32>> for Framerate {
+    type Error = String;
+
+    fn try_from(repr: WordOr<u32>) -> Result<Self, String> {
+        match repr {
+            WordOr::Value(n @ 1..=240) => Ok(Framerate::Fps(n)),
+            WordOr::Word(w) if w == "native" => Ok(Framerate::Native),
+            _ => Err("expected `native` or frames per second from 1 to 240".into()),
+        }
+    }
+}
+
+impl From<Framerate> for WordOr<u32> {
+    fn from(rate: Framerate) -> Self {
+        match rate {
+            Framerate::Native => WordOr::Word("native".into()),
+            Framerate::Fps(n) => WordOr::Value(n),
+        }
+    }
+}
+
+/// `recording.resolution`: `native`, or the most lines the video may have, such as
+/// `1080p`. It caps the size, keeping the aspect ratio and never scaling up: `1080p` fits
+/// a recording into 1920×1080, or 1080×1920 when it's taller than wide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum Resolution {
+    /// The captured pixels, one for one.
+    Native,
+    Lines(u32),
+}
+
+impl Default for Resolution {
+    fn default() -> Self {
+        Resolution::Lines(1080)
+    }
+}
+
+impl Resolution {
+    /// The largest (width, height) a `width`×`height` capture may be recorded at: a 16:9
+    /// box, turned to match the capture's orientation.
+    pub fn bounds(self, width: u32, height: u32) -> Option<(u32, u32)> {
+        let Resolution::Lines(lines) = self else { return None };
+        let long = (lines as u64 * 16).div_ceil(9) as u32;
+        Some(if width >= height { (long, lines) } else { (lines, long) })
+    }
+}
+
+impl TryFrom<String> for Resolution {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, String> {
+        let lines = text.strip_suffix('p').and_then(|n| n.parse::<u32>().ok());
+        match (text.as_str(), lines) {
+            ("native", _) => Ok(Resolution::Native),
+            ("4k", _) => Ok(Resolution::Lines(2160)),
+            (_, Some(n @ 144..=4320)) => Ok(Resolution::Lines(n)),
+            _ => Err("expected `native` or a size such as `720p`, `1080p`, `1440p` or `2160p`".into()),
+        }
+    }
+}
+
+impl From<Resolution> for String {
+    fn from(resolution: Resolution) -> Self {
+        match resolution {
+            Resolution::Native => "native".into(),
+            Resolution::Lines(n) => format!("{n}p"),
+        }
+    }
+}
+
+/// A setting that's a keyword or a value, as written in the file.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum WordOr<T> {
+    Value(T),
+    Word(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Quality {
@@ -129,7 +235,10 @@ pub struct RecordingConfig {
     /// Where recordings are saved. Empty means `$XDG_VIDEOS_DIR/Screencasts`.
     pub directory: PathBuf,
     pub filename: String,
-    pub framerate: u32,
+    pub framerate: Framerate,
+    /// The most the video's size may be: recording a 4K screen at `1080p` makes a
+    /// quarter of the pixels to encode and store.
+    pub resolution: Resolution,
     pub quality: Quality,
     pub encoder: EncoderPreference,
     pub show_cursor: bool,
@@ -147,7 +256,8 @@ impl Default for RecordingConfig {
         Self {
             directory: PathBuf::new(),
             filename: "Recording_%Y-%m-%d_%H-%M-%S_{app}".into(),
-            framerate: 60,
+            framerate: Framerate::default(),
+            resolution: Resolution::default(),
             quality: Quality::High,
             encoder: EncoderPreference::Auto,
             show_cursor: true,

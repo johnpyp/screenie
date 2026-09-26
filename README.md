@@ -165,7 +165,8 @@ screenshot:
   after_capture: { copy: false, save: false, preview: true, edit: false }
 
 recording:
-  framerate: 60
+  framerate: 60           # or native: every frame the screen shows
+  resolution: 1080p       # the most the video may be: native | 720p | 1080p | 1440p | 2160p
   quality: high           # low | medium | high | lossless
   encoder: auto           # auto | hardware | software
   countdown: 3
@@ -259,6 +260,7 @@ cargo run -p screenie -- shot
 cargo run -p wlinput -- drag 100 100 800 600 15
 tools/session.sh shot .cache/session.png
 python3 tools/imgdiff.py a.png b.png
+uv run --project tests/e2e tools/rec_stress.py screen 6   # recording frame rate at 4K
 ```
 
 `tests/e2e` drives the real daemon in that session with pytest: keyboard handoff,

@@ -11,8 +11,11 @@
 //! rate, so a static screen costs almost nothing. Buffers are timestamped with the
 //! pipeline's running time, which also keeps audio in sync across pauses.
 //!
-//! The video keeps the size of the first frame. A source whose frames change size (a
-//! recorded window being resized) is scaled to fit it, letterboxed.
+//! The video's size is the first frame's, capped by `recording.resolution` (scaled down
+//! before colour conversion, so a 4K screen recorded at 1080p costs about what a 1080p
+//! one does). A source whose frames change size (a recorded window being resized) is
+//! scaled to fit it, letterboxed. `recording.framerate` paces the source itself, so the
+//! compositor only copies the frames that get recorded.
 
 mod encoder;
 
@@ -23,8 +26,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use gst::prelude::*;
-use screenie_config::{EncoderPreference, Quality};
-use screenie_core::{FrameSource, Image, Next, PixelFormat};
+use screenie_config::{EncoderPreference, Framerate, Quality, Resolution};
+use screenie_core::{FrameSource, Image, Next, Pacer, PixelFormat};
 
 pub use encoder::Encoder;
 
@@ -86,7 +89,9 @@ impl AudioSources {
 pub struct RecordSpec {
     pub path: PathBuf,
     /// Upper bound; a static screen produces fewer frames.
-    pub framerate: u32,
+    pub framerate: Framerate,
+    /// The most the video's size may be.
+    pub resolution: Resolution,
     pub quality: Quality,
     pub encoder: EncoderPreference,
     pub audio: AudioSources,
@@ -153,13 +158,19 @@ impl Recording {
     /// call it off the UI thread.
     pub fn start(mut source: Box<dyn FrameSource>, spec: RecordSpec) -> Result<Recording> {
         gst::init()?;
+        let cap = spec.framerate.fps().map(|fps| fps.clamp(1, 240));
+        if let Some(fps) = cap {
+            source.pace(fps);
+        }
         let first = first_frame(source.as_mut())?;
-        let size = even_size(&first);
-        if size.0 < 16 || size.1 < 16 {
+        let native = even_size(&first);
+        if native.0 < 16 || native.1 < 16 {
             return Err(Error::TooSmall);
         }
+        let size = fit(native, spec.resolution.bounds(native.0, native.1));
         let encoder = Encoder::select(spec.encoder).ok_or(Error::NoEncoder)?;
-        let fps = spec.framerate.clamp(1, 240);
+        // What the stream says it is; frames are timestamped as they come either way.
+        let fps = cap.unwrap_or(60);
 
         if let Some(dir) = spec.path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -183,24 +194,32 @@ impl Recording {
         appsrc.set_format(gst::Format::Time);
         appsrc.set_is_live(true);
         appsrc.set_do_timestamp(true);
-        // If the encoder falls behind, drop frames rather than queue gigabytes of them.
-        appsrc.set_property("max-buffers", 4u64);
-        appsrc.set_property_from_str("leaky-type", "downstream");
+        // The capture loop checks for room before pushing: when the pipeline falls
+        // behind, frames are skipped there (and counted), not queued by the gigabyte.
+        appsrc.set_property("max-buffers", PIPELINE_FRAMES);
 
         let shared = Arc::new(Shared::default());
         let eos = watch_bus(&pipeline, shared.clone());
         pipeline.set_state(gst::State::Playing)?;
         let clock = Clock { started: Instant::now(), paused_at: None, paused_total: Duration::ZERO };
-        let mut feed = Feed { appsrc, fps, caps: None };
+        let mut feed = Feed { appsrc, fps, caps: None, pushed: 0 };
         feed.push(&first);
 
         let capture = {
             let shared = shared.clone();
             std::thread::Builder::new()
                 .name("screenie-record".into())
-                .spawn(move || capture_loop(source, feed, shared, first, fps))?
+                .spawn(move || capture_loop(source, feed, shared, first, cap))?
         };
-        tracing::info!(path = %spec.path.display(), encoder = encoder.factory, ?size, fps, audio = ?spec.audio, "recording");
+        tracing::info!(
+            path = %spec.path.display(),
+            encoder = encoder.factory,
+            ?native,
+            ?size,
+            framerate = ?spec.framerate,
+            audio = ?spec.audio,
+            "recording"
+        );
         Ok(Recording {
             pipeline,
             shared,
@@ -327,6 +346,18 @@ fn even_size(image: &Image) -> (u32, u32) {
     (image.width() & !1, image.height() & !1)
 }
 
+/// `size` scaled down to fit `bounds` (never up), keeping its aspect ratio, in even
+/// dimensions.
+fn fit((width, height): (u32, u32), bounds: Option<(u32, u32)>) -> (u32, u32) {
+    let Some((max_w, max_h)) = bounds else { return (width, height) };
+    let scale = (max_w as f64 / width as f64).min(max_h as f64 / height as f64);
+    if scale >= 1.0 {
+        return (width, height);
+    }
+    let even = |v: f64| ((v / 2.0).round() as u32 * 2).max(2);
+    (even(width as f64 * scale), even(height as f64 * scale))
+}
+
 /// Where mp4mux keeps media data until it can write the index up front ("faststart",
 /// so the file streams in browsers and chat apps). Next to the output, not in /tmp,
 /// which is often RAM.
@@ -338,13 +369,13 @@ fn temp_path(path: &Path) -> PathBuf {
 fn pipeline_description(spec: &RecordSpec, encoder: Encoder, fps: u32, size: (u32, u32)) -> Result<String> {
     // Generous queues: the muxer interleaves audio and video, and encoders have latency.
     const QUEUE: &str = "queue max-size-buffers=0 max-size-bytes=0 max-size-time=3000000000";
+    // Raw frames are big (33 MB at 4K): a few decouple the capture thread from scaling
+    // and conversion, and the appsrc holds a couple more before the capture loop waits.
+    const FRAMES: &str = "queue max-size-buffers=3 max-size-bytes=0 max-size-time=0";
     let mut desc = format!(
         "mp4mux name=mux faststart=true ! filesink name=sink \
-         appsrc name=video ! {QUEUE} ! videoconvert n-threads=0 ! videoscale add-borders=true n-threads=0 \
-         ! video/x-raw,format={},width={},height={},pixel-aspect-ratio=1/1 ! {} ! h264parse ! {QUEUE} ! mux.",
-        encoder.input_format(),
-        size.0,
-        size.1,
+         appsrc name=video ! {FRAMES} ! {} ! {} ! h264parse ! {QUEUE} ! mux.",
+        encoder.prepare(size),
         encoder.element(spec.quality, fps, size)
     );
     if spec.audio.any() {
@@ -420,9 +451,18 @@ struct Feed {
     appsrc: gst_app::AppSrc,
     fps: u32,
     caps: Option<(gst_video::VideoFormat, u32, u32)>,
+    pushed: u64,
 }
 
+/// Raw frames the appsrc holds before the pipeline counts as behind.
+const PIPELINE_FRAMES: u64 = 2;
+
 impl Feed {
+    /// Whether the pipeline can take another frame now.
+    fn has_room(&self) -> bool {
+        self.appsrc.property::<u64>("current-level-buffers") < PIPELINE_FRAMES
+    }
+
     fn push(&mut self, image: &Image) {
         let format = video_format(image.format());
         let (width, height) = even_size(image);
@@ -446,6 +486,7 @@ impl Feed {
             }
             self.caps = Some((format, width, height));
         }
+        self.pushed += 1;
         push(&self.appsrc, image, (width, height), format);
     }
 }
@@ -474,22 +515,42 @@ fn push(appsrc: &gst_app::AppSrc, image: &Image, (width, height): (u32, u32), fo
     let _ = appsrc.push_buffer(buffer);
 }
 
-/// Pull frames from the source until stopped, pushing at most `fps` per second. The
-/// newest frame always wins, and one that arrives early is held rather than dropped, so
-/// the video never ends on a stale frame. Returns the last frame, after pushing it once
-/// more (unless paused) so a still ending lasts until the stop.
-fn capture_loop(mut source: Box<dyn FrameSource>, mut feed: Feed, shared: Arc<Shared>, first: Image, fps: u32) -> Option<Image> {
-    let interval = Duration::from_secs_f64(1.0 / fps as f64);
+/// Pull frames from the source until stopped, pushing at most `fps` per second (or all
+/// of them). The newest frame always wins, and one that arrives early (or while the
+/// pipeline is busy) is held rather than dropped, so the video never ends on a stale
+/// frame. Returns the last frame, after pushing it once more (unless paused) so a still
+/// ending lasts until the stop.
+///
+/// Frames replaced before they could be pushed are counted and logged at the end: with
+/// a paced source there should be none, and many mean the pipeline couldn't keep up.
+fn capture_loop(
+    mut source: Box<dyn FrameSource>,
+    mut feed: Feed,
+    shared: Arc<Shared>,
+    first: Image,
+    fps: Option<u32>,
+) -> Option<Image> {
+    let mut pacer = Pacer::new(fps);
+    let started = Instant::now();
+    pacer.tick(started); // the first frame, pushed by the caller
+    let (mut received, mut skipped, mut longest_gap) = (1u64, 0u64, Duration::ZERO);
     let mut last = first;
-    let mut last_push = Instant::now();
+    let mut last_push = started;
     let mut pending: Option<Image> = None;
     while !shared.stop.load(Ordering::Relaxed) {
-        let wait = match pending {
-            Some(_) => interval.saturating_sub(last_push.elapsed()),
-            None => Duration::from_millis(100),
+        let now = Instant::now();
+        let wait = match (&pending, pacer.wait_until(now)) {
+            (Some(_), Some(due)) => due - now,
+            // Due, but the pipeline is busy: look again shortly.
+            (Some(_), None) if !feed.has_room() => Duration::from_millis(2),
+            (Some(_), None) => Duration::ZERO,
+            (None, _) => Duration::from_millis(100),
         };
         match source.next_frame(wait.max(Duration::from_millis(1))) {
-            Ok(Next::Frame(frame)) => pending = Some(frame),
+            Ok(Next::Frame(frame)) => {
+                received += 1;
+                skipped += pending.replace(frame).is_some() as u64;
+            }
             Ok(Next::Unchanged) => {}
             Ok(Next::Ended) => {
                 tracing::info!("the recorded source ended");
@@ -501,7 +562,7 @@ fn capture_loop(mut source: Box<dyn FrameSource>, mut feed: Feed, shared: Arc<Sh
                 break;
             }
         }
-        if shared.paused.load(Ordering::Relaxed) || last_push.elapsed() < interval {
+        if shared.paused.load(Ordering::Relaxed) || pacer.wait_until(Instant::now()).is_some() || !feed.has_room() {
             continue;
         }
         if let Some(frame) = pending.take() {
@@ -510,13 +571,28 @@ fn capture_loop(mut source: Box<dyn FrameSource>, mut feed: Feed, shared: Arc<Sh
             if same_pixels(&frame, &last) {
                 continue;
             }
+            let now = Instant::now();
+            longest_gap = longest_gap.max(now - last_push);
+            pacer.tick(now);
             feed.push(&frame);
             last = frame;
-            last_push = Instant::now();
+            last_push = now;
         }
     }
     if !shared.paused.load(Ordering::Relaxed) {
         feed.push(&last);
+    }
+    let seconds = started.elapsed().as_secs_f64().max(1e-3);
+    tracing::info!(
+        received,
+        pushed = feed.pushed,
+        skipped,
+        fps = format!("{:.1}", feed.pushed as f64 / seconds),
+        ?longest_gap,
+        "recorded frames"
+    );
+    if skipped * 20 > received {
+        tracing::warn!("the encoder couldn't keep up: {skipped} of {received} frames were skipped");
     }
     Some(last)
 }
@@ -552,6 +628,16 @@ mod tests {
         assert!(!same_pixels(&a, &b));
         // Nor are frames of another size the same.
         assert!(!same_pixels(&a, &Image::new(7, 3, PixelFormat::Bgrx)));
+    }
+
+    #[test]
+    fn video_size_fits_the_resolution_cap() {
+        let box1080 = Some((1920, 1080));
+        assert_eq!(fit((3840, 2160), box1080), (1920, 1080));
+        assert_eq!(fit((1280, 720), box1080), (1280, 720)); // never up
+        assert_eq!(fit((3000, 1000), box1080), (1920, 640));
+        assert_eq!(fit((1001, 3002), Some((1080, 1920))), (640, 1920));
+        assert_eq!(fit((3840, 2160), None), (3840, 2160));
     }
 
     #[test]

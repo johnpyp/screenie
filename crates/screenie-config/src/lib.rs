@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn partial_config_uses_defaults() {
         let cfg = parse("recording:\n  framerate: 30\n").unwrap();
-        assert_eq!(cfg.recording.framerate, 30);
+        assert_eq!(cfg.recording.framerate, Framerate::Fps(30));
         assert_eq!(cfg.recording.countdown, RecordingConfig::default().countdown);
         assert_eq!(cfg.screenshot, ScreenshotConfig::default());
     }
@@ -165,6 +165,34 @@ mod tests {
         assert!(parse("ui_scale: -1").is_err());
         let text = serde_saphyr::to_string(&Config { ui_scale: UiScale::Fixed(1.5), ..Default::default() }).unwrap();
         assert_eq!(parse(&text).unwrap().ui_scale, UiScale::Fixed(1.5));
+    }
+
+    #[test]
+    fn framerate_is_native_or_a_number() {
+        assert_eq!(parse("").unwrap().recording.framerate, Framerate::Fps(60));
+        assert_eq!(parse("recording: { framerate: native }").unwrap().recording.framerate, Framerate::Native);
+        assert!(parse("recording: { framerate: 0 }").is_err());
+        assert!(parse("recording: { framerate: fast }").is_err());
+        let mut cfg = Config::default();
+        cfg.recording.framerate = Framerate::Native;
+        assert_eq!(parse(&serde_saphyr::to_string(&cfg).unwrap()).unwrap(), cfg);
+    }
+
+    #[test]
+    fn resolution_is_native_or_lines() {
+        assert_eq!(parse("").unwrap().recording.resolution, Resolution::Lines(1080));
+        assert_eq!(parse("recording: { resolution: native }").unwrap().recording.resolution, Resolution::Native);
+        assert_eq!(parse("recording: { resolution: 720p }").unwrap().recording.resolution, Resolution::Lines(720));
+        assert_eq!(parse("recording: { resolution: 4k }").unwrap().recording.resolution, Resolution::Lines(2160));
+        assert!(parse("recording: { resolution: 1080 }").is_err());
+        assert!(parse("recording: { resolution: big }").is_err());
+        let mut cfg = Config::default();
+        cfg.recording.resolution = Resolution::Lines(1440);
+        assert_eq!(parse(&serde_saphyr::to_string(&cfg).unwrap()).unwrap(), cfg);
+        // A box turned to the capture's orientation.
+        assert_eq!(Resolution::Lines(1080).bounds(3840, 2160), Some((1920, 1080)));
+        assert_eq!(Resolution::Lines(1080).bounds(1000, 3000), Some((1080, 1920)));
+        assert_eq!(Resolution::Native.bounds(3840, 2160), None);
     }
 
     #[test]

@@ -18,7 +18,7 @@ mod state;
 
 use std::time::{Duration, Instant};
 
-use screenie_core::{Image, Next, OutputCapture, OutputInfo, Rect, WindowInfo};
+use screenie_core::{Image, Next, OutputCapture, OutputInfo, Pacer, Rect, WindowInfo};
 use wayland_client::globals::{GlobalList, registry_queue_init};
 use wayland_client::protocol::wl_output;
 use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
@@ -254,7 +254,7 @@ impl Capturer {
         };
         let slot = self.new_capture(Target::Output(index), cursor, native_region);
         let crop = crop.map(|region| Crop { region, logical_width: info.logical.width });
-        Ok(FrameStream { capturer: self, slot, crop, sequence: 0 })
+        Ok(FrameStream::new(self, slot, crop))
     }
 
     /// Start continuous capture of one window: its own pixels at its own size, following
@@ -277,7 +277,7 @@ impl Capturer {
         self.queue.roundtrip(&mut self.state)?;
         let index = find_toplevel(self.state.toplevels.iter().map(|t| &t.info), window)?;
         let slot = self.new_capture(Target::Toplevel(index), cursor, None);
-        Ok(FrameStream { capturer: self, slot, crop: None, sequence: 0 })
+        Ok(FrameStream::new(self, slot, None))
     }
 
     fn new_capture(&mut self, target: Target, cursor: bool, region: Option<Rect>) -> usize {
@@ -551,26 +551,60 @@ struct Crop {
 
 /// Continuous capture of one output, a region of it, or one window. Frames arrive as the
 /// content changes (the compositor paces them); static content yields no frames.
+///
+/// Every frame is a copy the compositor makes for us, so a stream can be paced
+/// ([`FrameStream::set_max_rate`]): the next copy isn't asked for until it's due.
+/// Otherwise a game drawing 280 frames a second has the compositor copy each one.
 pub struct FrameStream {
     capturer: Capturer,
     slot: usize,
     crop: Option<Crop>,
     sequence: u64,
+    /// When to ask for frames.
+    pacer: Pacer,
 }
 
 impl FrameStream {
+    fn new(capturer: Capturer, slot: usize, crop: Option<Crop>) -> Self {
+        Self { capturer, slot, crop, sequence: 0, pacer: Pacer::new(None) }
+    }
+
+    /// Ask the compositor for at most `fps` frames a second.
+    pub fn set_max_rate(&mut self, fps: u32) {
+        self.pacer = Pacer::new(Some(fps));
+    }
+
+    fn phase(&self) -> &Phase {
+        &self.capturer.state.captures[self.slot].phase
+    }
+
+    /// Ask for the next frame if it's due, else say when it will be.
+    fn request(&mut self) -> Result<Option<Instant>> {
+        let now = Instant::now();
+        if let Some(due) = self.pacer.wait_until(now) {
+            return Ok(Some(due));
+        }
+        let idle = *self.phase() == Phase::Negotiating;
+        self.capturer.drive(self.slot)?;
+        if idle && *self.phase() == Phase::Copying {
+            self.pacer.tick(now);
+        }
+        Ok(None)
+    }
+
     /// Wait up to `timeout` for the next frame. `Ok(None)` means nothing changed in time;
     /// the pending capture stays in flight and a later call picks it up.
     pub fn next_frame(&mut self, timeout: Duration) -> Result<Option<StreamFrame>> {
         let deadline = Instant::now() + timeout;
         loop {
-            self.capturer.drive(self.slot)?;
-            match &self.capturer.state.captures[self.slot].phase {
+            let due = self.request()?;
+            match self.phase() {
                 Phase::Ready => {
                     let presented = self.capturer.state.captures[self.slot].presented;
                     let mut image = self.capturer.take_image(self.slot)?;
-                    // Get the compositor working on the next frame while we hand this one off.
-                    self.capturer.drive(self.slot)?;
+                    // Get the compositor working on the next frame (if it's due already)
+                    // while we hand this one off.
+                    self.request()?;
                     if let Some(crop) = &self.crop {
                         let scale = image.width() as f64 / crop.logical_width;
                         image = image.crop(crop.region.to_pixels(Default::default(), scale));
@@ -587,7 +621,8 @@ impl FrameStream {
             if now >= deadline {
                 return Ok(None);
             }
-            self.capturer.dispatch_timeout(deadline - now)?;
+            let wake = due.map_or(deadline, |due| due.min(deadline));
+            self.capturer.dispatch_timeout(wake.saturating_duration_since(now))?;
         }
     }
 }
@@ -600,6 +635,10 @@ impl screenie_core::FrameSource for FrameStream {
             Err(Error::Stopped) => Ok(Next::Ended),
             Err(e) => Err(e.into()),
         }
+    }
+
+    fn pace(&mut self, fps: u32) {
+        self.set_max_rate(fps);
     }
 }
 
