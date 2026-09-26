@@ -139,6 +139,13 @@ fn expand_with(
     Ok(home.join(expanded))
 }
 
+fn rustix_uid() -> u32 {
+    // Avoid a libc dependency for one call: the runtime dir owner is good enough.
+    std::fs::metadata("/proc/self")
+        .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,11 +166,4 @@ mod tests {
         assert_eq!(expand("${SHOTS}/today"), Ok("/data/shots/today".into()));
         assert!(expand("$NOT_SET/today").is_err());
     }
-}
-
-fn rustix_uid() -> u32 {
-    // Avoid a libc dependency for one call: the runtime dir owner is good enough.
-    std::fs::metadata("/proc/self")
-        .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
-        .unwrap_or(0)
 }
