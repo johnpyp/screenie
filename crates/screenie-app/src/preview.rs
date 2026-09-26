@@ -196,13 +196,16 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
     }
 }
 
+/// A card's id and where it was painted.
+type CardBounds = (u64, Bounds<Pixels>);
+
 pub(crate) struct PreviewStack {
     corner: Corner,
     /// The output the stack is on, where editors open too.
     output: Option<String>,
     items: Vec<PreviewItem>,
-    /// Card bounds from the last paint, for the input region.
-    card_bounds: Rc<RefCell<Vec<Bounds<Pixels>>>>,
+    /// Card bounds from the last paint, for the input region and hover.
+    card_bounds: Rc<RefCell<Vec<CardBounds>>>,
 }
 
 impl PreviewStack {
@@ -263,6 +266,19 @@ impl PreviewStack {
 
     fn item(&mut self, id: u64) -> Option<&mut PreviewItem> {
         self.items.iter_mut().find(|i| i.id == id)
+    }
+
+    /// The pointer is on this card (or none).
+    fn pointer_on(&mut self, card: Option<u64>, cx: &mut Context<Self>) {
+        let changed: Vec<(u64, bool)> = self
+            .items
+            .iter()
+            .filter(|i| i.hovered != (Some(i.id) == card))
+            .map(|i| (i.id, Some(i.id) == card))
+            .collect();
+        for (id, hovered) in changed {
+            self.set_hovered(id, hovered, cx);
+        }
     }
 
     fn set_hovered(&mut self, id: u64, hovered: bool, cx: &mut Context<Self>) {
@@ -503,19 +519,12 @@ impl PreviewStack {
             .border_color(rgba(0xffffff26))
             .shadow(hud::panel_shadow())
             .cursor_pointer()
-            // GPUI re-derives hover from the last pointer position after every frame, and that
-            // position outlives the pointer leaving the surface, so a card left through the
-            // edge of the surface would flip back to hovered (and never time out). Only
-            // believe "hovered" while the pointer is actually on the surface.
-            .on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
-                this.set_hovered(id, *hovered && window.is_window_hovered(), cx)
-            }))
             .on_click(cx.listener(move |this, _, _, cx| this.open(id, cx)))
             .child(img(item.thumb.clone()).size_full().object_fit(ObjectFit::Contain).rounded(px(11.)))
             .children(badge)
             .children(overlay)
             .child(
-                canvas(move |bounds, _, _| bounds_sink.borrow_mut().push(bounds), |_, _, _, _| {})
+                canvas(move |bounds, _, _| bounds_sink.borrow_mut().push((id, bounds)), |_, _, _, _| {})
                     .absolute()
                     .inset_0(),
             )
@@ -553,6 +562,7 @@ impl Render for PreviewStack {
             cards.reverse();
         }
         let bounds = self.card_bounds.clone();
+        let this = cx.entity();
         let stack = div().size_full().font_family(screenie_ui_kit::FONT).flex().flex_col();
         let stack = if top { stack.justify_start() } else { stack.justify_end() };
         let stack = if self.corner.is_left() { stack.items_start() } else { stack.items_end() };
@@ -560,11 +570,37 @@ impl Render for PreviewStack {
             .gap(px(GAP))
             .p(px(EDGE_MARGIN))
             .children(cards)
-            // Painted last: restrict input to where the cards actually are.
+            // Painted last: restrict input to where the cards actually are, and track
+            // which card the pointer is on.
             .child(
-                canvas(|_, _, _| {}, move |_, _, window, _| window.set_input_region(Some(&bounds.borrow())))
-                    .absolute()
-                    .size_0(),
+                canvas(|_, _, _| {}, move |_, _, window, _| {
+                    let cards = bounds.borrow().clone();
+                    window.set_input_region(Some(&cards.iter().map(|(_, b)| *b).collect::<Vec<_>>()));
+                    // BUG(gpui-pre 0.3.6): GPUI's hover goes stale when the pointer leaves the
+                    // window. MouseExited keeps the old `mouse_position`, and the hit test is
+                    // re-derived from it after the next frame (window.rs:3576), so `on_hover`
+                    // reports the card hovered again: the overlay flashes and the card never
+                    // times out. And since `on_hover` only reports changes, filtering its
+                    // events can't fix that. So hover is tracked here from the raw events
+                    // instead (Capture phase, before any card sees them). Proper fix: clear
+                    // the position / hit test on MouseExited upstream.
+                    let on_card = move |p: gpui::Point<Pixels>| cards.iter().find(|(_, b)| b.contains(&p)).map(|(id, _)| *id);
+                    let moved = this.clone();
+                    window.on_mouse_event(move |e: &gpui::MouseMoveEvent, phase, _, cx| {
+                        if phase == gpui::DispatchPhase::Capture {
+                            let card = on_card(e.position);
+                            moved.update(cx, |stack, cx| stack.pointer_on(card, cx));
+                        }
+                    });
+                    let left = this.clone();
+                    window.on_mouse_event(move |_: &gpui::MouseExitEvent, phase, _, cx| {
+                        if phase == gpui::DispatchPhase::Capture {
+                            left.update(cx, |stack, cx| stack.pointer_on(None, cx));
+                        }
+                    });
+                })
+                .absolute()
+                .size_0(),
             )
     }
 }

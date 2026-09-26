@@ -15,6 +15,10 @@
 //! wlinput sleep MS
 //! ```
 //! Several commands can be chained: `wlinput move 10 10 , sleep 100 , click 50 50`.
+//!
+//! The virtual pointer goes away when wlinput exits, and the compositor then sends the
+//! surface under it a pointer leave. To test hover, keep it alive while you look:
+//! `wlinput move 10 10 , sleep 3000 &`, then take the screenshot.
 
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
