@@ -1017,6 +1017,9 @@ pub trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     #[cfg(all(target_os = "linux", feature = "wayland"))]
     fn set_exclusive_edge(&self, _edge: layer_shell::Anchor) {}
     fn set_input_region(&self, _region: Option<&[Bounds<Pixels>]>) {}
+    // screenie patch: change a layer surface's keyboard interactivity after it's mapped.
+    #[cfg(all(target_os = "linux", feature = "wayland"))]
+    fn set_keyboard_interactivity(&self, _interactivity: layer_shell::KeyboardInteractivity) {}
     fn window_decorations(&self) -> Decorations {
         Decorations::Server
     }

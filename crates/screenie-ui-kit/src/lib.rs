@@ -12,7 +12,7 @@ mod tip;
 
 pub use assets::{Assets, FONT, Icon};
 pub use image::render_image;
-pub use keys::{KeyboardGrab, RELEASE_TIMEOUT};
+pub use keys::{HoverKeyboard, KeyboardGrab, RELEASE_TIMEOUT};
 pub use scale::{UI_SCALE_RANGE, set_ui_scale, track as track_ui_scale, ui, ui_px, ui_scale};
 pub use tip::Tip;
 pub use layer::{LayerSpec, display_for_output, fallback_options, layer_options, wait_for_displays};

@@ -2415,6 +2415,16 @@ impl Window {
         self.platform_window.set_input_region(region);
     }
 
+    /// Change whether a layer-shell surface takes keyboard focus, after it's open: e.g. a
+    /// passive surface that takes the keyboard only while the pointer is on it. With
+    /// `Exclusive`, the compositor focuses it; with `None`, focus goes back to where it
+    /// was. (Wayland layer-shell windows only; a no-op elsewhere.)
+    // screenie patch
+    #[cfg(all(target_os = "linux", feature = "wayland"))]
+    pub fn set_keyboard_interactivity(&self, interactivity: crate::layer_shell::KeyboardInteractivity) {
+        self.platform_window.set_keyboard_interactivity(interactivity);
+    }
+
     /// Return the `WindowBounds` to indicate that how a window should be opened
     /// after it has been closed
     pub fn window_bounds(&self) -> WindowBounds {

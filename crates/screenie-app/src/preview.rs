@@ -5,6 +5,9 @@
 //! copied or saved. What's done shows as a "✓ Copied & Saved" pill in the corner, hovered
 //! or not. Show in folder and Delete appear once there's a file.
 //!
+//! The cards never take the keyboard, except while the pointer is on one: then its keys
+//! (Esc dismisses, Ctrl+C copies…) go to the card rather than the app beneath.
+//!
 //! All cards share one transparent layer surface (a column along the right edge) whose
 //! input region is limited to the cards, so the rest of the column never eats clicks.
 
@@ -18,13 +21,13 @@ use gpui::layer_shell::Anchor;
 use gpui::prelude::*;
 use gpui::BorrowAppContext;
 use gpui::{
-    Animation, AnimationExt, App, AsyncApp, Bounds, Context, FontWeight, Global, ObjectFit, Pixels, RenderImage, Window,
-    WindowHandle, canvas, div, img, px, rgba, size,
+    Animation, AnimationExt, App, AsyncApp, Bounds, Context, Entity, FocusHandle, FontWeight, Global, KeyDownEvent,
+    Keystroke, ObjectFit, Pixels, RenderImage, Window, WindowHandle, canvas, div, img, px, rgba, size,
 };
 use screenie_config::{Align, ScreenPosition};
 use screenie_core::Image;
 use screenie_ui_kit::hud::{self, color};
-use screenie_ui_kit::{Icon, LayerSpec, Tip, layer_options, ui};
+use screenie_ui_kit::{HoverKeyboard, Icon, LayerSpec, Tip, layer_options, ui};
 
 use crate::clipboard;
 use crate::deliver::Capture;
@@ -37,6 +40,105 @@ const CARD_MIN: (f32, f32) = (204.0, 116.0);
 const EDGE_MARGIN: f32 = 18.0;
 const GAP: f32 = 12.0;
 const MAX_CARDS: usize = 5;
+
+/// What can be done with a card: from its buttons, or from its keys while the pointer is
+/// on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CardAction {
+    Copy,
+    Save,
+    Reveal,
+    Dismiss,
+    Delete,
+    Annotate,
+}
+
+impl CardAction {
+    const ALL: [CardAction; 6] = [Self::Copy, Self::Save, Self::Reveal, Self::Dismiss, Self::Delete, Self::Annotate];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Copy => "Copy",
+            Self::Save => "Save",
+            Self::Reveal => "Show in folder",
+            Self::Dismiss => "Dismiss",
+            Self::Delete => "Delete",
+            Self::Annotate => "Annotate",
+        }
+    }
+
+    fn icon(self) -> Icon {
+        match self {
+            Self::Copy => Icon::Copy,
+            Self::Save => Icon::Download,
+            Self::Reveal => Icon::FolderOpen,
+            Self::Dismiss => Icon::Close,
+            Self::Delete => Icon::Trash,
+            Self::Annotate => Icon::Pen,
+        }
+    }
+
+    /// Its key, as the tooltip shows it.
+    fn key(self) -> Option<&'static str> {
+        match self {
+            Self::Copy => Some("Ctrl+C"),
+            Self::Save => Some("Ctrl+S"),
+            Self::Reveal => None,
+            Self::Dismiss => Some("Esc"),
+            Self::Delete => Some("Delete"),
+            Self::Annotate => Some("E"),
+        }
+    }
+
+    fn for_key(k: &Keystroke) -> Option<Self> {
+        let m = k.modifiers;
+        if m.alt || m.shift || m.platform {
+            return None;
+        }
+        Self::ALL.into_iter().find(|a| match a {
+            Self::Copy => m.control && k.key == "c",
+            Self::Save => m.control && k.key == "s",
+            Self::Dismiss => !m.control && k.key == "escape",
+            Self::Delete => !m.control && k.key == "delete",
+            Self::Annotate => !m.control && k.key == "e",
+            Self::Reveal => false,
+        })
+    }
+
+    fn tip(self) -> Tip {
+        let tip = Tip::new(self.name());
+        match self.key() {
+            Some(key) => tip.key(key),
+            None => tip,
+        }
+    }
+
+    /// Whether `item` offers it now: only what's left to do.
+    fn offered(self, item: &PreviewItem, cx: &App) -> bool {
+        let screenshot = matches!(item.media, Media::Screenshot { .. });
+        let saved = item.path.is_some();
+        match self {
+            Self::Copy => !item.is_copied(),
+            Self::Save => screenshot && !saved,
+            // Nothing to show or delete until there's a file.
+            Self::Reveal | Self::Delete => saved,
+            Self::Dismiss => true,
+            // One overlay editor at a time.
+            Self::Annotate => screenshot && !screenie_editor::overlay_open(cx),
+        }
+    }
+
+    fn run(self, stack: &mut PreviewStack, id: u64, cx: &mut Context<PreviewStack>) {
+        match self {
+            Self::Copy => stack.copy(id, cx),
+            Self::Save => stack.save(id, cx),
+            Self::Reveal => stack.reveal(id, cx),
+            Self::Dismiss => stack.remove(id, cx),
+            Self::Delete => stack.delete(id, cx),
+            Self::Annotate => stack.edit(id, cx),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(crate) enum Media {
@@ -205,6 +307,9 @@ pub(crate) struct PreviewStack {
     card_bounds: Rc<RefCell<Vec<CardBounds>>>,
     /// Where the pointer is on the surface, if it is (see `render` for why we track it).
     pointer: Option<gpui::Point<Pixels>>,
+    /// The keyboard, while the pointer is on a card.
+    keyboard: Entity<HoverKeyboard>,
+    focus: FocusHandle,
 }
 
 impl PreviewStack {
@@ -212,13 +317,17 @@ impl PreviewStack {
         screenie_ui_kit::track_ui_scale(window, cx);
         // Nothing is interactive until the first card is laid out.
         window.set_input_region(Some(&[]));
+        let keyboard = HoverKeyboard::new(window, cx);
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
         screenie_editor::observe_overlays(cx, |_, cx| cx.notify()).detach();
         cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_millis(200)).await;
                 let alive = this.update_in(cx, |stack, window, cx| {
                     stack.expire(cx);
-                    if stack.items.is_empty() {
+                    // Not while it has the keyboard: a held key would go to the app beneath.
+                    if stack.items.is_empty() && !stack.keyboard.read(cx).has_keyboard() {
                         window.remove_window();
                         cx.update_global::<Previews, _>(|p, _| p.window = None);
                         false
@@ -232,7 +341,7 @@ impl PreviewStack {
             }
         })
         .detach();
-        Self { position, output, items: Vec::new(), card_bounds: Rc::default(), pointer: None }
+        Self { position, output, items: Vec::new(), card_bounds: Rc::default(), pointer: None, keyboard, focus }
     }
 
     fn timeout(cx: &App) -> Option<Duration> {
@@ -262,6 +371,7 @@ impl PreviewStack {
 
     fn remove(&mut self, id: u64, cx: &mut Context<Self>) {
         self.items.retain(|i| i.id != id);
+        self.sync_keyboard(false, cx);
         cx.notify();
     }
 
@@ -279,10 +389,32 @@ impl PreviewStack {
         self.items.iter().find(|i| i.hovered).map(|i| i.id)
     }
 
-    /// The pointer moved on the surface (`Some`) or left it (`None`).
-    fn pointer_at(&mut self, pointer: Option<gpui::Point<Pixels>>, cx: &mut Context<Self>) {
+    /// Where the pointer is on the surface (`None`: off it). `moved`: it got there by
+    /// moving, rather than a card appearing under a still pointer.
+    fn pointer_at(&mut self, pointer: Option<gpui::Point<Pixels>>, moved: bool, cx: &mut Context<Self>) {
         self.pointer = pointer;
         self.pointer_on(self.card_at(pointer), cx);
+        self.sync_keyboard(moved, cx);
+    }
+
+    /// Take the keyboard when the pointer moves onto a card, and give it back when it's on
+    /// none. Not for a card that appears under a still pointer (you may be typing
+    /// elsewhere), but kept when the next card slides under it (dismissing a run of cards).
+    fn sync_keyboard(&mut self, moved: bool, cx: &mut Context<Self>) {
+        let on_card = self.hovered_card().is_some();
+        if moved || !on_card {
+            self.keyboard.update(cx, |k, cx| k.want(on_card, cx));
+        }
+    }
+
+    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(action) = CardAction::for_key(&event.keystroke) else { return };
+        let Some(item) = self.items.iter().find(|i| i.hovered) else { return };
+        if action.offered(item, cx) {
+            let id = item.id;
+            cx.stop_propagation();
+            action.run(self, id, cx);
+        }
     }
 
     /// The pointer is on this card (or none).
@@ -429,34 +561,33 @@ impl PreviewStack {
             (Align::Middle, _) => (0.0, 48.0 * k),
         };
 
-        let button = |icon: Icon, tip: &'static str, action: fn(&mut Self, u64, &mut Context<Self>), cx: &mut Context<Self>| {
+        let button = |action: CardAction, cx: &mut Context<Self>| {
             div()
-                .id(tip)
+                .id(action.name())
                 .flex()
                 .items_center()
                 .justify_center()
                 .rounded_full()
                 .cursor_pointer()
-                .child(icon.element().text_color(gpui::white()))
-                .tooltip(Tip::new(tip).builder())
+                .child(action.icon().element().text_color(gpui::white()))
+                .tooltip(action.tip().builder())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
-                    action(this, id, cx)
+                    action.run(this, id, cx)
                 }))
         };
         // Small round buttons in the corners, and larger ones in the middle for what's
         // left to do with the capture.
-        let corner = |icon, tip, action, cx: &mut Context<Self>| {
-            button(icon, tip, action, cx).size(ui(30.)).bg(rgba(0x000000a6)).hover(|s| s.bg(rgba(0x000000d9)))
+        let corner = |action, cx: &mut Context<Self>| {
+            button(action, cx).size(ui(30.)).bg(rgba(0x000000a6)).hover(|s| s.bg(rgba(0x000000d9)))
         };
-        let action = |icon, tip, action, cx: &mut Context<Self>| {
-            button(icon, tip, action, cx)
+        let middle = |action, cx: &mut Context<Self>| {
+            button(action, cx)
                 .size(ui(42.))
                 .bg(rgba(0xffffff2e))
                 .hover(|s| s.bg(rgba(0xffffff4d)))
                 .active(|s| s.opacity(0.85))
         };
-        let screenshot = matches!(item.media, Media::Screenshot { .. });
         let copied = item.is_copied();
         let done: Vec<&str> = [(copied, "Copied"), (saved, "Saved")].into_iter().filter(|d| d.0).map(|d| d.1).collect();
         // Bottom right, hovered or not: what's already been done with it (the buttons for
@@ -515,13 +646,15 @@ impl PreviewStack {
         };
 
         let overlay = hovered.then(|| {
+            let offers: Vec<CardAction> = CardAction::ALL.into_iter().filter(|a| a.offered(item, cx)).collect();
+            let offered = |action| offers.contains(&action);
             let actions = div()
                 .flex()
                 .flex_row()
                 .gap_3()
-                .when(!copied, |d| d.child(action(Icon::Copy, "Copy", Self::copy, cx)))
-                .when(!saved && screenshot, |d| d.child(action(Icon::Download, "Save", Self::save, cx)))
-                .when(saved, |d| d.child(action(Icon::FolderOpen, "Show in folder", Self::reveal, cx)));
+                .when(offered(CardAction::Copy), |d| d.child(middle(CardAction::Copy, cx)))
+                .when(offered(CardAction::Save), |d| d.child(middle(CardAction::Save, cx)))
+                .when(offered(CardAction::Reveal), |d| d.child(middle(CardAction::Reveal, cx)));
             div()
                 .absolute()
                 .inset_0()
@@ -532,14 +665,12 @@ impl PreviewStack {
                 .items_center()
                 .justify_center()
                 .child(actions)
-                .child(div().absolute().top(ui(6.)).left(ui(6.)).child(corner(Icon::Close, "Dismiss", Self::remove, cx)))
-                // Nothing to delete until there's a file.
-                .when(saved, |d| {
-                    d.child(div().absolute().bottom(ui(6.)).left(ui(6.)).child(corner(Icon::Trash, "Delete", Self::delete, cx)))
+                .child(div().absolute().top(ui(6.)).left(ui(6.)).child(corner(CardAction::Dismiss, cx)))
+                .when(offered(CardAction::Delete), |d| {
+                    d.child(div().absolute().bottom(ui(6.)).left(ui(6.)).child(corner(CardAction::Delete, cx)))
                 })
-                // One overlay editor at a time: no pencil while it's open.
-                .when(screenshot && !screenie_editor::overlay_open(cx), |d| {
-                    d.child(div().absolute().top(ui(6.)).right(ui(6.)).child(corner(Icon::Pen, "Annotate", Self::edit, cx)))
+                .when(offered(CardAction::Annotate), |d| {
+                    d.child(div().absolute().top(ui(6.)).right(ui(6.)).child(corner(CardAction::Annotate, cx)))
                 })
         });
 
@@ -608,7 +739,15 @@ impl Render for PreviewStack {
         }
         let bounds = self.card_bounds.clone();
         let this = cx.entity();
-        let stack = div().size_full().font_family(screenie_ui_kit::FONT).flex().flex_col();
+        let stack = div()
+            .id("preview")
+            .size_full()
+            .font_family(screenie_ui_kit::FONT)
+            .flex()
+            .flex_col()
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(Self::on_key_down));
+        let stack = HoverKeyboard::track(&self.keyboard, stack);
         let stack = match vertical {
             Align::Start => stack.justify_start(),
             Align::Middle => stack.justify_center(),
@@ -640,13 +779,13 @@ impl Render for PreviewStack {
                     let moved = this.clone();
                     window.on_mouse_event(move |e: &gpui::MouseMoveEvent, phase, _, cx| {
                         if phase == gpui::DispatchPhase::Capture {
-                            moved.update(cx, |stack, cx| stack.pointer_at(Some(e.position), cx));
+                            moved.update(cx, |stack, cx| stack.pointer_at(Some(e.position), true, cx));
                         }
                     });
                     let left = this.clone();
                     window.on_mouse_event(move |_: &gpui::MouseExitEvent, phase, _, cx| {
                         if phase == gpui::DispatchPhase::Capture {
-                            left.update(cx, |stack, cx| stack.pointer_at(None, cx));
+                            left.update(cx, |stack, cx| stack.pointer_at(None, true, cx));
                         }
                     });
                     // Cards move under a still pointer too (one dismissed, one added): re-check
@@ -654,7 +793,7 @@ impl Render for PreviewStack {
                     let stack = this.read(cx);
                     if stack.card_at(stack.pointer) != stack.hovered_card() {
                         let this = this.clone();
-                        cx.defer(move |cx| this.update(cx, |stack, cx| stack.pointer_at(stack.pointer, cx)));
+                        cx.defer(move |cx| this.update(cx, |stack, cx| stack.pointer_at(stack.pointer, false, cx)));
                     }
                 })
                 .absolute()

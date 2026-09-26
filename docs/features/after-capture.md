@@ -52,15 +52,22 @@ timer, and leaving gives it a short fresh lease. Up to five cards stack.
 Clicking a card opens the capture in its default app (from a temporary file if it
 wasn't saved). Hovering shows only what's left to do:
 
-- **Copy** and **Save** icon buttons, until the capture is copied or saved. From then
-  on a small **✓ Copied**, **✓ Saved** or **✓ Copied & Saved** pill sits in the
-  bottom-right corner, hovered or not. "Copied" lasts until screenie copies something
-  else. Copies made by other apps go unnoticed.
+- **Copy** (Ctrl+C) and **Save** (Ctrl+S) icon buttons, until the capture is copied or
+  saved. From then on a small **✓ Copied**, **✓ Saved** or **✓ Copied & Saved** pill
+  sits in the bottom-right corner, hovered or not. "Copied" lasts until screenie copies
+  something else. Copies made by other apps go unnoticed.
 - **Show in folder**, once there's a file.
-- **Pencil**: annotate in the editor (screenshots).
-- **×**: dismiss.
-- **Trash**: delete the file and dismiss. Only shown when there is a file.
+- **Pencil** (E): annotate in the editor (screenshots).
+- **×** (Esc): dismiss.
+- **Trash** (Delete): delete the file and dismiss. Only shown when there is a file.
 - A caption above that pill shows the pixel size and file size.
+
+The cards never take the keyboard from the app you're in, except while the pointer is
+on one: moving onto a card gives it the keyboard, so those keys reach it (Esc dismisses
+the card rather than, say, unpausing the game beneath; on sway that game would also
+take the pointer lock, trapping the pointer on the card). Moving off gives the keyboard
+back once no key is held, so nothing pressed on the card is released into the app. A
+card appearing under a still pointer doesn't take it, so typing elsewhere carries on.
 
 All cards share one transparent layer surface over the output's free area. It has no
 fixed size, so the compositor fits it between bars. Its input region is limited to the
