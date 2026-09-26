@@ -2,8 +2,8 @@
 //! quick actions on hover. Cards slide away on their own unless the pointer is on them.
 //!
 //! Hovering shows only what's left to do: Copy and Save buttons until the capture is
-//! copied or saved, then a quiet "Copied" / "Saved" instead (and Show in folder, and
-//! Delete, once there's a file).
+//! copied or saved. What's done shows as a "✓ Copied & Saved" pill in the corner, hovered
+//! or not. Show in folder and Delete appear once there's a file.
 //!
 //! All cards share one transparent layer surface (a column along the right edge) whose
 //! input region is limited to the cards, so the rest of the column never eats clicks.
@@ -451,6 +451,37 @@ impl PreviewStack {
         let screenshot = matches!(item.media, Media::Screenshot { .. });
         let copied = item.is_copied();
         let done: Vec<&str> = [(copied, "Copied"), (saved, "Saved")].into_iter().filter(|d| d.0).map(|d| d.1).collect();
+        // Bottom right, hovered or not: what's already been done with it (the buttons for
+        // those are gone), with the size caption above it on hover.
+        let status = (!done.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .px(px(6.))
+                .py(px(2.))
+                .rounded(px(6.))
+                .bg(rgba(0x000000b3))
+                .text_color(gpui::white())
+                .text_size(px(11.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(Icon::Check.element().size_3().text_color(gpui::white()))
+                .child(done.join(" & "))
+        });
+        let caption = hovered.then(|| div().text_size(px(11.)).text_color(rgba(0xffffffb3)).child(item.caption()));
+        let corner_info = (status.is_some() || caption.is_some()).then(|| {
+            div()
+                .absolute()
+                .bottom(px(8.))
+                .right(px(8.))
+                .flex()
+                .flex_col()
+                .items_end()
+                .gap_1()
+                .children(caption)
+                .children(status)
+        });
 
         // Videos are marked so they aren't mistaken for screenshots.
         let badge = match (&item.media, hovered) {
@@ -483,18 +514,6 @@ impl PreviewStack {
                 .when(!copied, |d| d.child(action(Icon::Copy, "Copy", Self::copy, cx)))
                 .when(!saved && screenshot, |d| d.child(action(Icon::Download, "Save", Self::save, cx)))
                 .when(saved, |d| d.child(action(Icon::FolderOpen, "Show in folder", Self::reveal, cx)));
-            let status = (!done.is_empty()).then(|| {
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_1()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(rgba(0xffffffcc))
-                    .child(Icon::Check.element().size_3p5().text_color(rgba(0xffffffcc)))
-                    .child(done.join(" · "))
-            });
             div()
                 .absolute()
                 .inset_0()
@@ -504,9 +523,7 @@ impl PreviewStack {
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .gap_2()
                 .child(actions)
-                .children(status)
                 .child(div().absolute().top(px(6.)).left(px(6.)).child(corner(Icon::Close, "Dismiss", Self::remove, cx)))
                 // Nothing to delete until there's a file.
                 .when(saved, |d| {
@@ -515,15 +532,6 @@ impl PreviewStack {
                 .when(screenshot, |d| {
                     d.child(div().absolute().top(px(6.)).right(px(6.)).child(corner(Icon::Pen, "Annotate", Self::edit, cx)))
                 })
-                .child(
-                    div()
-                        .absolute()
-                        .bottom(px(10.))
-                        .right(px(10.))
-                        .text_size(px(11.))
-                        .text_color(rgba(0xffffffb3))
-                        .child(item.caption()),
-                )
         });
 
         div()
@@ -541,6 +549,7 @@ impl PreviewStack {
             .child(img(item.thumb.clone()).size_full().object_fit(ObjectFit::Contain).rounded(px(11.)))
             .children(badge)
             .children(overlay)
+            .children(corner_info)
             .child(
                 canvas(move |bounds, _, _| bounds_sink.borrow_mut().push((id, bounds)), |_, _, _, _| {})
                     .absolute()

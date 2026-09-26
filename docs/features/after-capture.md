@@ -48,14 +48,15 @@ timer, and leaving gives it a short fresh lease. Up to five cards stack.
 Clicking a card opens the capture in its default app (from a temporary file if it
 wasn't saved). Hovering shows only what's left to do:
 
-- **Copy** and **Save** icon buttons, until the capture is copied or saved. Then each
-  is replaced by a quiet **✓ Copied** / **✓ Saved** line. "Copied" lasts until screenie
-  copies something else. Copies made by other apps go unnoticed.
+- **Copy** and **Save** icon buttons, until the capture is copied or saved. From then
+  on a small **✓ Copied**, **✓ Saved** or **✓ Copied & Saved** pill sits in the
+  bottom-right corner, hovered or not. "Copied" lasts until screenie copies something
+  else. Copies made by other apps go unnoticed.
 - **Show in folder**, once there's a file.
 - **Pencil**: annotate in the editor (screenshots).
 - **×**: dismiss.
 - **Trash**: delete the file and dismiss. Only shown when there is a file.
-- A caption shows the pixel size and file size.
+- A caption above that pill shows the pixel size and file size.
 
 All cards share one layer surface along the right edge. Its input region is limited to
 the cards, so the empty part of the column is click-through.
