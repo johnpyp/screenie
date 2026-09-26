@@ -38,3 +38,68 @@ The compositor the headless test session runs. sway/desktop/layer_shell.c (how l
 surfaces are placed), sway/ipc-json.c (the toplevel identifiers windows are matched by),
 sway/tree/view.c (foreign-toplevel handles).
 """
+
+# Keyboard and pointer focus for overlays that float over games: how the layers under a
+# game handle focus changes mid-press and pointer locks, and how other overlays behave.
+
+[[repo]]
+name = "xserver"
+url = "https://gitlab.freedesktop.org/xorg/xserver"
+notes = """
+Xwayland (hw/xwayland/), which every X11 game runs through:
+xwayland-input.c for wl_keyboard enter/leave (keys held across a focus change) and
+the pointer lock/confine emulation for games that grab and warp a hidden cursor.
+"""
+
+[[repo]]
+name = "sdl"
+url = "https://github.com/libsdl-org/SDL"
+notes = """
+What native Linux games see: src/video/wayland/SDL_waylandevents.c (keyboard
+enter/leave, relative mouse via pointer locks) and src/video/x11/.
+"""
+
+[[repo]]
+name = "hyprland"
+url = "https://github.com/hyprwm/Hyprland"
+notes = "Pointer constraint activation and layer-shell keyboard focus on Hyprland."
+
+[[repo]]
+name = "hyprland-protocols"
+url = "https://github.com/hyprwm/hyprland-protocols"
+notes = "hyprland_focus_grab_v1: focus for popups and overlays without a keyboard grab."
+
+[[repo]]
+name = "smithay"
+url = "https://github.com/Smithay/smithay"
+notes = "A Rust compositor library: seat, keyboard and pointer-constraint handling."
+
+[[repo]]
+name = "gamescope"
+url = "https://github.com/ValveSoftware/gamescope"
+notes = "Valve's game compositor: how it gives input to overlays (the Steam overlay) over a game."
+
+[[repo]]
+name = "wlr-protocols"
+url = "https://gitlab.freedesktop.org/wlroots/wlr-protocols"
+notes = "The layer-shell spec (keyboard_interactivity: none, exclusive, on_demand)."
+
+[[repo]]
+name = "mako"
+url = "https://github.com/emersion/mako"
+notes = "Minimal layer-shell notifications with no keyboard: interaction by pointer and makoctl."
+
+[[repo]]
+name = "waybar"
+url = "https://github.com/Alexays/Waybar"
+notes = "Layer-shell bar: hover, tooltips and clicks without the keyboard."
+
+[[repo]]
+name = "eww"
+url = "https://github.com/elkowar/eww"
+notes = "Layer-shell widgets with configurable keyboard focus."
+
+[[repo]]
+name = "gtk4-layer-shell"
+url = "https://github.com/wmww/gtk4-layer-shell"
+notes = "The GTK layer-shell library most of the above use: keyboard mode handling."
