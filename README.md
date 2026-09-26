@@ -2,58 +2,42 @@
   <img src="docs/media/hero.webp" alt="screenie: screenshots and screen recordings for Wayland. The annotation editor over a capture of code, marked up with a box, an arrow, a note and numbered steps; below it, a window picked in the selector, a recording's timer pill and ring, and a preview card's actions">
 </p>
 
-Screenshots and screen recordings for Wayland, meant to feel like CleanShot X rather
-than a pile of scripts. Press a key and the desktop freezes under a pixel-exact overlay.
-Drag, click a window, or press Enter, and the capture lands in a little preview card,
-ready to copy, save or annotate. Recording uses the same selector, one button, and a
-tiny timer pill.
+screenie is a screenshot and screen recording app for Wayland, in the spirit of CleanShot
+X. Press a key, pick what to capture, and it lands in a preview card, ready to copy, save
+or annotate.
 
-Everything is built in: selector, capture, clipboard, encoder and UI. You don't pipe
-`slurp` into `grim` into `wl-copy`. screenie is written in Rust with a GPU-rendered
-[GPUI](https://www.gpui.rs/) interface.
+```sh
+screenie          # screenshot an area, a window or a screen
+screenie record   # record one
+```
+
+## Features
+
+- **Frozen selector**: the screen holds still while you drag an area, click a window, or
+  pick a screen, with a magnifier for exact edges
+- **Preview cards**: each capture waits in a corner with copy, save, annotate and dismiss
+  buttons
+- **Annotation editor**: arrows, shapes, text, numbered steps, highlighter, pixelate and
+  blur, spotlight and crop, drawn right over the screen you captured
+- **Screen recording**: MP4 with system audio and microphone, pause and resume, and
+  hardware encoding on AMD, Intel and NVIDIA
+- **Pixel-exact on every screen**, including fractional and mixed scaling
+- **Scriptable**: every command prints the file it made, and `screenie query` feeds
+  status bars like waybar
+- **One YAML config**, applied as soon as you save it
+- **Batteries included**: no piping `slurp` into `grim` into `wl-copy`
+- **Works on Sway, Hyprland, niri, river, Wayfire, COSMIC** and other wlroots-style
+  compositors
 
 | | |
 | :-: | :-: |
 | ![Dragging out a region on the frozen screen, with the magnifier and its size](docs/media/select-area.webp) | ![Customer emails in a log, pixelated in the editor](docs/media/pixelate.webp) |
-| **Select any area** on a frozen, pixel-exact overlay, with a loupe. `1` `2` `3` switch to window or screen | **Pixelate or blur** anything private |
-
-## Status
-
-| | |
-| --- | --- |
-| Screenshots: area / window / screen / all / active window / last region | ✅ |
-| Frozen overlay with loupe, window snapping, pixel-grid snapping on fractional scales | ✅ |
-| Clipboard (image + file), saving, floating preview cards | ✅ |
-| Screen recording: MP4 (H.264/AAC), VA-API or x264, system audio + mic, pause | ✅ |
-| Annotation editor: arrows, shapes, text, steps, pixelate/blur, spotlight, crop | ✅ |
-| Pinning, settings window | planned |
-| GNOME / KDE (xdg-desktop-portal capture) | planned |
-| OCR, GIF export | later |
-
-Native capture works on wlroots-family compositors and anything else with
-`ext-image-copy-capture-v1` or `wlr-screencopy`: Sway, Hyprland, niri, river, Wayfire,
-COSMIC… Window picking uses compositor IPC where it's available (Sway, Hyprland, niri).
-See [the compositor matrix](crates/screenie-compositor/README.md#compositor-support).
-
-### Known limitations
-
-- GNOME and KDE capture needs the xdg-desktop-portal backend, which isn't written yet.
-  GNOME also has no data-control protocol, so there's no clipboard there.
-- Preview cards can't be dragged into other apps yet.
-- The window-mode editor tiles on tiling compositors; float it by app id (see
-  [Annotating](#annotating)).
-- A recording is only saved if the daemon stops cleanly (`screenie stop`,
-  `screenie quit`). If it's killed (logout, OOM), the data stays in a hidden
-  `.NAME.mp4.part` file without an index.
-- Upgrading empties the clipboard: the daemon serves what it copied, so a copy not yet
-  pasted goes with the old daemon.
-- Recording a whole output leaves no room outside it for the pill; stop with the record
-  shortcut or `screenie stop`.
+| **Select any area**, down to the pixel | **Pixelate or blur** anything private |
 
 ## Installing
 
-screenie is built from source for now. You need Rust 1.98 or newer (via
-[rustup](https://rustup.rs) or [mise](https://mise.jdx.dev)) and, on Debian/Ubuntu:
+screenie is built from source for now. You need [Rust](https://rustup.rs) 1.98 or newer,
+and on Debian or Ubuntu:
 
 ```sh
 sudo apt install build-essential pkg-config \
@@ -67,27 +51,30 @@ sudo apt install build-essential pkg-config \
 Then build and install it:
 
 ```sh
+git clone https://github.com/johnpyp/screenie && cd screenie
 cargo build --profile dist
 install -Dm755 target/dist/screenie ~/.local/bin/screenie
 ```
 
-Recording uses VA-API when a driver is installed (`mesa-va-drivers`,
-`intel-media-va-driver`), NVENC on NVIDIA, and x264 otherwise.
+For hardware-encoded recordings on AMD or Intel, also install a VA-API driver:
 
-To upgrade, replace the binary. The next `screenie` command notices that the daemon is
-running a different build and restarts it, unless it's busy (recording, selecting,
-editing), in which case a later command does. `screenie --version` shows the build.
+```sh
+sudo apt install mesa-va-drivers       # AMD
+sudo apt install intel-media-va-driver # Intel
+```
 
-## Usage
+To upgrade, pull, build and install again. The next `screenie` command picks up the new
+build.
 
-Every command talks to a small daemon, which starts automatically on first use. Bind
-the commands to keys in your compositor:
+## Getting started
+
+Bind screenie to keys in your compositor:
 
 ```sh
 # Hyprland
-bind = , Print, exec, screenie                    # pick an area / window / screen
-bind = SHIFT, Print, exec, screenie shot screen   # the focused screen, instantly
-bind = ALT, Print, exec, screenie record          # start, or stop, a recording
+bind = , Print, exec, screenie
+bind = SHIFT, Print, exec, screenie shot screen
+bind = ALT, Print, exec, screenie record
 
 # Sway
 bindsym Print exec screenie
@@ -95,190 +82,246 @@ bindsym Shift+Print exec screenie shot screen
 bindsym Alt+Print exec screenie record
 ```
 
-### Screenshots
+Press <kbd>Print</kbd>, drag over something, and a preview card appears. Hover it to
+copy, save, annotate or dismiss the capture.
+
+## Screenshots
 
 ```sh
-screenie                         # same as `screenie shot area`
-screenie shot window             # click a window
-screenie shot screen             # focused output, no UI (--output-name DP-1 for another)
-screenie shot all                # every output stitched together
-screenie shot active             # focused window, no UI
-screenie shot last               # same region as last time
+screenie                           # pick an area, a window or a screen
+screenie shot window               # pick a window
+screenie shot screen               # the focused screen, right away
+screenie shot screen --output-name DP-1
+screenie shot all                  # every screen as one image
+screenie shot active               # the focused window, right away
+screenie shot last                 # the same region as last time
 screenie shot --region "100,100 800x600"
 screenie shot --delay 3 --cursor
-screenie shot --no-save --stdout > shot.png
+```
+
+Choose what happens to the capture:
+
+```sh
+screenie shot --copy --no-preview  # straight to the clipboard
+screenie shot --save               # save it to ~/Pictures/Screenshots
+screenie shot -o ~/shot.png        # save it as ~/shot.png
+screenie shot -o ~/Desktop/        # save it in ~/Desktop
+screenie shot --stdout > shot.png  # write the PNG to stdout
+screenie shot --edit               # open it in the editor
 ```
 
 In the selector:
 
-| | |
+| Key | Action |
 | --- | --- |
-| Drag | Select a region. Shift keeps it square, Alt draws from the center, and holding Space moves it. |
-| Click | The window under the pointer, or the screen |
-| Enter / Esc | Confirm / cancel |
-| 1 2 3, Tab | Area / window / screen mode |
-| Arrows | Nudge an editable selection (Shift ×10, Ctrl resizes) |
-| M | Toggle the magnifier |
+| Drag | Select an area |
+| Shift + drag | Select a square |
+| Alt + drag | Select from the center |
+| Space + drag | Move the selection |
+| Click | Select the window or screen under the pointer |
+| <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Area, window or screen mode |
+| Arrows | Nudge the selection. Shift moves 10px, Ctrl resizes |
+| <kbd>M</kbd> | Show or hide the magnifier |
+| <kbd>Enter</kbd> | Capture |
+| <kbd>Esc</kbd> | Cancel |
 
-By default a screenshot is just shown in a preview card, whose buttons copy, save or
-annotate it. What happens after a capture (copy, save, preview, edit) is configurable, and can be
-overridden per call with `--copy/--no-copy`, `--save/--no-save`, `--no-preview`,
-`--edit` and `-o FILE` (or `-o DIR/`).
-
-### Annotating
-
-```sh
-screenie shot --edit             # capture, then annotate
-screenie edit shot.png           # annotate an existing PNG
-```
-
-Or hover a preview card and click the pencil. With `--edit`, nothing is copied or saved
-until you're done. Enter (Done) applies the after-capture `copy` / `save` settings and
-closes, with no preview card afterwards; the command waits for that and prints the
-saved file, if any. Ctrl+C and Ctrl+S copy and save explicitly. Each tool has one key: **A**rrow,
-**L**ine, **R**ectangle, **O** ellipse, **P**en, **H**ighlighter, **T**ext,
-**N**umbered step, **B** pixelate/blur, **S**potlight, **C**rop, **V** select.
-Ctrl+scroll (or `[` `]`) changes the size, of the selected shape too, and **F** toggles
-fill. Esc backs out. See
-[the editor's keys](crates/screenie-editor/README.md#keys) for the rest.
-
-The editor opens as an overlay on the capture's screen, with the capture right where
-it was taken, and only one at a time. For a regular window, set `editor.mode =
-"window"`. On tiling compositors, float that window by matching its app id
-`dev.johnpyp.Screenie`, e.g. on Hyprland:
-`windowrule = float, class:dev.johnpyp.Screenie`.
-
-### Recording
+## Annotating
 
 ```sh
-screenie record                  # pick an area, toggle audio, press Record
-screenie record screen           # the focused output
-screenie record --audio --mic    # with system audio and microphone
-screenie stop                    # save (running `screenie record` again also stops)
-screenie pause                   # pause / resume
-screenie cancel                  # discard
+screenie shot --edit     # capture, then annotate
+screenie edit shot.png   # annotate an existing image
 ```
 
-A countdown runs first. While recording, a thin ring marks the region and a pill shows
-the time with pause/stop/discard. Both are drawn outside the region, so they never end
-up in the video.
+You can also hover a preview card and click the pencil.
 
-### Status bars and scripts
+| Key | Tool | | Key | Tool |
+| --- | --- | --- | --- | --- |
+| <kbd>V</kbd> | Select | | <kbd>T</kbd> | Text |
+| <kbd>A</kbd> | Arrow | | <kbd>N</kbd> | Numbered step |
+| <kbd>L</kbd> | Line | | <kbd>B</kbd> | Pixelate or blur |
+| <kbd>R</kbd> | Rectangle | | <kbd>S</kbd> | Spotlight |
+| <kbd>O</kbd> | Ellipse | | <kbd>C</kbd> | Crop |
+| <kbd>P</kbd> | Pen | | <kbd>H</kbd> | Highlighter |
 
-`screenie query` reports what screenie is doing or has done. It never starts the
-daemon; if it isn't running, the answer is `idle`. Text output is tab-separated with a
-fixed number of fields (empty when they don't apply), so `cut -f1` and friends always
-work.
+| Key | Action |
+| --- | --- |
+| Ctrl + scroll, <kbd>[</kbd> <kbd>]</kbd> | Change the size |
+| <kbd>F</kbd> | Fill shapes, or put text on a label |
+| Shift + drag | Straight lines, square boxes |
+| Ctrl + <kbd>Z</kbd> | Undo (Ctrl + Shift + <kbd>Z</kbd> to redo) |
+| Ctrl + <kbd>C</kbd> | Copy |
+| Ctrl + <kbd>S</kbd> | Save (Ctrl + Shift + <kbd>S</kbd> to save as) |
+| <kbd>Enter</kbd> | Done |
+| <kbd>Esc</kbd> | Back out: stop typing, deselect, close |
+
+The full list is in [the editor's README](crates/screenie-editor/README.md#keys).
+
+The editor opens over the screen, with the capture where you took it. To use a regular
+window instead:
+
+```yaml
+editor:
+  mode: window
+```
+
+On a tiling compositor, float it:
 
 ```sh
-screenie query status            # state, elapsed, path: "recording\t1:23\t/…/Recording.mp4", "idle\t\t"
-screenie status                  # the same, shorter
-screenie query status --watch    # a line per change, every second while recording; survives daemon restarts
-screenie query status --json     # everything, including the last captures
-screenie query status --format waybar --watch   # a waybar custom module (empty when idle)
-screenie query last              # kind, Unix time, path of the latest capture ("screenshot\t1790381588\t/…png")
-screenie query last recording    # or: screenshot. Exits 1 if there's none yet
-screenie query last --watch      # a line whenever a new capture lands
+# Hyprland
+windowrule = float, class:dev.johnpyp.Screenie
+
+# Sway
+for_window [app_id="dev.johnpyp.Screenie"] floating enable
 ```
 
-A capture's path is empty while it isn't saved. Saving it from its preview card fills
-the path in, and deleting it there empties it again.
-
-States: `idle`, `selecting`, `editing`, `countdown`, `recording`, `paused`, `saving`
-(and `unknown`, when a newer daemon reports a state this binary doesn't know yet).
-`--watch` runs until whatever reads it goes away, through daemon restarts, upgrades and
-connection errors alike, which it shows as `idle`.
+## Recording
 
 ```sh
-# swaybar / i3blocks: show a recording indicator
-screenie query status --watch | while IFS=$'\t' read -r state elapsed path; do
-  case $state in recording) echo "● $elapsed" ;; paused) echo "⏸ $elapsed" ;; saving) echo "saving…" ;; *) echo ;; esac
-done
+screenie record                  # pick an area, a window or a screen, then press Record
+screenie record screen           # the focused screen
+screenie record window           # pick a window
+screenie record --audio --mic    # with system audio and the microphone
+screenie pause                   # pause, or resume
+screenie stop                    # stop and save (or run `screenie record` again)
+screenie cancel                  # stop and throw it away
 ```
+
+After a countdown, a ring marks what's being recorded and a pill shows the time, with
+pause, stop and discard buttons. Neither shows up in the video.
+
+## Status bars and scripts
+
+`screenie status` says what screenie is doing, and `screenie query last` what it last
+captured. Fields are separated by tabs:
+
+```console
+$ screenie status
+recording	1:23	/home/you/Videos/Screencasts/Recording_2026-09-26_14-02-11.mp4
+
+$ screenie status
+idle
+
+$ screenie query last
+screenshot	1790381588	/home/you/Pictures/Screenshots/Screenshot_2026-09-26_14-03-40_kitty.png
+```
+
+| State | |
+| --- | --- |
+| `idle` | Nothing going on |
+| `selecting` | The selector is up |
+| `editing` | The editor is open |
+| `countdown` | A recording is about to start |
+| `recording` | Recording |
+| `paused` | Recording, paused |
+| `saving` | Finishing a recording |
+
+```sh
+screenie status --watch             # a line per change
+screenie status --json              # everything, as JSON
+screenie query last recording       # the last recording
+screenie query last --watch         # a line per new capture
+```
+
+A waybar module:
 
 ```jsonc
-// waybar
 "custom/screenie": {
-  "exec": "screenie query status --format waybar --watch",
+  "exec": "screenie status --format waybar --watch",
   "return-type": "json",
   "on-click": "screenie stop"
 }
 ```
 
-Other commands print the file they produced (if saved) on stdout: captures, and
-`screenie record` prints the path it's recording to. Exit codes: `0` done, `1`
-cancelled, `2` error.
+Or a recording indicator for swaybar and i3blocks:
+
+```sh
+screenie status --watch | while IFS=$'\t' read -r state elapsed path; do
+  case $state in
+    recording) echo "● $elapsed" ;;
+    paused)    echo "⏸ $elapsed" ;;
+    saving)    echo "saving…" ;;
+    *)         echo ;;
+  esac
+done
+```
+
+Commands that save a file print its path:
+
+```console
+$ screenie shot screen --save
+/home/you/Pictures/Screenshots/Screenshot_2026-09-26_14-05-12.png
+```
+
+| Exit code | |
+| --- | --- |
+| `0` | Done |
+| `1` | Cancelled |
+| `2` | Error |
 
 ## Configuration
 
 The config lives in `~/.config/screenie/config.yaml`. Every key is optional, and changes
-apply within a second, without a restart.
+apply as soon as you save.
 
 ```yaml
-ui_scale: auto            # interface size (bars, buttons, text, cards), e.g. 1.25; auto follows GTK text scaling
+ui_scale: auto            # or a size, like 1.25
 
 screenshot:
   directory: ~/Pictures/Screenshots
-  filename: "Screenshot_%Y-%m-%d_%H-%M-%S_{app}"  # {app}/{title}: the captured window, if any
+  filename: "Screenshot_%Y-%m-%d_%H-%M-%S_{app}"   # {app} and {title} name the window
   after_capture: { copy: false, save: false, preview: true, edit: false }
 
 recording:
-  framerate: 60           # or native: every frame the screen shows
-  resolution: 1080p       # the most the video may be: native | 720p | 1080p | 1440p | 2160p
-  quality: high           # low | medium | high | lossless
-  encoder: auto           # auto | hardware | software
+  framerate: 60           # or native
+  resolution: 1080p       # native, 720p, 1080p, 1440p or 2160p
+  quality: high           # low, medium, high or lossless
+  encoder: auto           # auto, hardware or software
   countdown: 3
   system_audio: false
   microphone: false
 
 preview:
-  position: bottom-right   # top-left | top-middle | top-right | left-middle | right-middle | bottom-left | bottom-middle | bottom-right
-  timeout: 10             # seconds; 0 keeps cards until dismissed
+  position: bottom-right  # any corner, or top-middle, left-middle and so on
+  timeout: 10             # seconds, or 0 to keep cards until dismissed
 
 selector:
-  capture_on_release: true  # false: adjust the selection, then press Enter
+  capture_on_release: true  # false to adjust the selection, then press Enter
   dim: 0.45
 
 editor:
-  mode: overlay           # over the screen, the capture in place; or window
+  mode: overlay           # or window
   palette: ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#1c1c1e"]
   default_color: "#ff3b30"
-  stroke_width: 4.0       # logical pixels; sizes are 1 2 4 6 8 12 16 20 26 32
-  exit_on_copy: false     # close the editor once the image is copied (Ctrl+C / Copy)
-  exit_on_save: false     # … or saved (Ctrl+S / Save / Save As)
-  confirm_discard: true   # ask before closing with annotations neither copied nor saved
+  stroke_width: 4.0
+  exit_on_copy: false     # close the editor after copying
+  exit_on_save: false     # close the editor after saving
+  confirm_discard: true   # ask before closing with unsaved annotations
 ```
+
+Every key is in [`schema.rs`](crates/screenie-config/src/schema.rs).
 
 ### Presets
 
-Starting points that make screenie behave like other screenshot tools, as far as its
-settings go. Paste one into `config.yaml` and adjust.
+Paste one into `config.yaml` to make screenie work like another screenshot tool.
 
 <details>
-<summary><b>CleanShot X</b>: the card is the hub, and stays until you're done with it</summary>
-
-Nothing happens on its own: the card waits in the bottom-left corner until you copy,
-save, annotate or dismiss it. Annotate is a window, and copying from it closes it.
+<summary><b>CleanShot X</b>: the card waits until you're done with it</summary>
 
 ```yaml
 screenshot:
   after_capture: { copy: false, save: false, preview: true, edit: false }
 preview:
   position: bottom-left
-  timeout: 0              # no auto-close
+  timeout: 0
 editor:
-  mode: window            # float it on tiling compositors (see Annotating)
+  mode: window
   exit_on_copy: true
 ```
 
 </details>
 
 <details>
-<summary><b>Screendrop</b>: the card waits, and the editor is a window you keep working in</summary>
-
-Like CleanShot X, but the card sits bottom-right, and saving from the editor is a
-checkpoint rather than the end: it stays open until you close it, and asks before
-throwing away changes.
+<summary><b>Screendrop</b>: the card waits, and the editor stays open after saving</summary>
 
 ```yaml
 screenshot:
@@ -298,16 +341,12 @@ editor:
 <details>
 <summary><b>Flameshot</b>: annotate in place, then copy or save and be done</summary>
 
-The editor opens over the screen as the selection is made, with the capture where it
-was. Enter or Ctrl+C copies and closes, Ctrl+S saves and closes, Esc throws it away
-without asking. No card, no magnifier, and a darker dim.
-
 ```yaml
 screenshot:
   after_capture: { copy: true, save: false, preview: false, edit: true }
 selector:
   magnifier: false
-  dim: 0.75               # a darker surround, like Flameshot's
+  dim: 0.75
 editor:
   mode: overlay
   exit_on_copy: true
@@ -315,16 +354,42 @@ editor:
   confirm_discard: false
 ```
 
-Flameshot lets you resize the selection while annotating; screenie doesn't yet. Set
-`selector.capture_on_release: false` to adjust it before the editor opens.
-
 </details>
 
-All keys are listed in [`crates/screenie-config/src/schema.rs`](crates/screenie-config/src/schema.rs).
-The daemon logs to `~/.local/state/screenie/daemon.log` (the previous run's log is
-`daemon.log.1`). Set `SCREENIE_LOG=debug` for more detail.
+## Compositor support
+
+| Compositor | Screenshots and recording | Window picking |
+| --- | :-: | :-: |
+| Sway | ✅ | ✅ |
+| Hyprland | ✅ | ✅ |
+| niri | ✅ | ✅ |
+| river, Wayfire, labwc, COSMIC | ✅ | |
+| KDE Plasma, GNOME | planned | |
+
+Any compositor with `ext-image-copy-capture-v1` or `wlr-screencopy` should work. More
+detail is in [the compositor matrix](crates/screenie-compositor/README.md#compositor-support).
+
+## Known limitations
+
+- Recording a window captures just that window on Sway 1.11+. Elsewhere it records that
+  part of the screen.
+- A recording is only saved when it's stopped. If the daemon is killed mid-recording, the
+  video is lost.
+- Recording a whole screen leaves no room for the pill. Stop with your record key or
+  `screenie stop`.
+- Preview cards can't be dragged into other apps yet.
+
+## Troubleshooting
+
+The log is at `~/.local/state/screenie/daemon.log`. For more detail, restart the daemon
+with debug logging:
+
+```sh
+screenie quit
+SCREENIE_LOG=debug screenie
+```
 
 ## License
 
-[MIT](LICENSE). The bundled Inter font (in `assets/fonts`) is under the SIL Open Font License, and the Lucide icons
-are under ISC.
+[MIT](LICENSE). The bundled [Inter](https://rsms.me/inter/) font is under the SIL Open
+Font License, and the [Lucide](https://lucide.dev) icons are under ISC.
