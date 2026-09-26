@@ -10,9 +10,10 @@
 //! (a game) is scanned out directly, with no compositing and so the lowest latency (and
 //! tearing, where allowed), only while it's the only thing there: anything over it,
 //! however small or transparent, costs that. So an output a window fills gets neither
-//! border nor pill. Neither does a region filling its output, nor one without room for
-//! the pill next to it. The recording is then stopped with the same shortcut (or
-//! `screenie stop`), which the countdown says.
+//! border nor pill, from the start or as soon as a window comes to fill it
+//! ([`set_covered`]), until none does. Neither does a region filling its output, nor one
+//! without room for the pill next to it. The recording is then stopped with the same
+//! shortcut (or `screenie stop`), which the countdown says.
 //!
 //! Only the pill takes input, and the keyboard only while the pointer is on it (see
 //! [`Hover`]): the recorded app keeps its typing, and a game's pointer lock can't trap
@@ -49,6 +50,15 @@ pub(crate) enum Chrome {
     Region,
     /// A window by itself.
     Window,
+}
+
+/// What the chrome is around, fixed for a recording: the recorded region (global
+/// logical), how it's recorded, and the output it's on.
+#[derive(Debug, Clone)]
+pub(crate) struct Scene {
+    pub region: Rect,
+    pub chrome: Chrome,
+    pub home: OutputInfo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +126,11 @@ struct Layout {
     pill: Option<Point>,
     /// Shown during the countdown when nothing else tells the user how to stop.
     stop_hint: bool,
+    /// Whether the pill's tooltips stay out of what's recorded. GPUI draws them below
+    /// and right of the pointer, flipping only at the surface's edges, and the surface
+    /// is the whole output: from a pill above or left of the region they'd reach into
+    /// it. A window recorded by itself sees none of this.
+    tips: bool,
 }
 
 impl Layout {
@@ -126,11 +141,14 @@ impl Layout {
         } else {
             place_pill(region, chrome, home, k)
         };
+        let local = region.translate(-home.logical.x, -home.logical.y);
         Layout {
-            region: region.translate(-home.logical.x, -home.logical.y),
+            region: local,
             border: chrome == Chrome::Region && !covered && !fills(region, home),
             pill,
             stop_hint: pill.is_none(),
+            tips: chrome == Chrome::Window
+                || pill.is_some_and(|p| p.y >= local.bottom() || p.x >= local.right()),
         }
     }
 
@@ -148,19 +166,17 @@ pub(crate) struct Controls {
     hover: Entity<Hover<()>>,
 }
 
-/// Open the chrome for `region` on `home`, if it has anything to show. `covered`: a
-/// window fills `home` (a fullscreen app), which then keeps it to itself after the
-/// countdown.
+/// Open the chrome for `scene`, if it has anything to show. `covered`: a window fills
+/// its output (a fullscreen app), which then keeps it to itself after the countdown.
 pub(crate) fn open(
-    region: Rect,
-    chrome: Chrome,
-    home: &OutputInfo,
+    scene: &Scene,
     covered: bool,
     phase: Phase,
     cx: &mut AsyncApp,
 ) -> Option<WindowHandle<Controls>> {
+    let home = &scene.home;
     let k = cx.update(|cx| f64::from(screenie_ui_kit::ui_scale(cx)));
-    let layout = Layout::new(region, chrome, home, covered, k);
+    let layout = Layout::new(scene.region, scene.chrome, home, covered, k);
     if !layout.shows(phase) {
         return None;
     }
@@ -213,6 +229,35 @@ pub(crate) fn open(
     .ok()
 }
 
+/// A window came to fill the recorded output (`covered`), or none does any more: the
+/// chrome goes, since nothing may stay over a fullscreen app, or comes back. Returns
+/// the chrome's window from now on.
+pub(crate) fn set_covered(
+    handle: Option<WindowHandle<Controls>>,
+    scene: &Scene,
+    covered: bool,
+    phase: Phase,
+    cx: &mut AsyncApp,
+) -> Option<WindowHandle<Controls>> {
+    let k = cx.update(|cx| f64::from(screenie_ui_kit::ui_scale(cx)));
+    let layout = Layout::new(scene.region, scene.chrome, &scene.home, covered, k);
+    match handle {
+        Some(handle) if layout.shows(phase) => handle
+            .update(cx, |c, _, cx| {
+                c.layout = layout;
+                cx.notify();
+            })
+            .ok()
+            .map(|_| handle)
+            .or_else(|| open(scene, covered, phase, cx)),
+        Some(handle) => {
+            cx.update(|cx| close(Some(handle), cx));
+            None
+        }
+        None => open(scene, covered, phase, cx),
+    }
+}
+
 /// Move the chrome on to `phase`, closing it if it's left with nothing to show.
 pub(crate) fn set_phase(handle: Option<WindowHandle<Controls>>, phase: Phase, cx: &mut AsyncApp) {
     let _ = handle.map(|handle| {
@@ -227,7 +272,8 @@ pub(crate) fn set_phase(handle: Option<WindowHandle<Controls>>, phase: Phase, cx
     });
 }
 
-/// Close the chrome once the keys held on it are let go.
+/// Close the chrome: it shows nothing from now on, and its surface goes once the keys
+/// held on it are let go.
 pub(crate) fn close(handle: Option<WindowHandle<Controls>>, cx: &mut App) {
     let _ = handle.map(|handle| {
         handle.update(cx, |controls, _, cx| {
@@ -236,7 +282,8 @@ pub(crate) fn close(handle: Option<WindowHandle<Controls>>, cx: &mut App) {
                     move |cx| _ = handle.update(cx, |_, window, _| window.remove_window()),
                     cx,
                 );
-            })
+            });
+            cx.notify();
         })
     });
 }
@@ -325,6 +372,11 @@ impl Controls {
         // Not recording yet: the buttons pause and stop nothing, and discarding cancels.
         let counting = self.phase != Phase::Recording;
         let size = pill_size(f64::from(screenie_ui_kit::ui_scale(cx)));
+        // Tooltips only where they can't be recorded.
+        let tips = matches!(self.phase, Phase::Countdown(_)) || self.layout.tips;
+        let tip = move |button: HudButton, text: &'static str| {
+            if tips { button.tooltip(text) } else { button }
+        };
 
         // Static on purpose: an animation would repaint (and so re-encode) constantly.
         let dot = div()
@@ -365,12 +417,13 @@ impl Controls {
             )
             .when(!counting, |el| {
                 el.child(
-                    HudButton::new("pause")
-                        .icon(if paused { Icon::Play } else { Icon::Pause })
-                        .tooltip(if paused { "Resume" } else { "Pause" })
-                        .on_click(|_, _, cx| {
-                            super::toggle_pause(cx);
-                        }),
+                    tip(
+                        HudButton::new("pause").icon(if paused { Icon::Play } else { Icon::Pause }),
+                        if paused { "Resume" } else { "Pause" },
+                    )
+                    .on_click(|_, _, cx| {
+                        super::toggle_pause(cx);
+                    }),
                 )
                 .child(
                     // The universal stop glyph: a solid square.
@@ -385,23 +438,28 @@ impl Controls {
                         .hover(|s| s.bg(color::record_hover()))
                         .cursor_pointer()
                         .child(div().size(ui(10.)).rounded(ui(2.5)).bg(gpui::white()))
-                        .tooltip(Tip::new("Stop and save").builder())
+                        .when(tips, |el| el.tooltip(Tip::new("Stop and save").builder()))
                         .on_click(|_, _, cx| {
                             cx.spawn(async move |cx| super::stop(cx).await).detach();
                         }),
                 )
             })
             .child(
-                HudButton::new("discard")
-                    .icon(if counting { Icon::Close } else { Icon::Trash })
-                    .tooltip(if counting {
+                tip(
+                    HudButton::new("discard").icon(if counting {
+                        Icon::Close
+                    } else {
+                        Icon::Trash
+                    }),
+                    if counting {
                         "Cancel"
                     } else {
                         "Discard recording"
-                    })
-                    .on_click(|_, _, cx| {
-                        cx.spawn(async move |cx| super::cancel(cx).await).detach();
-                    }),
+                    },
+                )
+                .on_click(|_, _, cx| {
+                    cx.spawn(async move |cx| super::cancel(cx).await).detach();
+                }),
             )
             .child(Hover::area(&self.hover, ()))
     }
@@ -409,6 +467,10 @@ impl Controls {
 
 impl Render for Controls {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Closed: nothing shows while the surface waits for the keys to be let go.
+        if self.hover.read(cx).leaving() {
+            return Hover::root(&self.hover, div().size_full(), cx);
+        }
         let k = f64::from(screenie_ui_kit::ui_scale(cx));
         let Layout {
             region,
@@ -501,6 +563,27 @@ mod tests {
         }
         let windowed = Layout::new(region, Chrome::Region, &a, false, 1.0);
         assert!(windowed.border && windowed.pill.is_some() && windowed.shows(Phase::Recording));
+    }
+
+    #[test]
+    fn tooltips_only_where_they_cant_reach_the_region() {
+        let a = output("A", 0.0, 1920.0, 1080.0);
+        let tips = |region: Rect, chrome: Chrome| {
+            let layout = Layout::new(region, chrome, &a, false, 1.0);
+            assert!(layout.pill.is_some());
+            layout.tips
+        };
+        // Tooltips open below and right of the pointer.
+        let below = Rect::new(100.0, 100.0, 400.0, 300.0);
+        let above = Rect::new(100.0, 700.0, 400.0, 370.0);
+        let beside_right = Rect::new(0.0, 0.0, 1400.0, 1080.0);
+        let beside_left = Rect::new(500.0, 0.0, 1420.0, 1080.0);
+        assert!(tips(below, Chrome::Region));
+        assert!(!tips(above, Chrome::Region));
+        assert!(tips(beside_right, Chrome::Region));
+        assert!(!tips(beside_left, Chrome::Region));
+        // A window recorded by itself sees no chrome.
+        assert!(tips(above, Chrome::Window));
     }
 
     #[test]

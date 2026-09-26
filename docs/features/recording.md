@@ -37,10 +37,14 @@ recording, for status bars (see the README for the formats).
    pointer on the pill.
 3. The pill goes below the region, else above, else beside it, on the recorded output.
    Without room for it (a whole screen) there's no pill, and the countdown says to stop
-   with the record shortcut or `screenie stop`.
+   with the record shortcut or `screenie stop`. Tooltips open below and right of the
+   pointer, so a pill above or left of the region has none while recording. Once
+   stopped, the chrome is gone at once, even while keys held on the pill are still
+   down.
 4. Nothing stays over a fullscreen app. An output a window fills (a game, recorded by
    itself or as part of its screen) gets no ring and no pill once the countdown is
-   over. A fullscreen app is scanned out directly (its buffer goes to the display
+   over. That's checked every second while recording: a window going fullscreen takes
+   them away, and they come back when it leaves fullscreen. A fullscreen app is scanned out directly (its buffer goes to the display
    without compositing: the lowest latency, and tearing where allowed) only while it's
    the only thing on its output. Anything over it, however small or transparent, costs
    that. The countdown and the preview card are brief, so they still show.

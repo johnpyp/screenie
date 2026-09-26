@@ -13,7 +13,7 @@ use std::time::Duration;
 use anyhow::{Context as _, anyhow, bail};
 use gpui::{App, AsyncApp, WindowHandle};
 use screenie_config::{Config, Subject, expand_template, unique_path};
-use screenie_core::{OutputInfo, Rect};
+use screenie_core::{OutputInfo, Rect, WindowInfo};
 use screenie_ipc::{RecordRequest, RecordingStatus, Response, Target};
 use screenie_record::{AudioSources, Encoder, RecordSpec, Recording};
 use screenie_selector::{Backdrop, Purpose, RecordOptions, Selection, SelectorConfig};
@@ -22,7 +22,7 @@ use screenie_ui_kit::conceal::{self, Concealed, Scope};
 use crate::daemon::Daemon;
 use crate::deliver::{self, Actions};
 use crate::preview::{self, PreviewItem};
-use controls::{Chrome, Controls, Phase};
+use controls::{Chrome, Controls, Phase, Scene};
 
 pub(crate) struct Active {
     pub path: PathBuf,
@@ -31,7 +31,12 @@ pub(crate) struct Active {
     pub recording: Option<Recording>,
     /// Set when stopped or cancelled, so a start still in flight backs out.
     cancelled: Arc<AtomicBool>,
+    /// The chrome on screen, if it shows anything.
     controls: Option<WindowHandle<Controls>>,
+    scene: Scene,
+    /// Whether a window fills the recorded output (a fullscreen app), so the chrome
+    /// keeps off it.
+    covered: bool,
     actions: Actions,
     /// Preview cards kept out of a recorded screen until its capture stops.
     previews: Option<Concealed>,
@@ -378,10 +383,14 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     } else {
         Phase::Starting
     };
-    let chrome = if window_source.is_some() {
-        Chrome::Window
-    } else {
-        Chrome::Region
+    let scene = Scene {
+        region,
+        chrome: if window_source.is_some() {
+            Chrome::Window
+        } else {
+            Chrome::Region
+        },
+        home: home.clone(),
     };
     // A fullscreen app (a window filling the output) keeps its output to itself.
     let covered = {
@@ -391,7 +400,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
             .await;
         windows.iter().any(|w| controls::fills(w.rect, &home))
     };
-    let handles = controls::open(region, chrome, &home, covered, first_phase, cx);
+    let handles = controls::open(&scene, covered, first_phase, cx);
     cx.update(|cx| {
         Daemon::update(cx, |d, _| {
             d.recording = Some(Active {
@@ -400,6 +409,8 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
                 recording: None,
                 cancelled: cancelled.clone(),
                 controls: handles,
+                scene,
+                covered,
                 actions,
                 previews: None,
             });
@@ -486,13 +497,24 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     Ok(Some(path))
 }
 
-/// While a recording runs: keep status watchers' timers fresh, stop when the recorded
-/// window closes, and salvage the file if the pipeline breaks (a full disk).
+/// While a recording runs: keep status watchers' timers fresh, keep the chrome off a
+/// fullscreen app, stop when the recorded window closes, and salvage the file if the
+/// pipeline breaks (a full disk).
 async fn monitor(cancelled: Arc<AtomicBool>, cx: &mut AsyncApp) {
+    let compositor = cx.update(|cx| Daemon::get(cx).capture.compositor().clone());
     loop {
         cx.background_executor().timer(Duration::from_secs(1)).await;
+        let windows = {
+            let compositor = compositor.clone();
+            cx.background_executor()
+                .spawn(async move { compositor.windows() })
+                .await
+        };
         if cancelled.load(Ordering::Relaxed) {
             return;
+        }
+        if let Ok(windows) = windows {
+            follow_fullscreen(&windows, cx);
         }
         let (ended, failure) = cx.update(|cx| {
             Daemon::update(cx, |d, _| {
@@ -515,4 +537,38 @@ async fn monitor(cancelled: Arc<AtomicBool>, cx: &mut AsyncApp) {
             return;
         }
     }
+}
+
+/// Hide the chrome when a window comes to fill the recorded output (a game going
+/// fullscreen), and bring it back when none does: nothing may stay over a fullscreen
+/// app, even for part of a recording.
+fn follow_fullscreen(windows: &[WindowInfo], cx: &mut AsyncApp) {
+    let running = cx.update(|cx| {
+        Daemon::get(cx)
+            .recording
+            .as_ref()
+            .filter(|a| a.recording.is_some())
+            .map(|a| (a.scene.clone(), a.covered, a.controls))
+    });
+    let Some((scene, was, handle)) = running else {
+        return;
+    };
+    let covered = windows.iter().any(|w| controls::fills(w.rect, &scene.home));
+    if covered == was {
+        return;
+    }
+    tracing::info!(
+        covered,
+        "a window {} the recorded output",
+        if covered { "fills" } else { "no longer fills" }
+    );
+    let handle = controls::set_covered(handle, &scene, covered, Phase::Recording, cx);
+    cx.update(|cx| {
+        Daemon::update(cx, |d, _| {
+            if let Some(active) = d.recording.as_mut() {
+                active.covered = covered;
+                active.controls = handle;
+            }
+        })
+    });
 }
