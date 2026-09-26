@@ -23,6 +23,7 @@ use screenie_ui_kit::hud::{self, color};
 use screenie_ui_kit::{Icon, LayerSpec, layer_options};
 
 use crate::clipboard;
+use crate::deliver::Capture;
 use crate::daemon::Daemon;
 
 /// Largest card edge; thumbnails are fit within it.
@@ -35,8 +36,7 @@ const MAX_CARDS: usize = 5;
 
 #[derive(Clone)]
 pub(crate) enum Media {
-    /// `scale` is image pixels per logical pixel, for the editor.
-    Screenshot { image: Image, scale: f32, png: Arc<Vec<u8>> },
+    Screenshot { capture: Capture, png: Arc<Vec<u8>> },
     Recording { duration: Duration },
 }
 
@@ -54,9 +54,10 @@ pub(crate) struct PreviewItem {
 }
 
 impl PreviewItem {
-    pub async fn screenshot(image: Image, scale: f32, png: Arc<Vec<u8>>, path: Option<PathBuf>, cx: &mut AsyncApp) -> Self {
+    pub async fn screenshot(capture: Capture, png: Arc<Vec<u8>>, path: Option<PathBuf>, cx: &mut AsyncApp) -> Self {
         let bytes = png.len() as u64;
-        Self::new(Media::Screenshot { image: image.clone(), scale, png }, image, bytes, path, cx).await
+        let image = capture.image.clone();
+        Self::new(Media::Screenshot { capture, png }, image, bytes, path, cx).await
     }
 
     pub async fn recording(finished: screenie_record::Finished, cx: &mut AsyncApp) -> Self {
@@ -277,8 +278,8 @@ impl PreviewStack {
             self.remove(id, cx);
             return;
         }
-        let Media::Screenshot { png, .. } = item.media.clone() else { return };
-        let path = crate::deliver::screenshot_path(&Daemon::get(cx).config);
+        let Media::Screenshot { png, capture } = item.media.clone() else { return };
+        let path = crate::deliver::screenshot_path(&Daemon::get(cx).config, &capture.subject);
         match crate::deliver::write_atomic(&path, &png) {
             Ok(()) => {
                 if let Some(item) = self.item(id) {
@@ -290,9 +291,23 @@ impl PreviewStack {
         }
     }
 
-    /// Open the file in its default app (image viewer, video player).
+    /// Open the file in its default app (image viewer, video player). An unsaved
+    /// screenshot is opened from a temporary file.
     fn open(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(path) = self.item(id).and_then(|i| i.path.clone()) else { return };
+        let Some(item) = self.item(id) else { return };
+        let path = match (&item.path, &item.media) {
+            (Some(path), _) => path.clone(),
+            (None, Media::Screenshot { png, .. }) => {
+                let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S%.3f");
+                let path = screenie_config::Paths::get().runtime_dir().join(format!("capture-{stamp}.png"));
+                if let Err(e) = crate::deliver::write_atomic(&path, png) {
+                    tracing::error!("writing {}: {e}", path.display());
+                    return;
+                }
+                path
+            }
+            (None, Media::Recording { .. }) => return,
+        };
         cx.open_with_system(&path);
         self.remove(id, cx);
     }
@@ -300,11 +315,13 @@ impl PreviewStack {
     /// Annotate the capture; the card makes way for the editor.
     fn edit(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(item) = self.item(id) else { return };
-        let Media::Screenshot { image, scale, .. } = item.media.clone() else { return };
+        let Media::Screenshot { mut capture, .. } = item.media.clone() else { return };
         let path = item.path.clone();
-        let output = self.output.clone();
+        capture.output = capture.output.or_else(|| self.output.clone());
         self.remove(id, cx);
-        crate::editor::open(image, scale, path, output, cx);
+        let config = &Daemon::get(cx).config.screenshot.after_capture;
+        let actions = crate::deliver::Actions::resolve(config, &Default::default(), None, false);
+        crate::editor::open(capture, path, actions, cx);
     }
 
     fn delete(&mut self, id: u64, cx: &mut Context<Self>) {

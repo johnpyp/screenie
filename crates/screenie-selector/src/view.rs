@@ -526,7 +526,7 @@ impl OutputView {
         let hint = match (purpose, mode, editing) {
             (Purpose::Screenshot, _, true) => "Drag handles to adjust · Enter to capture",
             (Purpose::Recording, _, true) => "Adjust the area, then record",
-            (Purpose::Screenshot, Mode::Area, false) => "Drag to select · Click a window · Enter for the screen",
+            (Purpose::Screenshot, Mode::Area, false) => "Drag an area, click a window, or press Enter to capture the whole screen",
             (Purpose::Recording, Mode::Area, false) => "Drag to select an area · Click a window",
             (_, Mode::Window, false) => "Click a window",
             (_, Mode::Screen, false) => "Click a screen",

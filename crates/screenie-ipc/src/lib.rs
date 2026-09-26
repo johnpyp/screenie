@@ -138,7 +138,7 @@ impl Client {
         let mut reader = BufReader::new(self.stream);
         while let Some(response) = read_message::<Response>(&mut reader)? {
             if let Response::Status(status) = response
-                && !on_status(status)
+                && !on_status(*status)
             {
                 break;
             }

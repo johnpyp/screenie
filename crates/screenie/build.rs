@@ -1,6 +1,6 @@
 //! Stamps the binary with the git commit and commit time it was built from, as
 //! `SCREENIE_COMMIT` (e.g. `46bce20 2026-09-25 23:20`). Shown by `screenie --version` and
-//! `screenie status`.
+//! `screenie query status --json`.
 
 use std::path::Path;
 use std::process::Command;

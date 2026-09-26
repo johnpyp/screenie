@@ -4,11 +4,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::AsyncApp;
-use screenie_config::{AfterCapture, Config, Paths, expand_template, unique_path};
+use screenie_config::{AfterCapture, Config, Paths, Subject, expand_template, unique_path};
 use screenie_core::Image;
-use screenie_ipc::ActionOverrides;
+use screenie_ipc::{ActionOverrides, CaptureKind};
 
 use crate::clipboard;
+use crate::daemon::Daemon;
 use crate::preview::{self, PreviewItem};
 
 /// The after-capture actions in effect for one capture.
@@ -38,6 +39,18 @@ impl Actions {
     }
 }
 
+/// A finished screenshot and what it shows.
+#[derive(Clone)]
+pub(crate) struct Capture {
+    pub image: Image,
+    /// Image pixels per logical pixel.
+    pub scale: f32,
+    /// The window captured, if any (for the file name).
+    pub subject: Subject,
+    /// The output showing most of it, where cards and editors appear.
+    pub output: Option<String>,
+}
+
 pub(crate) struct Delivered {
     pub path: Option<PathBuf>,
     pub temporary: bool,
@@ -57,9 +70,9 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// Where a new screenshot would be saved.
-pub(crate) fn screenshot_path(config: &Config) -> PathBuf {
+pub(crate) fn screenshot_path(config: &Config, subject: &Subject) -> PathBuf {
     let dir = config.screenshot_dir();
-    let stem = expand_template(&config.screenshot.filename, chrono::Local::now());
+    let stem = expand_template(&config.screenshot.filename, chrono::Local::now(), subject);
     unique_path(&dir, &stem, "png")
 }
 
@@ -69,24 +82,23 @@ pub(crate) fn encode_png(image: &Image) -> anyhow::Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Run the after-capture actions for a screenshot.
-pub(crate) async fn screenshot(
-    image: Image,
-    scale: f32,
-    actions: Actions,
-    config: Config,
-    output_name: Option<String>,
-    cx: &mut AsyncApp,
-) -> anyhow::Result<Delivered> {
+/// Run the after-capture actions for a screenshot. When editing, nothing is saved or
+/// copied yet: the editor does that when it's done.
+pub(crate) async fn screenshot(capture: Capture, actions: Actions, config: Config, cx: &mut AsyncApp) -> anyhow::Result<Delivered> {
+    if actions.edit && !actions.want_file {
+        cx.update(|cx| crate::editor::open(capture, None, actions, cx));
+        return Ok(Delivered { path: None, temporary: false });
+    }
     let started = std::time::Instant::now();
-    let work_image = image.clone();
+    let work_image = capture.image.clone();
     let work_actions = actions.clone();
+    let subject = capture.subject.clone();
     let (path, temporary, png) = cx
         .background_executor()
         .spawn(async move {
             let png = encode_png(&work_image)?;
             let saved = if work_actions.save {
-                let path = work_actions.output.clone().unwrap_or_else(|| screenshot_path(&config));
+                let path = work_actions.output.clone().unwrap_or_else(|| screenshot_path(&config, &subject));
                 write_atomic(&path, &png)?;
                 Some(path)
             } else {
@@ -110,14 +122,14 @@ pub(crate) async fn screenshot(
         })
         .await?;
     tracing::info!(elapsed = ?started.elapsed(), path = ?path, "screenshot delivered");
+    let kept = if temporary { None } else { path.clone() };
+    cx.update(|cx| Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Screenshot, kept)));
 
-    let saved = if temporary { None } else { path.clone() };
-    if actions.edit {
-        // The editor takes the preview card's place.
-        cx.update(|cx| crate::editor::open(image, scale, saved, output_name, cx));
-    } else if actions.preview {
-        let item = PreviewItem::screenshot(image, scale, Arc::new(png), saved, cx).await;
-        cx.update(|cx| preview::show(item, output_name, cx));
+    if actions.preview {
+        let saved = if temporary { None } else { path.clone() };
+        let output = capture.output.clone();
+        let item = PreviewItem::screenshot(capture, Arc::new(png), saved, cx).await;
+        cx.update(|cx| preview::show(item, output, cx));
     }
     Ok(Delivered { path, temporary })
 }
@@ -129,6 +141,8 @@ pub(crate) async fn recording(
     output_name: Option<String>,
     cx: &mut AsyncApp,
 ) {
+    let path = finished.path.clone();
+    cx.update(|cx| Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Recording, Some(path))));
     if actions.copy {
         let path = finished.path.clone();
         cx.background_executor()

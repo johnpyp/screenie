@@ -32,8 +32,9 @@ pub struct AfterCapture {
 }
 
 impl Default for AfterCapture {
+    /// For screenshots: copy, and show the card (which can save or annotate).
     fn default() -> Self {
-        Self { copy: true, save: true, preview: true, edit: false }
+        Self { copy: true, save: false, preview: true, edit: false }
     }
 }
 
@@ -42,7 +43,8 @@ impl Default for AfterCapture {
 pub struct ScreenshotConfig {
     /// Where screenshots are saved. Empty means `$XDG_PICTURES_DIR/Screenshots`.
     pub directory: PathBuf,
-    /// strftime template for file names, without extension.
+    /// File name template, without extension: strftime codes, plus `{app}` and
+    /// `{title}` for window captures (dropped, with a separator, otherwise).
     pub filename: String,
     /// Include the mouse cursor.
     pub show_cursor: bool,
@@ -53,7 +55,7 @@ impl Default for ScreenshotConfig {
     fn default() -> Self {
         Self {
             directory: PathBuf::new(),
-            filename: "Screenshot_%Y-%m-%d_%H-%M-%S".into(),
+            filename: "Screenshot_%Y-%m-%d_%H-%M-%S_{app}".into(),
             show_cursor: false,
             after_capture: AfterCapture::default(),
         }
@@ -101,7 +103,7 @@ impl Default for RecordingConfig {
     fn default() -> Self {
         Self {
             directory: PathBuf::new(),
-            filename: "Recording_%Y-%m-%d_%H-%M-%S".into(),
+            filename: "Recording_%Y-%m-%d_%H-%M-%S_{app}".into(),
             framerate: 60,
             quality: Quality::High,
             encoder: EncoderPreference::Auto,
@@ -143,7 +145,7 @@ pub struct PreviewConfig {
 
 impl Default for PreviewConfig {
     fn default() -> Self {
-        Self { corner: Corner::BottomRight, timeout: 6 }
+        Self { corner: Corner::BottomRight, timeout: 10 }
     }
 }
 

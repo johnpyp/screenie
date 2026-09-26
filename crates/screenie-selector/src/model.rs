@@ -424,8 +424,10 @@ impl Model {
 
     pub fn released(&mut self, p: Point) -> Outcome {
         self.cursor = Some(p);
-        let press = self.press.take();
-        let is_click = press.is_none_or(|start| start.distance(p) < CLICK_SLOP);
+        // Only a press that started here counts: releasing after clicking the toolbar
+        // (e.g. its Window button) must not pick whatever is under the pointer.
+        let Some(press) = self.press.take() else { return Outcome::Nothing };
+        let is_click = press.distance(p) < CLICK_SLOP;
         match std::mem::replace(&mut self.phase, Phase::Idle) {
             Phase::Drawing { anchor, current } => {
                 if is_click {
@@ -745,6 +747,17 @@ mod tests {
         m.pressed(Point::new(2000.3, 10.0));
         m.pointer_moved(Point::new(2100.0, 110.0));
         assert_eq!(m.selection_rect().unwrap().x, 2000.0);
+    }
+
+    #[test]
+    fn a_release_without_a_press_picks_nothing() {
+        // Clicking a toolbar button: the press lands on the button, only the release
+        // reaches the canvas.
+        let mut m = model(Purpose::Screenshot);
+        m.set_mode(Mode::Window);
+        m.pointer_moved(Point::new(150.0, 150.0));
+        assert_eq!(m.released(Point::new(150.0, 150.0)), Outcome::Nothing);
+        assert_eq!(m.mode(), Mode::Window);
     }
 
     #[test]

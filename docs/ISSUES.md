@@ -38,6 +38,16 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 
 ## Fixed
 
+- Clicking the selector's Window button captured immediately: the release reached the
+  canvas as a click. Releases now only count after a press on the canvas.
+- Clearer selector hint ("…or press Enter to capture the whole screen").
+- Defaults are now copy on, save off, preview for 10 s. `--edit` defers copying and
+  saving to the editor's Done (or an explicit Save).
+- Window captures get the app name in the file name (`{app}`/`{title}` placeholders).
+- `screenie query status|last` for bars and scripts: tab-separated fixed fields,
+  `--json`, `--format waybar`, `--watch` across daemon restarts. It never spawns the
+  daemon. It replaces `screenie status`.
+
 - `screenie shot --edit` / `after_capture.edit` did nothing (the editor didn't exist).
   They open the annotation editor now.
 

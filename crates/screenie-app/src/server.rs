@@ -45,7 +45,7 @@ fn serve(stream: UnixStream, tx: &async_channel::Sender<Incoming>) -> anyhow::Re
         let (updates, rx) = async_channel::bounded(16);
         tx.send_blocking(Incoming::Watch { updates })?;
         while let Ok(status) = rx.recv_blocking() {
-            write_message(&stream, &Response::Status(status))?;
+            write_message(&stream, &Response::Status(Box::new(status)))?;
         }
         return Ok(());
     }

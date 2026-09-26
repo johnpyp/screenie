@@ -117,7 +117,7 @@ pub enum Response {
     },
     RecordingStarted { path: PathBuf },
     Cancelled,
-    Status(Status),
+    Status(Box<Status>),
     Error { message: String },
 }
 
@@ -127,9 +127,77 @@ impl Response {
     }
 }
 
+/// What the daemon is doing, most important first when several apply.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum State {
+    #[default]
+    Idle,
+    /// An annotation editor is open.
+    Editing,
+    /// A selector is on screen.
+    Selecting,
+    /// A recording is counting down.
+    Countdown,
+    Recording,
+    Paused,
+    /// A recording is being finalized.
+    Saving,
+}
+
+impl State {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            State::Idle => "idle",
+            State::Editing => "editing",
+            State::Selecting => "selecting",
+            State::Countdown => "countdown",
+            State::Recording => "recording",
+            State::Paused => "paused",
+            State::Saving => "saving",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureKind {
+    Screenshot,
+    Recording,
+}
+
+impl CaptureKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CaptureKind::Screenshot => "screenshot",
+            CaptureKind::Recording => "recording",
+        }
+    }
+}
+
+/// The most recent capture of a kind.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LastCapture {
+    pub kind: CaptureKind,
+    /// Where it was saved; `None` if it was only copied.
+    pub path: Option<PathBuf>,
+    /// When it was taken, in Unix seconds.
+    pub time: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Status {
+    /// The one-word summary, for status bars.
+    #[serde(default)]
+    pub state: State,
     pub recording: Option<RecordingStatus>,
+    /// Open annotation editors.
+    #[serde(default)]
+    pub editors: u32,
+    #[serde(default)]
+    pub last_screenshot: Option<LastCapture>,
+    #[serde(default)]
+    pub last_recording: Option<LastCapture>,
     /// A selector or other capture UI is on screen.
     #[serde(default)]
     pub capturing: bool,
@@ -146,9 +214,19 @@ pub struct Status {
 }
 
 impl Status {
+    /// The latest capture of `kind`, or of either kind.
+    pub fn last(&self, kind: Option<CaptureKind>) -> Option<&LastCapture> {
+        let (shot, rec) = (self.last_screenshot.as_ref(), self.last_recording.as_ref());
+        match kind {
+            Some(CaptureKind::Screenshot) => shot,
+            Some(CaptureKind::Recording) => rec,
+            None => [shot, rec].into_iter().flatten().max_by_key(|c| c.time),
+        }
+    }
+
     /// Whether restarting the daemon now would interrupt the user.
     pub fn busy(&self) -> bool {
-        self.recording.is_some() || self.capturing
+        self.recording.is_some() || self.capturing || self.editors > 0 || self.state == State::Saving
     }
 }
 

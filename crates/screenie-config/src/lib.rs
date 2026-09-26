@@ -11,7 +11,7 @@ mod schema;
 
 use std::path::{Path, PathBuf};
 
-pub use naming::{expand_template, unique_path};
+pub use naming::{Subject, expand_template, unique_path};
 pub use paths::Paths;
 pub use schema::*;
 

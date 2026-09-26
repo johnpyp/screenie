@@ -8,7 +8,7 @@ use gpui::{App, AsyncApp, BorrowAppContext, Global};
 use screenie_capture::CaptureContext;
 use screenie_config::{Config, Paths};
 use screenie_core::Rect;
-use screenie_ipc::{Request, Response, Status};
+use screenie_ipc::{CaptureKind, LastCapture, Request, Response, State, Status};
 
 use crate::server::Incoming;
 
@@ -20,6 +20,12 @@ pub(crate) struct Daemon {
     /// A selector (or other capture UI) is on screen.
     pub capturing: bool,
     pub recording: Option<crate::recording::Active>,
+    /// A stopped recording is being finalized.
+    pub saving: bool,
+    /// Open editor windows.
+    pub editors: u32,
+    last_screenshot: Option<LastCapture>,
+    last_recording: Option<LastCapture>,
     /// The style the last editor closed with, for the next one.
     pub editor_style: Option<screenie_annotate::Style>,
     commit: &'static str,
@@ -30,7 +36,14 @@ impl Global for Daemon {}
 
 impl Daemon {
     pub fn new(config: Config, capture: Arc<CaptureContext>, commit: &'static str) -> Self {
-        Self { config, capture, last_region: None, capturing: false, recording: None, editor_style: None, commit, watchers: Vec::new() }
+        Self { config, capture, last_region: None, capturing: false,
+            recording: None,
+            saving: false,
+            editors: 0,
+            last_screenshot: None,
+            last_recording: None,
+            editor_style: None,
+            commit, watchers: Vec::new() }
     }
 
     pub fn get(cx: &App) -> &Daemon {
@@ -42,8 +55,22 @@ impl Daemon {
     }
 
     pub fn status(&self) -> Status {
+        let recording = self.recording.as_ref().map(|a| a.status());
+        let state = match (&self.recording, &recording) {
+            _ if self.saving => State::Saving,
+            (Some(active), _) if active.recording.is_none() => State::Countdown,
+            (_, Some(r)) if r.paused => State::Paused,
+            (_, Some(_)) => State::Recording,
+            _ if self.capturing => State::Selecting,
+            _ if self.editors > 0 => State::Editing,
+            _ => State::Idle,
+        };
         Status {
-            recording: self.recording.as_ref().map(|a| a.status()),
+            state,
+            recording,
+            editors: self.editors,
+            last_screenshot: self.last_screenshot.clone(),
+            last_recording: self.last_recording.clone(),
             capturing: self.capturing,
             pid: std::process::id(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -52,6 +79,17 @@ impl Daemon {
             compositor: self.capture.compositor().name().to_string(),
             capture_backend: self.capture.backend_name(self.config.advanced.capture_backend).to_string(),
         }
+    }
+
+    /// Remember a finished capture (for `screenie last` and status watchers).
+    pub fn note_capture(&mut self, kind: CaptureKind, path: Option<PathBuf>) {
+        let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let last = Some(LastCapture { kind, path, time });
+        match kind {
+            CaptureKind::Screenshot => self.last_screenshot = last,
+            CaptureKind::Recording => self.last_recording = last,
+        }
+        self.broadcast();
     }
 
     /// Tell status watchers something changed.
@@ -88,7 +126,7 @@ pub(crate) async fn serve(incoming: async_channel::Receiver<Incoming>, cx: &mut 
 async fn handle(request: Request, cx: &mut AsyncApp) -> Response {
     match request {
         Request::Ping => Response::Ok,
-        Request::Status => Response::Status(cx.update(|cx| Daemon::get(cx).status())),
+        Request::Status => Response::Status(Box::new(cx.update(|cx| Daemon::get(cx).status()))),
         Request::Quit => {
             // Never lose a recording to a quit.
             if cx.update(|cx| Daemon::get(cx).recording.is_some()) {

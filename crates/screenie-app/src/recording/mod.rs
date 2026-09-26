@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, anyhow, bail};
 use gpui::{App, AsyncApp, WindowHandle};
-use screenie_config::{Config, expand_template, unique_path};
+use screenie_config::{Config, Subject, expand_template, unique_path};
 use screenie_core::{OutputInfo, Rect};
 use screenie_ipc::{RecordRequest, RecordingStatus, Response, Target};
 use screenie_record::{AudioSources, RecordSpec, Recording};
@@ -63,13 +63,29 @@ pub(crate) async fn record(req: RecordRequest, cx: &mut AsyncApp) -> Response {
 
 /// Stop and save. During a countdown this cancels instead.
 pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
+    // Saving from the moment the recording is taken, so watchers never see a gap.
+    let set_saving = |saving: bool, cx: &mut AsyncApp| {
+        cx.update(|cx| {
+            Daemon::update(cx, |d, _| {
+                d.saving = saving;
+                d.broadcast();
+            })
+        })
+    };
+    let running = cx.update(|cx| Daemon::get(cx).recording.as_ref().is_some_and(|a| a.recording.is_some()));
+    if running {
+        set_saving(true, cx);
+    }
     let Some(active) = take_active(cx) else {
+        set_saving(false, cx);
         return Response::error("nothing is being recorded");
     };
     let Some(recording) = active.recording else {
+        set_saving(false, cx);
         return Response::Cancelled;
     };
     let finished = cx.background_executor().spawn(async move { recording.stop() }).await;
+    set_saving(false, cx);
     match finished {
         Ok(finished) => {
             let path = finished.path.clone();
@@ -122,8 +138,8 @@ fn take_active(cx: &mut AsyncApp) -> Option<Active> {
 }
 
 /// Where a new recording goes.
-fn recording_path(config: &Config) -> PathBuf {
-    let stem = expand_template(&config.recording.filename, chrono::Local::now());
+fn recording_path(config: &Config, subject: &Subject) -> PathBuf {
+    let stem = expand_template(&config.recording.filename, chrono::Local::now(), subject);
     unique_path(&config.recording_dir(), &stem, "mp4")
 }
 
@@ -156,6 +172,8 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         microphone: req.microphone.unwrap_or(config.recording.microphone),
     };
 
+    let mut subject = Subject::default();
+    let window_subject = |w: &screenie_core::WindowInfo| Subject { app: Some(w.app_id.clone()), title: Some(w.title.clone()) };
     let region = match &req.target {
         Target::Select { mode } => {
             let windows = if config.selector.window_snapping {
@@ -184,7 +202,10 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
             audio = choice.record;
             match choice.selection {
                 Selection::Region(r) => r,
-                Selection::Window(w) => w.rect,
+                Selection::Window(w) => {
+                    subject = window_subject(&w);
+                    w.rect
+                }
                 Selection::Output(o) => o.logical,
             }
         }
@@ -198,7 +219,9 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         }
         Target::ActiveWindow => {
             let windows = background.spawn(async move { compositor.windows() }).await?;
-            windows.into_iter().find(|w| w.focused).map(|w| w.rect).ok_or_else(|| anyhow!("no focused window"))?
+            let focused = windows.into_iter().find(|w| w.focused).ok_or_else(|| anyhow!("no focused window"))?;
+            subject = window_subject(&focused);
+            focused.rect
         }
         Target::Region { rect } => *rect,
         Target::LastRegion => last_region.ok_or_else(|| anyhow!("there is no previous capture region yet"))?,
@@ -213,7 +236,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     }
     cx.update(|cx| Daemon::update(cx, |d, _| d.last_region = Some(region)));
 
-    let path = req.output.clone().unwrap_or_else(|| recording_path(&config));
+    let path = req.output.clone().unwrap_or_else(|| recording_path(&config, &subject));
     let actions = Actions::resolve(&config.recording.after_capture, &req.actions, None, false);
     let countdown = config.recording.countdown;
     let cancelled = Arc::new(AtomicBool::new(false));

@@ -5,12 +5,13 @@ use std::sync::Arc;
 use anyhow::{Context as _, anyhow, bail};
 use gpui::AsyncApp;
 use screenie_capture::SnapshotOptions;
-use screenie_core::{Rect, Snapshot};
+use screenie_config::Subject;
+use screenie_core::{Rect, Snapshot, WindowInfo};
 use screenie_ipc::{Response, ScreenshotRequest, SelectMode, Target};
 use screenie_selector::{Backdrop, Mode, Purpose, SelectorConfig, Selection};
 
 use crate::daemon::Daemon;
-use crate::deliver::{self, Actions};
+use crate::deliver::{self, Actions, Capture};
 
 pub(crate) async fn take(req: ScreenshotRequest, cx: &mut AsyncApp) -> Response {
     let interactive = matches!(req.target, Target::Select { .. });
@@ -65,6 +66,8 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
         .context("capturing the screen")?;
     let snapshot = Arc::new(snapshot);
 
+    // The window being captured, if any, names the file.
+    let mut window: Option<WindowInfo> = None;
     let region: Rect = match &req.target {
         Target::Select { mode } => {
             let compositor = capture.compositor().clone();
@@ -86,7 +89,11 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
             };
             match choice.selection {
                 Selection::Region(r) => r,
-                Selection::Window(w) => w.rect,
+                Selection::Window(w) => {
+                    let rect = w.rect;
+                    window = Some(w);
+                    rect
+                }
                 Selection::Output(o) => o.logical,
             }
         }
@@ -106,12 +113,15 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
         }
         Target::AllScreens => snapshot.layout_bounds(),
         Target::ActiveWindow => {
-            snapshot
+            let focused = snapshot
                 .windows
                 .iter()
                 .find(|w| w.focused)
-                .map(|w| w.rect)
-                .ok_or_else(|| anyhow!("no focused window (needs compositor IPC: Hyprland, Sway or niri)"))?
+                .cloned()
+                .ok_or_else(|| anyhow!("no focused window (needs compositor IPC: Hyprland, Sway or niri)"))?;
+            let rect = focused.rect;
+            window = Some(focused);
+            rect
         }
         Target::Region { rect } => *rect,
         Target::LastRegion => last_region.ok_or_else(|| anyhow!("there is no previous capture region yet"))?,
@@ -128,8 +138,13 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
     cx.update(|cx| Daemon::update(cx, |d, _| d.last_region = Some(region)));
 
     let actions = Actions::resolve(&config.screenshot.after_capture, &req.actions, req.output.clone(), req.want_file);
-    let scale = (image.width() as f64 / region.width) as f32;
-    deliver::screenshot(image, scale, actions, config, output_name, cx).await.map(Some)
+    let capture = Capture {
+        scale: (image.width() as f64 / region.width) as f32,
+        image,
+        subject: window.map(|w| Subject { app: Some(w.app_id), title: Some(w.title) }).unwrap_or_default(),
+        output: output_name,
+    };
+    deliver::screenshot(capture, actions, config, cx).await.map(Some)
 }
 
 /// The output showing most of `region`.

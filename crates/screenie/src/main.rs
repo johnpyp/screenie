@@ -15,7 +15,9 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use screenie_core::Rect;
-use screenie_ipc::{ActionOverrides, Client, RecordRequest, Request, Response, ScreenshotRequest, SelectMode, Target};
+use screenie_ipc::{
+    ActionOverrides, CaptureKind, Client, RecordRequest, Request, Response, ScreenshotRequest, SelectMode, State, Status, Target,
+};
 
 /// `0.1.0 (46bce20 2026-09-25 23:20)`
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("SCREENIE_COMMIT"), ")");
@@ -46,15 +48,10 @@ enum Command {
     Edit { file: PathBuf },
     /// Pin an image to the screen.
     Pin { file: PathBuf },
-    /// Show daemon and recording status.
-    Status {
-        /// Print JSON (one object per line with --watch).
-        #[arg(long)]
-        json: bool,
-        /// Keep printing status on every change (for status bars).
-        #[arg(long)]
-        watch: bool,
-    },
+    /// Ask what screenie is doing or has done, for scripts and status bars. Never
+    /// starts the daemon: if it isn't running, screenie is idle.
+    #[command(subcommand)]
+    Query(Query),
     /// Run the daemon in the foreground (normally started automatically).
     Daemon,
     /// Stop the daemon.
@@ -63,7 +60,7 @@ enum Command {
 
 #[derive(Clone, Copy, ValueEnum, Default)]
 enum ShotTarget {
-    /// Drag a region, click a window, or press Enter for the screen.
+    /// Drag an area, click a window, or press Enter to capture the whole screen.
     #[default]
     Area,
     /// Pick a window.
@@ -254,7 +251,36 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
         Command::Settings => request(&Request::Settings)?,
         Command::Edit { file } => request(&Request::Edit { path: std::fs::canonicalize(file)? })?,
         Command::Pin { file } => request(&Request::Pin { path: std::fs::canonicalize(file)? })?,
-        Command::Status { json, watch } => return status(json, watch),
+        Command::Query(Query::Last { kind, json, watch }) => {
+            let kind = kind.map(|k| match k {
+                LastKind::Screenshot => CaptureKind::Screenshot,
+                LastKind::Recording => CaptureKind::Recording,
+            });
+            let render = move |s: &Status| match (s.last(kind), json) {
+                (Some(c), true) => serde_json::to_string(c).unwrap_or_default(),
+                (None, true) => "null".into(),
+                (Some(c), false) => {
+                    let path = c.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+                    format!("{}\t{}\t{path}", c.kind.as_str(), c.time)
+                }
+                (None, false) => String::new(),
+            };
+            if watch {
+                return follow(render);
+            }
+            let status = current_status()?;
+            if status.last(kind).is_none() {
+                if json {
+                    println!("null");
+                }
+                return Ok(ExitCode::from(1));
+            }
+            println!("{}", render(&status));
+            return Ok(ExitCode::SUCCESS);
+        }
+        Command::Query(Query::Status { format, json, watch }) => {
+            return status(if json { StatusFormat::Json } else { format }, watch);
+        }
         Command::Quit => match Client::connect() {
             Ok(client) => client.request(&Request::Quit)?,
             Err(_) => Response::Ok, // not running
@@ -312,8 +338,9 @@ fn report(response: Response, to_stdout: bool) -> anyhow::Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
+        // Like captures: the file's path on stdout, so `f=$(screenie record)` works.
         Response::RecordingStarted { path } => {
-            eprintln!("recording to {}", path.display());
+            println!("{}", path.display());
             Ok(ExitCode::SUCCESS)
         }
         Response::Cancelled => Ok(ExitCode::from(1)),
@@ -328,37 +355,134 @@ fn report(response: Response, to_stdout: bool) -> anyhow::Result<ExitCode> {
     }
 }
 
-fn status(json: bool, watch: bool) -> anyhow::Result<ExitCode> {
-    let print = |s: &screenie_ipc::Status| {
-        if json {
-            println!("{}", serde_json::to_string(s).unwrap_or_default());
-        } else {
-            match &s.recording {
-                Some(r) => println!(
-                    "recording {} ({:.0}s{})",
-                    r.path.display(),
-                    r.elapsed_secs,
-                    if r.paused { ", paused" } else { "" }
-                ),
-                None => println!(
-                    "idle (daemon {} ({}), pid {}, {} via {})",
-                    s.version, s.commit, s.pid, s.compositor, s.capture_backend
-                ),
+#[derive(Clone, Copy, ValueEnum, Default, PartialEq, Eq)]
+enum StatusFormat {
+    /// One line of three tab-separated fields, always all present (empty when they
+    /// don't apply): state, elapsed time (`m:ss`), recording path. `cut -f1` is the state.
+    #[default]
+    Text,
+    /// The full status object.
+    Json,
+    /// A waybar custom module (`"return-type": "json"`): empty text when idle.
+    Waybar,
+}
+
+#[derive(Subcommand)]
+enum Query {
+    /// What screenie is doing: idle, selecting, editing, countdown, recording, paused or
+    /// saving, with the elapsed time and path while recording.
+    Status {
+        /// Output format.
+        #[arg(long, value_enum, default_value_t)]
+        format: StatusFormat,
+        /// Same as `--format json`.
+        #[arg(long, conflicts_with = "format")]
+        json: bool,
+        /// Keep printing a line on every change (every second while recording). Keeps
+        /// running across daemon restarts, for status bars.
+        #[arg(long)]
+        watch: bool,
+    },
+    /// The most recent capture, as three tab-separated fields: kind (`screenshot` or
+    /// `recording`), time (Unix seconds) and path (empty if it was only copied). Prints
+    /// nothing, and exits 1, if there's none yet.
+    Last {
+        /// Which kind; both by default.
+        #[arg(value_enum)]
+        kind: Option<LastKind>,
+        /// Print JSON instead.
+        #[arg(long)]
+        json: bool,
+        /// Keep printing a line whenever it changes (an empty line when there is none).
+        #[arg(long)]
+        watch: bool,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum LastKind {
+    Screenshot,
+    Recording,
+}
+
+fn status(format: StatusFormat, watch: bool) -> anyhow::Result<ExitCode> {
+    let render = move |s: &Status| format_status(s, format);
+    if watch {
+        return follow(render);
+    }
+    println!("{}", render(&current_status()?));
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The daemon's status. No daemon counts as idle: a bar polling this shouldn't start one.
+fn current_status() -> anyhow::Result<Status> {
+    match Client::connect().map(|c| c.request(&Request::Status)) {
+        Ok(Ok(Response::Status(s))) => Ok(*s),
+        Ok(Ok(Response::Error { message })) => anyhow::bail!(message),
+        Ok(Ok(_)) => anyhow::bail!("unexpected reply to a status request"),
+        Ok(Err(e)) => Err(e.into()),
+        Err(_) => Ok(Status::default()),
+    }
+}
+
+/// Print `render(status)` whenever it changes, forever, across daemon restarts (no
+/// daemon counts as idle). Stops when stdout goes away.
+fn follow(render: impl Fn(&Status) -> String) -> anyhow::Result<ExitCode> {
+    let mut last: Option<String> = None;
+    let mut emit = |s: &Status| {
+        let line = render(s);
+        if last.as_ref() != Some(&line) {
+            println!("{line}");
+            last = Some(line);
+        }
+        std::io::stdout().flush().is_ok()
+    };
+    loop {
+        if let Ok(client) = Client::connect() {
+            let mut open = true;
+            client.watch(|s| {
+                open = emit(&s);
+                open
+            })?;
+            if !open {
+                return Ok(ExitCode::SUCCESS);
             }
         }
-    };
-    if watch {
-        Client::connect_or_spawn()?.watch(|s| {
-            print(&s);
-            std::io::stdout().flush().is_ok()
-        })?;
-        return Ok(ExitCode::SUCCESS);
-    }
-    match request(&Request::Status)? {
-        Response::Status(s) => {
-            print(&s);
-            Ok(ExitCode::SUCCESS)
+        if !emit(&Status::default()) {
+            return Ok(ExitCode::SUCCESS);
         }
-        other => report(other, false),
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
+}
+
+fn format_status(s: &Status, format: StatusFormat) -> String {
+    let timing = matches!(s.state, State::Recording | State::Paused);
+    let elapsed = s.recording.as_ref().filter(|_| timing).map(|r| format_elapsed(r.elapsed_secs));
+    match format {
+        StatusFormat::Json => serde_json::to_string(s).unwrap_or_default(),
+        StatusFormat::Text => {
+            let path = s.recording.as_ref().map(|r| r.path.display().to_string()).unwrap_or_default();
+            format!("{}\t{}\t{path}", s.state.as_str(), elapsed.as_deref().unwrap_or(""))
+        }
+        StatusFormat::Waybar => {
+            let text = match (s.state, &elapsed) {
+                (State::Recording, Some(e)) => format!("● {e}"),
+                (State::Paused, Some(e)) => format!("⏸ {e}"),
+                (State::Countdown, _) => "● …".to_string(),
+                (State::Saving, _) => "Saving…".to_string(),
+                _ => String::new(),
+            };
+            let tooltip = match &s.recording {
+                Some(r) => format!("{} {}", s.state.as_str(), r.path.display()),
+                None => s.state.as_str().to_string(),
+            };
+            serde_json::json!({ "text": text, "alt": s.state.as_str(), "class": s.state.as_str(), "tooltip": tooltip })
+                .to_string()
+        }
+    }
+}
+
+fn format_elapsed(secs: f64) -> String {
+    let s = secs.max(0.0) as u64;
+    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
 }

@@ -69,7 +69,8 @@ In the selector:
 | Arrows | Nudge an editable selection (Shift ×10, Ctrl resizes) |
 | M | Toggle the magnifier |
 
-What happens after a capture (copy, save, preview, edit) is configurable, and can be
+By default a screenshot is copied and shown in a preview card, whose buttons save or
+annotate it. What happens after a capture (copy, save, preview, edit) is configurable, and can be
 overridden per call with `--copy/--no-copy`, `--save/--no-save`, `--no-preview`,
 `--edit` and `-o FILE`.
 
@@ -80,7 +81,9 @@ screenie shot --edit             # capture, then annotate
 screenie edit shot.png           # annotate an existing PNG
 ```
 
-Or hover a preview card and click the pencil. Each tool has one key: **A**rrow,
+Or hover a preview card and click the pencil. With `--edit`, nothing is copied or saved
+until you're done: Enter (Done) applies the after-capture settings (copy, and save if
+it's on), and Ctrl+S saves explicitly. Each tool has one key: **A**rrow,
 **L**ine, **R**ectangle, **O** ellipse, **P**en, **H**ighlighter, **T**ext,
 **N**umbered step, **B** pixelate/blur, **S**potlight, **C**rop, **V** select. Keys
 `1`–`5` pick a size and **F** toggles fill. Enter saves, copies and closes, and Esc
@@ -105,14 +108,44 @@ A countdown runs first. While recording, a thin ring marks the region and a pill
 the time with pause/stop/discard. Both are drawn outside the region, so they never end
 up in the video.
 
-### Status bars
+### Status bars and scripts
+
+`screenie query` reports what screenie is doing or has done. It never starts the
+daemon; if it isn't running, the answer is `idle`. Text output is tab-separated with a
+fixed number of fields (empty when they don't apply), so `cut -f1` and friends always
+work.
 
 ```sh
-screenie status                  # idle, or the recording and its elapsed time
-screenie status --watch --json   # one JSON line per change (every second while recording)
+screenie query status            # state, elapsed, path: "recording\t1:23\t/…/Recording.mp4", "idle\t\t"
+screenie query status --watch    # a line per change, every second while recording; survives daemon restarts
+screenie query status --json     # everything, including the last captures
+screenie query status --format waybar --watch   # a waybar custom module (empty when idle)
+screenie query last              # kind, Unix time, path of the latest capture ("screenshot\t1790381588\t/…png")
+screenie query last recording    # or: screenshot. Exits 1 if there's none yet
+screenie query last --watch      # a line whenever a new capture lands
 ```
 
-Exit codes: `0` done, `1` cancelled, `2` error. Captured file paths are printed on stdout.
+States: `idle`, `selecting`, `editing`, `countdown`, `recording`, `paused`, `saving`.
+
+```sh
+# swaybar / i3blocks: show a recording indicator
+screenie query status --watch | while IFS=$'\t' read -r state elapsed path; do
+  case $state in recording) echo "● $elapsed" ;; paused) echo "⏸ $elapsed" ;; saving) echo "saving…" ;; *) echo ;; esac
+done
+```
+
+```jsonc
+// waybar
+"custom/screenie": {
+  "exec": "screenie query status --format waybar --watch",
+  "return-type": "json",
+  "on-click": "screenie stop"
+}
+```
+
+Other commands print the file they produced (if saved) on stdout: captures, and
+`screenie record` prints the path it's recording to. Exit codes: `0` done, `1`
+cancelled, `2` error.
 
 ## Configuration
 
@@ -122,8 +155,8 @@ apply within a second, without a restart.
 ```toml
 [screenshot]
 directory = "~/Pictures/Screenshots"
-filename = "Screenshot_%Y-%m-%d_%H-%M-%S"
-after_capture = { copy = true, save = true, preview = true }
+filename = "Screenshot_%Y-%m-%d_%H-%M-%S_{app}"  # {app}/{title}: the captured window, if any
+after_capture = { copy = true, save = false, preview = true, edit = false }
 
 [recording]
 framerate = 60
@@ -135,7 +168,7 @@ microphone = false
 
 [preview]
 corner = "bottom-right"
-timeout = 6               # seconds; 0 keeps cards until dismissed
+timeout = 10              # seconds; 0 keeps cards until dismissed
 
 [selector]
 capture_on_release = true # false: adjust the selection, then press Enter
@@ -173,8 +206,8 @@ install -Dm755 target/release/screenie ~/.local/bin/screenie
 
 To upgrade, replace the binary. The next `screenie` command notices that the daemon
 is running a different build and restarts it, unless a recording or selector is active,
-in which case it waits for a later command. `screenie --version` and `screenie status`
-show the git commit each side was built from.
+in which case it waits for a later command. `screenie --version` and
+`screenie query status --json` show the git commit each side was built from.
 
 At runtime, recording uses VA-API when a driver is present (`mesa-va-drivers`,
 `intel-media-va-driver`), and falls back to x264 otherwise.

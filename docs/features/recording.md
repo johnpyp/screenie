@@ -18,8 +18,8 @@ for GNOME/KDE, and GIF export, are planned.
 
 `--audio` / `--mic` turn on system audio / the microphone, and `-o FILE` picks the
 output path. `--no-toggle` fails instead of stopping a running recording.
-`screenie status --watch --json` prints a line per change, and one per second while
-recording, for status bars.
+`screenie query status --watch` prints a line per change, and one per second while
+recording, for status bars (see the README for the formats).
 
 ## UX
 
