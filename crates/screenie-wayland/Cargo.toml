@@ -4,6 +4,9 @@ description = "Wayland screen capture (ext-image-copy-capture, wlr-screencopy) a
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 screenie-core.workspace = true

@@ -4,6 +4,9 @@ description = "Freeze the desktop: picks a capture backend and assembles Snapsho
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 screenie-core.workspace = true

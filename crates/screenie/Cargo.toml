@@ -4,6 +4,9 @@ description = "Screenshots and screen recordings for Wayland"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [[bin]]
 name = "screenie"

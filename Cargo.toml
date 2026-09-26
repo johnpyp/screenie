@@ -1,12 +1,18 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "tools/wlinput", "tools/wllock"]
+# `cargo build` builds the app; the test tools build with `-p` or `--workspace`.
+default-members = ["crates/screenie"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-rust-version = "1.90"
+rust-version = "1.98"
+repository = "https://github.com/johnpyp/screenie"
+# Distributed as a binary, not on crates.io: the vendored gpui patches below can't be
+# published.
+publish = false
 
 [workspace.dependencies]
 # Internal crates
@@ -15,7 +21,7 @@ screenie-config = { path = "crates/screenie-config" }
 screenie-state = { path = "crates/screenie-state" }
 screenie-ipc = { path = "crates/screenie-ipc" }
 screenie-wayland = { path = "crates/screenie-wayland" }
-screenie-portal = { path = "crates/screenie-portal" }
+# Planned: screenie-portal, xdg-desktop-portal capture for GNOME and KDE.
 screenie-capture = { path = "crates/screenie-capture" }
 screenie-compositor = { path = "crates/screenie-compositor" }
 screenie-record = { path = "crates/screenie-record" }

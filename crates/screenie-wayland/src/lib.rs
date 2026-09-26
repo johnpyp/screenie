@@ -11,7 +11,7 @@
 //! where the compositor offers `ext-foreign-toplevel-image-capture-source-v1` (the window's
 //! own pixels, wherever it is and whatever covers it). Frames are always returned upright
 //! with transforms and y-inversion undone. Compositors without either protocol (GNOME,
-//! KDE) are served by `screenie-portal` instead.
+//! KDE) will be served by a planned `screenie-portal` crate instead.
 //!
 //! A stream's frames come in shared memory, read into [`Image`]s, or, where the consumer
 //! can take them, in GPU buffers on the compositor's GPU (see `dmabuf`), which neither

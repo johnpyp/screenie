@@ -4,6 +4,9 @@ description = "What screenie remembers between runs: a versioned, migrated state
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 screenie-config.workspace = true
