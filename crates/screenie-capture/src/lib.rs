@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime};
 use screenie_compositor::Compositor;
 use screenie_config::CaptureBackend;
 use screenie_core::{
-    DmabufFormat, Frame, FrameSource, GpuOffer, Image, Next, OutputInfo, Rect, Snapshot, SourceError, WindowInfo,
+    DmabufFormat, Frame, FrameSource, GpuDevice, GpuOffer, Image, Next, OutputInfo, Rect, Snapshot, SourceError, WindowInfo,
 };
 use screenie_wayland::{Backend, Capturer, Support};
 
@@ -212,6 +212,10 @@ impl FrameSource for Primed {
 
     fn pace(&mut self, fps: u32) {
         self.stream.set_max_rate(fps);
+    }
+
+    fn gpu(&self) -> Option<GpuDevice> {
+        self.stream.gpu()
     }
 
     fn gpu_offer(&self) -> Option<GpuOffer> {

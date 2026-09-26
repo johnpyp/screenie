@@ -1,7 +1,8 @@
 //! Wayland protocol state: bound globals, output bookkeeping, and the per-capture state
 //! machines for both capture protocols. Everything here is driven by [`crate::Capturer`].
 
-use screenie_core::{DmabufFormat, OutputInfo, Rect, Transform};
+use screenie_core::gpu::fourcc_name;
+use screenie_core::{DmabufFormat, GpuDevice, OutputInfo, Rect, Transform};
 use wayland_client::globals::GlobalListContents;
 use wayland_client::protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum, delegate_noop, event_created_child};
@@ -20,7 +21,9 @@ use wayland_protocols::ext::image_copy_capture::v1::client::{
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
 use wayland_protocols::wp::linux_dmabuf::zv1::client::{
-    zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
+    zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1,
+    zwp_linux_dmabuf_feedback_v1::{self, ZwpLinuxDmabufFeedbackV1},
+    zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
 };
 use wayland_protocols::xdg::xdg_output::zv1::client::{
     zxdg_output_manager_v1::ZxdgOutputManagerV1,
@@ -44,6 +47,8 @@ pub(crate) struct State {
     pub wlr_screencopy: Option<ZwlrScreencopyManagerV1>,
     /// For GPU buffers (see `dmabuf`).
     pub linux_dmabuf: Option<ZwpLinuxDmabufV1>,
+    /// What the compositor says of GPU buffers in general (linux-dmabuf v4+).
+    pub feedback: Feedback,
     pub outputs: Vec<OutputState>,
     /// Bound only to capture a window: listing them is otherwise wasted traffic.
     pub toplevel_list: Option<ExtForeignToplevelListV1>,
@@ -134,10 +139,61 @@ pub(crate) struct Constraints {
     pub formats: Vec<wl_shm::Format>,
     /// wlr-screencopy dictates the stride per format.
     pub strides: Vec<(wl_shm::Format, u32)>,
-    /// The GPU the compositor renders with, when it takes GPU buffers (ext only).
+    /// The GPU the compositor renders with, when it takes GPU buffers: from ext's
+    /// constraints, or for wlr from the linux-dmabuf feedback.
     pub dmabuf_device: Option<u64>,
     pub dmabuf_formats: Vec<DmabufFormat>,
     pub done: bool,
+}
+
+/// The compositor's linux-dmabuf feedback: the GPU it renders with, and the formats and
+/// modifiers that GPU takes. It says which GPU a capture's frames are on when the
+/// capture protocol doesn't (wlr-screencopy, or ext without GPU buffers).
+#[derive(Default)]
+pub(crate) struct Feedback {
+    pub main_device: Option<u64>,
+    /// The formats of the tranches for the main device.
+    pub formats: Vec<DmabufFormat>,
+    /// Being received: the format table, and the tranches so far.
+    table: Vec<(u32, u64)>,
+    tranche_device: Option<u64>,
+    tranche: Vec<u16>,
+    pending: Vec<(u64, Vec<u16>)>,
+    pending_main: Option<u64>,
+}
+
+impl Feedback {
+    /// The modifiers the main device takes `fourcc` in.
+    pub fn modifiers(&self, fourcc: u32) -> Vec<u64> {
+        self.formats.iter().find(|f| f.fourcc == fourcc).map(|f| f.modifiers.clone()).unwrap_or_default()
+    }
+
+    /// All parameters are in: keep the formats of the main device's tranches.
+    fn done(&mut self) {
+        self.main_device = self.pending_main.take();
+        let tranches = std::mem::take(&mut self.pending);
+        let Some(main) = self.main_device.map(GpuDevice::from_dev) else { return };
+        let mut formats: Vec<DmabufFormat> = Vec::new();
+        for (device, indices) in tranches {
+            if device != main.dev && !GpuDevice::from_dev(device).same_as(&main) {
+                continue;
+            }
+            for &(fourcc, modifier) in indices.iter().filter_map(|&i| self.table.get(i as usize)) {
+                match formats.iter_mut().find(|f| f.fourcc == fourcc) {
+                    Some(f) if !f.modifiers.contains(&modifier) => f.modifiers.push(modifier),
+                    Some(_) => {}
+                    None => formats.push(DmabufFormat { fourcc, modifiers: vec![modifier] }),
+                }
+            }
+        }
+        tracing::debug!(gpu = main.describe(), formats = formats.len(), "compositor GPU");
+        self.formats = formats;
+    }
+}
+
+/// A dev_t sent as an array, in native byte order.
+fn dev_t(bytes: &[u8]) -> Option<u64> {
+    bytes.try_into().ok().map(u64::from_ne_bytes)
 }
 
 /// A capture's GPU buffers: in the format the consumer asked for, allocated once the
@@ -167,7 +223,11 @@ pub(crate) struct Capture {
     pub target: Target,
     pub protocol: Protocol,
     pub cursor: bool,
+    /// The buffers the compositor takes, as it last said.
     pub constraints: Constraints,
+    /// wlr: what the frame being negotiated says, until it's said it all. (Each wlr
+    /// frame says it again; the last complete set stays in `constraints` meanwhile.)
+    pub incoming: Constraints,
     /// The shared-memory buffer the next copy goes into, and a second one to copy the
     /// next frame into while this one is read.
     pub buffer: Option<ShmBuffer>,
@@ -184,6 +244,14 @@ pub(crate) struct Capture {
     /// Whether the next copy should wait for new content (streams) or copy right away.
     pub wait_for_damage: bool,
     pub frames_captured: u64,
+}
+
+impl Capture {
+    /// wlr: the frame being negotiated has said all it will.
+    fn take_incoming(&mut self) {
+        self.constraints = std::mem::take(&mut self.incoming);
+        self.constraints.done = true;
+    }
 }
 
 pub(crate) fn transform_from_wl(t: WEnum<wl_output::Transform>) -> Transform {
@@ -294,10 +362,7 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, usize> for State {
                 cap.constraints = Constraints { size: Some((width, height)), ..Default::default() };
             }
             Event::ShmFormat { format } => cap.constraints.formats.extend(shm_format(format)),
-            Event::DmabufDevice { device } => {
-                // A dev_t, in native byte order.
-                cap.constraints.dmabuf_device = device.try_into().ok().map(u64::from_ne_bytes);
-            }
+            Event::DmabufDevice { device } => cap.constraints.dmabuf_device = dev_t(&device),
             Event::DmabufFormat { format, modifiers } => {
                 let modifiers = modifiers
                     .as_chunks::<8>()
@@ -371,18 +436,30 @@ impl Dispatch<ZwlrScreencopyFrameV1, usize> for State {
         use zwlr_screencopy_frame_v1::Event;
         let cap = &mut state.captures[*idx];
         match event {
+            Event::LinuxDmabuf { format, width, height } => {
+                // Only the format: the modifiers and the GPU come from the feedback.
+                let modifiers = state.feedback.modifiers(format);
+                tracing::trace!(format = fourcc_name(format), modifiers = modifiers.len(), "wlr GPU buffer format");
+                if let Some(device) = state.feedback.main_device
+                    && !modifiers.is_empty()
+                {
+                    cap.incoming.size.get_or_insert((width, height));
+                    cap.incoming.dmabuf_device = Some(device);
+                    cap.incoming.dmabuf_formats.push(DmabufFormat { fourcc: format, modifiers });
+                }
+            }
             Event::Buffer { format, width, height, stride } => {
                 if let Some(format) = shm_format(format) {
-                    cap.constraints.size = Some((width, height));
-                    cap.constraints.formats.push(format);
-                    cap.constraints.strides.push((format, stride));
+                    cap.incoming.size = Some((width, height));
+                    cap.incoming.formats.push(format);
+                    cap.incoming.strides.push((format, stride));
                 }
                 // Before v3 there is exactly one buffer event and no buffer_done.
                 if frame.version() < 3 {
-                    cap.constraints.done = true;
+                    cap.take_incoming();
                 }
             }
-            Event::BufferDone => cap.constraints.done = true,
+            Event::BufferDone => cap.take_incoming(),
             Event::Flags { flags: WEnum::Value(flags) } => {
                 cap.y_invert = flags.contains(zwlr_screencopy_frame_v1::Flags::YInvert);
             }
@@ -405,6 +482,55 @@ impl Dispatch<ZwlrScreencopyFrameV1, usize> for State {
             _ => {}
         }
     }
+}
+
+impl Dispatch<ZwpLinuxDmabufFeedbackV1, ()> for State {
+    fn event(
+        state: &mut Self,
+        _: &ZwpLinuxDmabufFeedbackV1,
+        event: zwp_linux_dmabuf_feedback_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        use zwp_linux_dmabuf_feedback_v1::Event;
+        let feedback = &mut state.feedback;
+        match event {
+            Event::FormatTable { fd, size } => feedback.table = read_format_table(fd, size as usize),
+            Event::MainDevice { device } => feedback.pending_main = dev_t(&device),
+            Event::TrancheTargetDevice { device } => feedback.tranche_device = dev_t(&device),
+            Event::TrancheFormats { indices } => {
+                feedback.tranche.extend(indices.as_chunks::<2>().0.iter().map(|i| u16::from_ne_bytes(*i)));
+            }
+            Event::TrancheDone => {
+                let indices = std::mem::take(&mut feedback.tranche);
+                if let Some(device) = feedback.tranche_device.take() {
+                    feedback.pending.push((device, indices));
+                }
+            }
+            Event::Done => feedback.done(),
+            _ => {}
+        }
+    }
+}
+
+/// The feedback's format table: (fourcc, modifier) pairs, 16 bytes each.
+fn read_format_table(fd: std::os::fd::OwnedFd, size: usize) -> Vec<(u32, u64)> {
+    use std::os::unix::fs::FileExt;
+    let mut bytes = vec![0; size];
+    if let Err(e) = std::fs::File::from(fd).read_exact_at(&mut bytes, 0) {
+        tracing::debug!("cannot read the compositor's GPU buffer formats: {e}");
+        return Vec::new();
+    }
+    bytes
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .map(|entry| {
+            let fourcc = u32::from_ne_bytes(entry[..4].try_into().expect("4 bytes"));
+            (fourcc, u64::from_ne_bytes(entry[8..].try_into().expect("8 bytes")))
+        })
+        .collect()
 }
 
 impl Dispatch<ExtForeignToplevelListV1, ()> for State {

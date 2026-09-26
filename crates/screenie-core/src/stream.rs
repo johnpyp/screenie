@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{Dmabuf, DmabufFormat, GpuOffer, Image};
+use crate::{Dmabuf, DmabufFormat, GpuDevice, GpuOffer, Image};
 
 pub type SourceError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -68,6 +68,12 @@ pub trait FrameSource: Send {
     /// Produce at most `fps` frames a second. Sources that can stop the compositor
     /// making more than that (rather than dropping the rest) do.
     fn pace(&mut self, _fps: u32) {}
+
+    /// The GPU frames are rendered on, where known (once a frame has come): the
+    /// encoder there is the best one, even for frames that come as CPU images.
+    fn gpu(&self) -> Option<GpuDevice> {
+        self.gpu_offer().map(|offer| offer.device)
+    }
 
     /// The GPU buffers frames could come in instead, known once a frame has come.
     fn gpu_offer(&self) -> Option<GpuOffer> {

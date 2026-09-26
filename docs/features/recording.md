@@ -92,20 +92,23 @@ Settings:
   orientation. It never scales up and keeps the aspect ratio. A 4K screen at `1080p`
   is a quarter of the pixels to encode and store.
 
-- **Frames stay on the GPU** where the compositor offers GPU buffers
-  (`ext-image-copy-capture-v1` with a DMA-BUF device, e.g. sway 1.10+). screenie
-  allocates them with GBM on the compositor's GPU, in a format and layout (modifier)
-  both the compositor and the encoder's converter take, and the compositor renders each
-  frame into one: no read-back for the compositor and no copy for us, since the
+- **Frames stay on the GPU** where the compositor takes GPU buffers:
+  `ext-image-copy-capture-v1` with a DMA-BUF device (sway 1.10+), or
+  `wlr-screencopy-unstable-v1` v3, whose buffer format gets its GPU and layouts from
+  linux-dmabuf's feedback (v4+). screenie allocates them with GBM on the compositor's
+  GPU, in a format and layout (modifier) both the compositor and the encoder's
+  converter take, and the compositor renders each frame into one: no read-back for the compositor and no copy for us, since the
   converter imports the buffer directly. A buffer goes back to the capture pool once
   the converter is done with it. Otherwise frames come through shared memory,
   double-buffered so the compositor copies the next frame while this one is read: on
-  rotated outputs, once a recorded window is resized, on compositors without GPU
-  buffers, and with GStreamer before 1.24.
+  rotated or flipped outputs, once a recorded window is resized, on compositors without
+  GPU buffers, and with GStreamer before 1.24.
 - **Encoders** are found in the GStreamer registry, whatever the vendor: VA-API (AMD,
   Intel, and any GPU with a VA driver, one element set per GPU), NVENC (NVIDIA),
-  gstreamer-vaapi, V4L2 (SoCs), then x264 and OpenH264. Hardware on the GPU holding the
-  frames comes first, then other hardware, then software, and `recording.encoder`
+  gstreamer-vaapi, V4L2 (SoCs), then x264 and OpenH264. Hardware on the GPU the
+  compositor renders with comes first (known from the capture protocol, else from
+  linux-dmabuf's feedback, so frames in memory go there too, not to an iGPU that
+  happens to be listed first), then other hardware, then software, and `recording.encoder`
   (`auto`/`hardware`/`software`) filters the list. Each is probed once by encoding test
   frames through the same conversion a recording uses: VA-API elements exist whenever
   the plugin does, driver or not. Encoders whose size limits (read from their pad

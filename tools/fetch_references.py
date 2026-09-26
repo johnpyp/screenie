@@ -62,9 +62,7 @@ def load_manifest() -> list[Reference]:
 
 
 def git(*args: str, cwd: Path) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
     return result.stdout.strip()
@@ -145,9 +143,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip())
     parser.add_argument("names", nargs="*", help="only sync these references")
     parser.add_argument("--list", action="store_true", help="show references and status")
-    parser.add_argument(
-        "--force", action="store_true", help="discard local modifications when syncing"
-    )
+    parser.add_argument("--force", action="store_true", help="discard local modifications when syncing")
     args = parser.parse_args()
 
     refs = load_manifest()

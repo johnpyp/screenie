@@ -160,6 +160,11 @@ impl Capturer {
         if state.shm.is_none() {
             return Err(Error::Unsupported("compositor has no wl_shm".into()));
         }
+        // Which GPU the compositor renders with, and what it takes: arrives with the
+        // roundtrips below. (v6 drops the main device, so this binds at most v5.)
+        if let Some(linux_dmabuf) = state.linux_dmabuf.as_ref().filter(|d| d.version() >= 4) {
+            linux_dmabuf.get_default_feedback(&qh, ());
+        }
 
         let ext = state.ext_copy.is_some() && state.ext_output_sources.is_some();
         let wlr = state.wlr_screencopy.is_some();
@@ -302,6 +307,7 @@ impl Capturer {
             protocol,
             cursor,
             constraints: Constraints::default(),
+            incoming: Constraints::default(),
             buffer: None,
             spare: None,
             gpu: None,
@@ -392,7 +398,7 @@ impl Capturer {
             let Target::Output(output) = cap.target else { unreachable!("wlr only captures outputs") };
             let wl_output = outputs[output].wl_output.as_ref().expect("bound output");
             let overlay = cap.cursor as i32;
-            cap.constraints = Constraints::default();
+            cap.incoming = Constraints::default();
             *frame = Some(match region {
                 Some(r) => {
                     let r = r.round();
@@ -670,6 +676,9 @@ pub struct FrameStream {
     latency: Duration,
     /// When the frame in flight was asked for.
     requested: Option<Instant>,
+    /// Whether frames come the right way up (wlr may flip them): GPU buffers can't be
+    /// flipped on the way.
+    upright: bool,
     stats: Stats,
 }
 
@@ -690,6 +699,7 @@ impl FrameStream {
             pacer: Pacer::new(None),
             latency: Duration::ZERO,
             requested: None,
+            upright: true,
             stats: Stats::default(),
         }
     }
@@ -745,6 +755,12 @@ impl FrameStream {
                         self.stats.latency_max = self.stats.latency_max.max(took);
                     }
                     let presented = self.capture().presented;
+                    if self.capture().y_invert && matches!(self.capture().in_flight, Some(InFlight::Gpu(_))) {
+                        tracing::info!("the compositor flips GPU frames; taking them through memory");
+                        self.upright = false;
+                        self.use_gpu(None)?;
+                        continue;
+                    }
                     let ready = self.capturer.take_ready(self.slot)?;
                     // Get the compositor working on the next frame (if it's due) while
                     // this one is read.
@@ -752,6 +768,7 @@ impl FrameStream {
                     self.stats.frames += 1;
                     let pixels = match ready {
                         Ready::Shm { buffer, y_invert, transform } => {
+                            self.upright = !y_invert;
                             let mut image = buffer.to_image(y_invert, transform);
                             self.capturer.recycle(self.slot, buffer);
                             if let Some(crop) = &self.crop {
@@ -783,12 +800,19 @@ impl FrameStream {
         }
     }
 
+    /// The GPU the compositor renders frames on, where it says: the encoder on it is
+    /// the best one even for frames in memory.
+    pub fn gpu(&self) -> Option<GpuDevice> {
+        let dev = self.capture().constraints.dmabuf_device.or(self.capturer.state.feedback.main_device)?;
+        Some(GpuDevice::from_dev(dev))
+    }
+
     /// The GPU buffers the compositor could render frames into, once it has said (with
-    /// the first frame). Only upright frames: a rotated output's would need turning.
+    /// the first frame). Only upright frames: a rotated or flipped one would need turning.
     pub fn gpu_offer(&self) -> Option<GpuOffer> {
         self.capturer.state.linux_dmabuf.as_ref()?;
         let cap = self.capture();
-        if cap.transform != Transform::Normal || cap.constraints.dmabuf_formats.is_empty() {
+        if cap.transform != Transform::Normal || !self.upright || cap.constraints.dmabuf_formats.is_empty() {
             return None;
         }
         let device = GpuDevice::from_dev(cap.constraints.dmabuf_device?);
@@ -882,6 +906,10 @@ impl screenie_core::FrameSource for FrameStream {
 
     fn pace(&mut self, fps: u32) {
         self.set_max_rate(fps);
+    }
+
+    fn gpu(&self) -> Option<GpuDevice> {
+        FrameStream::gpu(self)
     }
 
     fn gpu_offer(&self) -> Option<GpuOffer> {

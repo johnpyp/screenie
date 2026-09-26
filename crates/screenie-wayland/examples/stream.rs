@@ -9,6 +9,8 @@ use screenie_core::{DmabufFormat, Pixels};
 use screenie_wayland::{Backend, Capturer};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // RUST_LOG=debug shows what the compositor says about GPU buffers.
+    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let output = args.first().ok_or("usage: stream OUTPUT [SECONDS] [ext|wlr] [gpu|offer] [FPS]")?;
     let seconds: f64 = args.get(1).map(|s| s.parse()).transpose()?.unwrap_or(5.0);

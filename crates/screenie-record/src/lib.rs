@@ -182,7 +182,8 @@ impl Recording {
         // What the stream says it is; frames are timestamped as they come either way.
         let fps = cap.unwrap_or(60);
         let offer = source.gpu_offer();
-        let encoder = Encoder::candidates(spec.encoder, size, offer.as_ref().map(|o| &o.device))
+        let gpu = source.gpu();
+        let encoder = Encoder::candidates(spec.encoder, size, gpu.as_ref())
             .into_iter()
             .next()
             .ok_or(Error::NoEncoder)?;

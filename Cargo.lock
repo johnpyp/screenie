@@ -6544,6 +6544,7 @@ dependencies = [
  "screenie-core",
  "thiserror 2.0.21",
  "tracing",
+ "tracing-subscriber",
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",

@@ -13,10 +13,12 @@ to grim.
     presentation time.
   - Frames of a stream come in shared memory (two buffers, so the compositor copies one
     while the other is read) or, after `use_gpu(format)`, in GPU buffers: `gpu_offer()`
-    says which GPU and formats the compositor renders into (ext-image-copy-capture),
-    and `dmabuf` allocates a pool on that GPU with GBM, leasing each buffer out until
-    the consumer lets go of its frame. `snapshot()` is the stream's current picture in
-    memory, e.g. for a thumbnail of GPU frames.
+    says which GPU and formats the compositor renders into, and `dmabuf` allocates a
+    pool on that GPU with GBM, leasing each buffer out until the consumer lets go of its
+    frame. ext says the GPU and formats itself; wlr names a format, and the GPU and
+    its layouts come from linux-dmabuf's default feedback (`state::Feedback`), which
+    also answers `gpu()` for streams in memory. `snapshot()` is the stream's current
+    picture in memory, e.g. for a thumbnail of GPU frames.
   - `into_window_stream(window, cursor)` streams one window by itself
     (`ext-foreign-toplevel-image-capture-source-v1`), found through
     `ext-foreign-toplevel-list-v1` by identifier, or by app id and title. Its frames
@@ -28,5 +30,5 @@ to grim.
 
 ```sh
 cargo run -p screenie-wayland --example snap -- [dir] [ext|wlr] [--stream N]
-cargo run --release -p screenie-wayland --example stream -- OUTPUT [SECONDS] [ext|wlr] [shm|gpu|offer] [FPS]  # capture rate alone
+RUST_LOG=debug cargo run --release -p screenie-wayland --example stream -- OUTPUT [SECONDS] [ext|wlr] [shm|gpu|offer] [FPS]  # capture rate alone
 ```

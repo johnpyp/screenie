@@ -10,10 +10,13 @@ must be running):
 `region` records an odd-sized part of the output around the demo, which exercises cropping.
 
 e.g. `... screen 6 "resolution: native, framerate: native"`, or `... screen 4 "" appsrc:5`
-to see GStreamer's view in the daemon log.
+to see GStreamer's view in the daemon log. `SCREENIE_CONFIG` adds to the daemon's
+config, e.g. `SCREENIE_CONFIG="advanced: { capture_backend: wlr }"` to capture with
+wlr-screencopy.
 """
 
 import itertools
+import os
 import re
 import subprocess
 import sys
@@ -45,7 +48,7 @@ def record(big: str) -> Daemon:
     daemon = Daemon(session, home)
     if len(sys.argv) > 4:
         daemon.env["GST_DEBUG"] = sys.argv[4]
-    daemon.config(f"recording: {{ countdown: 0, {settings} }}\n")
+    daemon.config(f"recording: {{ countdown: 0, {settings} }}\n{os.environ.get('SCREENIE_CONFIG', '')}\n")
     daemon.start()
     try:
         wait_for(lambda: session.window("simple-egl"), "the demo", timeout=10)

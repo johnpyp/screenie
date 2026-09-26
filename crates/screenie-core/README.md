@@ -18,8 +18,8 @@ The vocabulary every other crate shares. It has no Wayland or GUI dependencies.
   The recorder consumes it; screencopy (and later PipeWire) implement it. `pace(fps)`
   asks a source for fewer frames, and `Pacer` is the fixed clock both sides tick on. A
   `Frame` is `Pixels` (an `Image`, or a `Dmabuf` on the GPU) and when it was presented.
-  `gpu_offer()` / `use_gpu(format)` switch a source to GPU buffers, and `snapshot()`
-  gets its picture in memory.
+  `gpu()` says which GPU frames are rendered on, `gpu_offer()` / `use_gpu(format)`
+  switch a source to GPU buffers, and `snapshot()` gets its picture in memory.
 - **`gpu`**: `GpuDevice` (which GPU a device number is, from sysfs: render node,
   vendor, driver, bus), so frames and encoders are matched by device, not vendor.
   `DmabufFormat` (a DRM fourcc and its modifiers), `GpuOffer`, and `Dmabuf`, a frame in
