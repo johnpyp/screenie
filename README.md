@@ -95,10 +95,10 @@ screenie shot window               # the focused window
 screenie shot window -i            # click a window
 screenie shot screen               # the focused screen
 screenie shot screen -i            # click a screen
-screenie shot screen --output-name DP-1
+screenie shot screen DP-1          # that screen
 screenie shot all                  # every screen as one image
 screenie shot last                 # the same region as last time
-screenie shot --region "100,100 800x600"
+screenie shot region "100,100 800x600"
 screenie shot --delay 3 --cursor
 ```
 

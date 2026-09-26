@@ -9,54 +9,77 @@ file print its path on stdout (`screenie record` prints the path it's recording 
 
 ## Screenshots
 
-| Command | What happens |
+`screenie shot [TARGET] [OPTIONS]`. Each target takes only the arguments that fit it,
+and the options can go before or after it.
+
+| Target | What happens |
 | --- | --- |
-| `screenie shot` | Freeze all outputs, show the selector in area mode. |
-| `screenie shot pick` | The same. |
-| `screenie shot window` | Focused window, no UI (needs compositor IPC). |
-| `screenie shot window -i` | Selector in window mode (click a window). |
-| `screenie shot screen` | Focused output, no UI. `--output-name DP-1` picks one. |
-| `screenie shot screen -i` | Selector in screen mode (click a screen). |
-| `screenie shot all` | Every output stitched into one image at the highest scale. |
-| `screenie shot last` | Same region as the previous capture, even across daemon restarts. |
-| `screenie shot --region "X,Y WxH"` | That logical region, no UI. `WxH+X+Y` also parses. |
+| (none) | Same as `pick`. |
+| `pick` | Freeze all outputs, show the selector in area mode. |
+| `window` | The focused window, no UI. Needs compositor IPC. |
+| `window -i` | The selector in window mode. |
+| `screen` | The focused output, no UI. |
+| `screen DP-1` | That output. |
+| `screen -i` | The selector in screen mode. |
+| `all` | Every output stitched into one image, at the highest scale. |
+| `last` | The previous capture's region, even across daemon restarts. |
+| `region "X,Y WxH"` | That logical region, no UI. `WxH+X+Y` also parses. |
 
-`--delay N` waits first, `--cursor` includes the pointer. `--copy/--no-copy`,
-`--save/--no-save`, `--no-preview` and `--edit` override `screenshot.after_capture`.
-`-o PATH` implies saving: a file (`.png` added if it has no extension, an existing file
-replaced) or a directory (one that exists, or a path ending in `/`), which gets a
-configured name. `--stdout` writes the PNG bytes to stdout.
+| Option | |
+| --- | --- |
+| `-d N`, `--delay N` | Wait N seconds first. |
+| `--cursor` | Include the pointer. |
+| `--copy`, `--no-copy` | Override `screenshot.after_capture.copy`. |
+| `--save`, `--no-save` | Override `screenshot.after_capture.save`. |
+| `--no-preview` | Override `screenshot.after_capture.preview`. |
+| `--edit` | Override `screenshot.after_capture.edit`. |
+| `-o FILE` | Save to FILE. `.png` is added if it has no extension, and an existing file is replaced. |
+| `-o DIR/` | Save into DIR, with the configured name. Also used when the path is an existing directory. |
+| `--stdout` | Write the PNG to stdout. |
 
-`-i` (`--interactive`) only applies to `window` and `screen`, and can't be combined with
-`--region` or `--output-name`.
-
-`shot --edit` waits for the editor: it prints the saved file, if any, and exits 1 if the
+`shot --edit` waits for the editor. It prints the saved file, if any, and exits 1 if the
 editor closed without Done and nothing was copied or saved.
 
-Pressing a shortcut again while its selector is up does what you'd expect: the same one
-closes it, another selection mode switches it, and a capture without a selector
-(`shot window`, `shot screen`, `shot all`, `shot last`, `--region`) is taken from the frozen desktop
-the selector shows.
+Pressing a shortcut again while its selector is up:
+
+- The same shortcut closes it.
+- Another selection mode switches it.
+- A capture without a selector (`window`, `screen`, `all`, `last`, `region`) is taken
+  from the frozen desktop the selector shows.
 
 ## Recording
 
+`screenie record [TARGET] [OPTIONS]`, with the same targets as `shot` except `all`. A
+recording covers one output. While one is running, `screenie record` stops it.
+
+| Target | What happens |
+| --- | --- |
+| (none) | Same as `pick`. |
+| `pick` | The live selector with audio toggles, then **Record**. |
+| `window` | The focused window. |
+| `window -i` | The live selector in window mode. |
+| `screen` | The focused output. |
+| `screen DP-1` | That output. |
+| `screen -i` | The live selector in screen mode. |
+| `last` | The previous region. |
+| `region "X,Y WxH"` | That region, no selector. |
+
+| Option | |
+| --- | --- |
+| `--audio` | Record system audio. |
+| `--mic` | Record the microphone. |
+| `-o FILE` | Save to FILE. |
+| `--no-toggle` | Fail instead of stopping a running recording. |
+
 | Command | What happens |
 | --- | --- |
-| `screenie record` | Live selector with audio toggles, then **Record**. Stops the running recording instead, if there is one. |
-| `screenie record window` | The focused window. |
-| `screenie record window -i` | Live selector in window mode. |
-| `screenie record screen` | The focused output. |
-| `screenie record screen -i` | Live selector in screen mode. |
-| `screenie record last` | The previous region. |
-| `screenie record --region "X,Y WxH"` | That region, no selector. |
 | `screenie stop` | Stop and save. Cancels a countdown. |
 | `screenie pause` | Pause or resume. |
 | `screenie cancel` | Stop and delete. |
 
-`--audio` / `--mic` turn on system audio and the microphone, `-o FILE` picks the path,
-and `--no-toggle` fails instead of stopping a running recording. `stop`, `pause` and
-`cancel` exit 0 when they did what they say (`stop` during the countdown exits 1, as
-nothing was recorded), and 2 with nothing recording. They never start the daemon.
+`stop`, `pause` and `cancel` never start the daemon. They exit 0 when they did what they
+say, and 2 with nothing recording. `stop` during the countdown exits 1, as nothing was
+recorded.
 
 ## Queries
 

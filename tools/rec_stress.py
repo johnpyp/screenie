@@ -66,7 +66,7 @@ def record(big: str) -> Daemon:
         elif mode == "region":
             o = session.outputs()[big].rect
             region = f"{o.x + o.width // 4 + 1},{o.y + o.height // 4 + 1} {o.width // 2 + 1}x{o.height // 2 + 1}"
-            daemon.spawn("record", "--region", region, "-o", str(out))
+            daemon.spawn("record", "region", region, "-o", str(out))
         else:
             daemon.spawn("record", "screen", "-o", str(out))
         daemon.wait_status("recording", timeout=10)

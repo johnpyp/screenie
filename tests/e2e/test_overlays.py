@@ -54,7 +54,7 @@ def escapes(game, input, overlay):
 @pytest.mark.config("recording:\n  countdown: 0\n")
 def test_a_locked_pointer_cant_be_trapped_on_the_pill_or_a_card(session, daemon, input, game, home):
     input.move(*GAME)
-    daemon.spawn("record", "--region", REGION, "-o", str(home / "out.mp4"))
+    daemon.spawn("record", "region", REGION, "-o", str(home / "out.mp4"))
     daemon.wait_status("recording", timeout=10)
     escapes(game, input, PILL)
 

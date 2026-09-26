@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-EDIT = ("shot", "-r", "200,200 600x400", "--edit")
+EDIT = ("shot", "region", "200,200 600x400", "--edit")
 
 
 @pytest.mark.parametrize(

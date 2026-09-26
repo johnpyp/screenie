@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-REGION = ("-r", "200,200 600x400")
+REGION = ("region", "200,200 600x400")
 
 
 def draw_rectangle(input):
@@ -15,7 +15,7 @@ def test_extra_edit_captures_become_cards(daemon):
     editing = daemon.open_editor(*REGION)
     mark = daemon.mark()
     # Doesn't wait for an edit: delivered straight away, to a preview card.
-    second = daemon.cli("shot", "-r", "900,500 300x200", "--edit", timeout=5)
+    second = daemon.cli("shot", "region", "900,500 300x200", "--edit", timeout=5)
     assert second.returncode == 0, second.stderr
     daemon.wait_log(r"screenshot delivered", after=mark)
     assert daemon.status() == "editing"

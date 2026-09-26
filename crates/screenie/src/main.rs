@@ -69,42 +69,108 @@ enum Command {
     Quit,
 }
 
-#[derive(Clone, Copy, ValueEnum, Default)]
+/// What to capture. With none, `pick`.
+#[derive(Subcommand)]
 enum ShotTarget {
     /// Drag an area, click a window, or press Enter to capture the whole screen.
-    #[default]
     Pick,
-    /// The focused window, or the one you click with `-i`.
-    Window,
-    /// The focused screen, or the one you click with `-i`.
-    Screen,
+    /// The focused window.
+    Window(WindowTarget),
+    /// The focused screen, or the one named.
+    Screen(ScreenTarget),
     /// All screens as one image.
     All,
     /// The same region as last time.
     Last,
+    /// A region of the desktop.
+    Region(RegionTarget),
+}
+
+/// What to record. With none, `pick`.
+#[derive(Subcommand)]
+enum RecordTarget {
+    /// Pick an area, window or screen, then press Record.
+    Pick,
+    /// The focused window.
+    Window(WindowTarget),
+    /// The focused screen, or the one named.
+    Screen(ScreenTarget),
+    /// The same region as last time.
+    Last,
+    /// A region of the desktop.
+    Region(RegionTarget),
 }
 
 #[derive(Args)]
+struct WindowTarget {
+    /// Click the window instead.
+    #[arg(short, long)]
+    interactive: bool,
+}
+
+impl WindowTarget {
+    fn target(self) -> Target {
+        if self.interactive {
+            Target::Select {
+                mode: SelectMode::Window,
+            }
+        } else {
+            Target::ActiveWindow
+        }
+    }
+}
+
+#[derive(Args)]
+struct ScreenTarget {
+    /// The screen's connector name, such as DP-1.
+    #[arg(conflicts_with = "interactive")]
+    name: Option<String>,
+    /// Click the screen instead.
+    #[arg(short, long)]
+    interactive: bool,
+}
+
+impl ScreenTarget {
+    fn target(self) -> Target {
+        if self.interactive {
+            Target::Select {
+                mode: SelectMode::Screen,
+            }
+        } else {
+            Target::Screen { output: self.name }
+        }
+    }
+}
+
+#[derive(Args)]
+struct RegionTarget {
+    /// "X,Y WxH" or "WxH+X+Y", in logical coordinates.
+    #[arg(value_parser = parse_rect)]
+    rect: Rect,
+}
+
+/// What happens to a screenshot, overriding `screenshot.after_capture`.
+#[derive(Args)]
 struct Delivery {
-    /// Copy to the clipboard (overrides settings).
-    #[arg(long, overrides_with = "no_copy")]
+    /// Copy to the clipboard.
+    #[arg(long, global = true, overrides_with = "no_copy")]
     copy: bool,
-    #[arg(long, hide = true)]
+    #[arg(long, global = true, hide = true)]
     no_copy: bool,
-    /// Save to the screenshots folder (overrides settings).
-    #[arg(long, overrides_with = "no_save")]
+    /// Save to the screenshots folder.
+    #[arg(long, global = true, overrides_with = "no_save")]
     save: bool,
     /// Don't save a file.
-    #[arg(long)]
+    #[arg(long, global = true)]
     no_save: bool,
     /// Don't show the preview card.
-    #[arg(long)]
+    #[arg(long, global = true)]
     no_preview: bool,
     /// Open the capture in the editor.
-    #[arg(long)]
+    #[arg(long, global = true)]
     edit: bool,
-    /// Save to this path.
-    #[arg(short, long)]
+    /// Save to this file, or into this directory.
+    #[arg(short, long, global = true)]
     output: Option<PathBuf>,
 }
 
@@ -128,96 +194,54 @@ impl Delivery {
     }
 }
 
+// The options are global so they can follow the target: `screenie shot window --copy`.
 #[derive(Args)]
+#[command(
+    disable_help_subcommand = true,
+    subcommand_value_name = "TARGET",
+    subcommand_help_heading = "Targets"
+)]
 struct ShotArgs {
-    /// What to capture.
-    #[arg(value_enum, default_value_t)]
-    target: ShotTarget,
-    /// Choose the window or screen in the selector.
-    #[arg(short, long)]
-    interactive: bool,
-    /// Capture this region instead: "X,Y WxH" or "WxH+X+Y" in logical coordinates.
-    #[arg(short, long, value_parser = parse_rect, conflicts_with_all = ["target", "interactive"])]
-    region: Option<Rect>,
-    /// Capture this output (connector name, e.g. DP-1).
-    #[arg(long, conflicts_with = "interactive")]
-    output_name: Option<String>,
+    #[command(subcommand)]
+    target: Option<ShotTarget>,
     /// Wait this many seconds first.
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(short, long, global = true, default_value_t = 0)]
     delay: u32,
     /// Include the mouse cursor.
-    #[arg(long)]
+    #[arg(long, global = true)]
     cursor: bool,
     /// Write the PNG to stdout.
-    #[arg(long)]
+    #[arg(long, global = true)]
     stdout: bool,
     #[command(flatten)]
     delivery: Delivery,
 }
 
-#[derive(Clone, Copy, ValueEnum, Default)]
-enum RecordTarget {
-    /// Pick an area, window or screen, then press Record.
-    #[default]
-    Pick,
-    /// The focused window, or the one you click with `-i`.
-    Window,
-    /// The focused screen, or the one you click with `-i`.
-    Screen,
-    /// The same region as last time.
-    Last,
-}
-
 #[derive(Args)]
+#[command(
+    disable_help_subcommand = true,
+    subcommand_value_name = "TARGET",
+    subcommand_help_heading = "Targets"
+)]
 struct RecordArgs {
-    /// What to record.
-    #[arg(value_enum, default_value_t)]
-    target: RecordTarget,
-    /// Choose the window or screen in the selector.
-    #[arg(short, long)]
-    interactive: bool,
-    /// Record this region instead: "X,Y WxH" or "WxH+X+Y" in logical coordinates.
-    #[arg(short, long, value_parser = parse_rect, conflicts_with_all = ["target", "interactive"])]
-    region: Option<Rect>,
+    #[command(subcommand)]
+    target: Option<RecordTarget>,
     /// Record system audio.
-    #[arg(long)]
+    #[arg(long, global = true)]
     audio: bool,
     /// Record the microphone.
-    #[arg(long)]
+    #[arg(long, global = true)]
     mic: bool,
-    /// Save to this path.
-    #[arg(short, long)]
+    /// Save to this file.
+    #[arg(short, long, global = true)]
     output: Option<PathBuf>,
     /// Fail instead of stopping a running recording.
-    #[arg(long)]
+    #[arg(long, global = true)]
     no_toggle: bool,
 }
 
 fn parse_rect(s: &str) -> Result<Rect, String> {
     s.parse()
-}
-
-/// A window or screen: the focused one, or the one the user picks with `-i`.
-fn focused_or_picked(interactive: bool, mode: SelectMode) -> Target {
-    match (interactive, mode) {
-        (true, mode) => Target::Select { mode },
-        (false, SelectMode::Window) => Target::ActiveWindow,
-        (false, _) => Target::Screen { output: None },
-    }
-}
-
-/// `-i` only means something for a window or a screen.
-fn check_interactive(subcommand: &str, interactive: bool, pickable: bool) {
-    if interactive && !pickable {
-        let mut cli = <Cli as clap::CommandFactory>::command();
-        cli.build();
-        let cmd = cli.find_subcommand_mut(subcommand).expect("a subcommand");
-        cmd.error(
-            clap::error::ErrorKind::ArgumentConflict,
-            "--interactive applies to `window` and `screen`",
-        )
-        .exit();
-    }
 }
 
 fn main() -> ExitCode {
@@ -323,23 +347,14 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
     let response = match command {
         Command::Shot(args) => return shot(args),
         Command::Record(args) => {
-            check_interactive(
-                "record",
-                args.interactive,
-                matches!(args.target, RecordTarget::Window | RecordTarget::Screen),
-            );
-            let target = match (args.region, args.target) {
-                (Some(rect), _) => Target::Region { rect },
-                (None, RecordTarget::Pick) => Target::Select {
+            let target = match args.target.unwrap_or(RecordTarget::Pick) {
+                RecordTarget::Pick => Target::Select {
                     mode: SelectMode::Area,
                 },
-                (None, RecordTarget::Window) => {
-                    focused_or_picked(args.interactive, SelectMode::Window)
-                }
-                (None, RecordTarget::Screen) => {
-                    focused_or_picked(args.interactive, SelectMode::Screen)
-                }
-                (None, RecordTarget::Last) => Target::LastRegion,
+                RecordTarget::Window(window) => window.target(),
+                RecordTarget::Screen(screen) => screen.target(),
+                RecordTarget::Last => Target::LastRegion,
+                RecordTarget::Region(region) => Target::Region { rect: region.rect },
             };
             request(&Request::Record(RecordRequest {
                 target,
@@ -404,23 +419,15 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
 }
 
 fn shot(args: ShotArgs) -> anyhow::Result<ExitCode> {
-    check_interactive(
-        "shot",
-        args.interactive,
-        matches!(args.target, ShotTarget::Window | ShotTarget::Screen),
-    );
-    let target = match (args.region, args.output_name) {
-        (Some(rect), _) => Target::Region { rect },
-        (None, Some(name)) => Target::Screen { output: Some(name) },
-        (None, None) => match args.target {
-            ShotTarget::Pick => Target::Select {
-                mode: SelectMode::Area,
-            },
-            ShotTarget::Window => focused_or_picked(args.interactive, SelectMode::Window),
-            ShotTarget::Screen => focused_or_picked(args.interactive, SelectMode::Screen),
-            ShotTarget::All => Target::AllScreens,
-            ShotTarget::Last => Target::LastRegion,
+    let target = match args.target.unwrap_or(ShotTarget::Pick) {
+        ShotTarget::Pick => Target::Select {
+            mode: SelectMode::Area,
         },
+        ShotTarget::Window(window) => window.target(),
+        ShotTarget::Screen(screen) => screen.target(),
+        ShotTarget::All => Target::AllScreens,
+        ShotTarget::Last => Target::LastRegion,
+        ShotTarget::Region(region) => Target::Region { rect: region.rect },
     };
     let response = request(&Request::Screenshot(ScreenshotRequest {
         target,

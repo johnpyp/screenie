@@ -21,7 +21,7 @@ def test_editor_shows_the_capture_in_place(session, daemon, input, home, output,
     before = session.screenshot(home / "before.png")
 
     shot = daemon.open_editor(
-        "-r", f"{region.x:.0f},{region.y:.0f} {region.width:.0f}x{region.height:.0f}"
+        "region", f"{region.x:.0f},{region.y:.0f} {region.width:.0f}x{region.height:.0f}"
     )
     after = session.screenshot(home / "after.png")
     for p in inside:

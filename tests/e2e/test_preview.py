@@ -10,7 +10,7 @@ from harness import wait_for
 
 # A 400x300 capture on HEADLESS-1 (1920x1080) makes a 236x177 card in the bottom right
 # corner, 18 from the edges.
-SHOT = ("shot", "-r", "100,100 400x300")
+SHOT = ("shot", "region", "100,100 400x300")
 CARD = (1920 - 18 - 118, 1080 - 18 - 88)
 
 
