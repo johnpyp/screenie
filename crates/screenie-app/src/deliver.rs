@@ -126,9 +126,11 @@ pub(crate) fn output_path(output: &Path, config: &Config, capture: &Capture) -> 
     }
 }
 
+/// PNG-encode a capture. Fast compression: a 4K screen takes a few tens of
+/// milliseconds rather than half a second, for files a little larger.
 pub(crate) fn encode_png(image: &Image) -> anyhow::Result<Vec<u8>> {
     let mut out = Vec::new();
-    image.write_png(&mut out, png::Compression::Balanced)?;
+    image.write_png(&mut out, png::Compression::Fast)?;
     Ok(out)
 }
 

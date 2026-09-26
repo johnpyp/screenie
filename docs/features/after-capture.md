@@ -33,6 +33,10 @@ screens at once) never share one. Writes are atomic, and a failed one leaves not
 behind. A capture whose file can't be written is still copied and previewed, so it
 isn't lost; the CLI reports the error.
 
+PNGs are written with fast compression: a 4K screen encodes in a few tens of
+milliseconds instead of half a second, so the card and the clipboard aren't kept
+waiting, for files somewhat larger than the smallest possible.
+
 ## Clipboard
 
 The daemon owns the clipboard, because Wayland clipboards die with their owner. It
