@@ -152,7 +152,7 @@ pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
     }
 }
 
-/// Stop and delete.
+/// Stop and delete. Discarding is what was asked for, so it's a success.
 pub(crate) async fn cancel(cx: &mut AsyncApp) -> Response {
     let Some(active) = take_active(cx) else {
         return Response::error("nothing is being recorded");
@@ -162,7 +162,7 @@ pub(crate) async fn cancel(cx: &mut AsyncApp) -> Response {
             .spawn(async move { recording.cancel() })
             .await;
     }
-    Response::Cancelled
+    Response::Ok
 }
 
 pub(crate) fn toggle_pause(cx: &mut App) -> Response {

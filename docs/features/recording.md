@@ -18,6 +18,9 @@ for GNOME/KDE, and GIF export, are planned.
 
 `--audio` / `--mic` turn on system audio / the microphone, and `-o FILE` picks the
 output path. `--no-toggle` fails instead of stopping a running recording.
+`stop`, `pause` and `cancel` exit 0 when they did what they say (`stop` during the
+countdown exits 1, as nothing was recorded). With nothing recording they say so and exit
+2, and they never start the daemon to find that out.
 `screenie query status --watch` prints a line per change, and one per second while
 recording, for status bars (see the README for the formats).
 

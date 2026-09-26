@@ -10,9 +10,10 @@
 //! ```
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use anyhow::Context;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use screenie_core::Rect;
 use screenie_ipc::{
@@ -290,6 +291,16 @@ fn request(req: &Request) -> anyhow::Result<Response> {
     Ok(Client::connect_or_spawn()?.request(req)?)
 }
 
+/// Send `req` to the running daemon, or answer `otherwise` if there is none. For commands
+/// that act on what the daemon is doing: starting one just to hear it's doing nothing
+/// would leave it resident for no reason.
+fn request_running(req: &Request, otherwise: Response) -> anyhow::Result<Response> {
+    match Client::connect() {
+        Ok(client) => Ok(client.request(req)?),
+        Err(_) => Ok(otherwise),
+    }
+}
+
 fn run(command: Command) -> anyhow::Result<ExitCode> {
     let response = match command {
         Command::Shot(args) => return shot(args),
@@ -314,15 +325,15 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
                 toggle: !args.no_toggle,
             }))?
         }
-        Command::Stop => request(&Request::RecordStop)?,
-        Command::Pause => request(&Request::RecordPause)?,
-        Command::Cancel => request(&Request::RecordCancel)?,
+        Command::Stop => request_running(&Request::RecordStop, not_recording())?,
+        Command::Pause => request_running(&Request::RecordPause, not_recording())?,
+        Command::Cancel => request_running(&Request::RecordCancel, not_recording())?,
         Command::Settings => request(&Request::Settings)?,
         Command::Edit { file } => request(&Request::Edit {
-            path: std::fs::canonicalize(file)?,
+            path: existing(&file)?,
         })?,
         Command::Pin { file } => request(&Request::Pin {
-            path: std::fs::canonicalize(file)?,
+            path: existing(&file)?,
         })?,
         Command::Query(Query::Last { kind, json, watch }) => {
             let kind = kind.map(|k| match k {
@@ -365,10 +376,7 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
                 args.watch,
             );
         }
-        Command::Quit => match Client::connect() {
-            Ok(client) => client.request(&Request::Quit)?,
-            Err(_) => Response::Ok, // not running
-        },
+        Command::Quit => request_running(&Request::Quit, Response::Ok)?,
         Command::Daemon => unreachable!("handled in main"),
     };
     report(response, false)
@@ -403,6 +411,16 @@ fn shot(args: ShotArgs) -> anyhow::Result<ExitCode> {
         cursor: args.cursor.then_some(true),
     }))?;
     report(response, args.stdout)
+}
+
+/// What the daemon itself says when asked to stop a recording that isn't there.
+fn not_recording() -> Response {
+    Response::error("nothing is being recorded")
+}
+
+/// The absolute path of a file the user named, which must exist.
+fn existing(file: &Path) -> anyhow::Result<PathBuf> {
+    std::fs::canonicalize(file).with_context(|| format!("can't open {}", file.display()))
 }
 
 fn absolute(path: PathBuf) -> PathBuf {
