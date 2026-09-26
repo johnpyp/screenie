@@ -6,11 +6,12 @@ The annotation editor: an overlay over the capture's screen with the capture in 
 ```rust
 screenie_editor::open(&image, EditorOptions { mode, output, placement, scale, style, .. }, |out, cx| {
     match out {
-        Output::Copy(image) | Output::Save(image) | Output::SaveAs(image, _) => { /* … */ }
+        // A task that ends once it's done, with the file written if any: only then does
+        // the editor say "Copied" / "Saved", and an error is shown instead.
+        Output::Copy(image) | Output::Save(image) | Output::SaveAs(image, _) => cx.spawn(/* … */),
         Output::Done { image, copied, saved } => { /* skip what's already done */ }
-        Output::Closed { style } => { /* remember for next time */ }
+        Output::Closed { style, finished } => { /* remember for next time */ }
     }
-    Ok(Some("Saved".into())) // optional toast
 }, cx)?;
 
 // Overlays are one at a time: refuse another while one is open (it shows the message).

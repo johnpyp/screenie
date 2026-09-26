@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::{
-    App, AppContext as _, Bounds, Context, Size, WindowBackgroundAppearance, WindowBounds,
+    App, AppContext as _, Bounds, Context, Size, Task, WindowBackgroundAppearance, WindowBounds,
     WindowDecorations, WindowHandle, WindowOptions, px, size,
 };
 use screenie_annotate::{Color, Document, Style};
@@ -42,6 +42,9 @@ pub struct EditorOptions {
     pub title: String,
     /// The file the capture was saved to, if any (the starting point for Save As).
     pub path: Option<PathBuf>,
+    /// Where Save As suggests saving a capture without a file: a new screenshot's name
+    /// in the screenshot folder.
+    pub suggested_path: PathBuf,
     /// Image pixels per logical pixel (the capture's output scale).
     pub scale: f32,
     pub palette: Vec<Color>,
@@ -70,12 +73,16 @@ pub struct OnDone {
     /// Save even if the image has no file yet. One that has (opened from a file,
     /// given `-o`, or saved in the editor) is always saved back.
     pub save: bool,
+    /// Someone is waiting for the finished image (`--stdout`), so Done always hands it
+    /// over, even with nothing to copy or save.
+    pub hand_over: bool,
 }
 
 /// What an editor needs besides its session; kept to reopen the overlay after stepping
 /// aside for a file dialog.
 pub(crate) struct Setup {
     pub title: String,
+    pub suggested_path: PathBuf,
     pub palette: Vec<Color>,
     pub mode: Mode,
     pub output: Option<OutputInfo>,
@@ -127,11 +134,12 @@ pub fn overlay_busy(message: &str, cx: &mut App) -> bool {
     overlay_open(cx)
 }
 
-/// Open an editor for `image`. `on_output` receives copies, saves and the final result.
+/// Open an editor for `image`. `on_output` receives copies, saves and the final result
+/// (see [`OutputHandler`]).
 pub fn open(
     image: &Image,
     options: EditorOptions,
-    on_output: impl Fn(Output, &mut App) -> anyhow::Result<Option<String>> + 'static,
+    on_output: impl Fn(Output, &mut App) -> Task<anyhow::Result<Option<PathBuf>>> + 'static,
     cx: &mut App,
 ) -> anyhow::Result<WindowHandle<Editor>> {
     screenie_annotate::text::warm_up();
@@ -142,6 +150,7 @@ pub fn open(
     );
     let setup = Rc::new(Setup {
         title: options.title,
+        suggested_path: options.suggested_path,
         palette: options.palette,
         mode: options.mode,
         output: options.output,

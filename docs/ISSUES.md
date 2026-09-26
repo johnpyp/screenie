@@ -74,6 +74,13 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
   did nothing; they're gone.
 - With `capture_on_release: false`, a click just off a handle captured the window under
   it, discarding the adjusted selection. It keeps the selection now.
+- `screenie shot --edit` returned at once, printing nothing and exiting 0 while the
+  edit went on, and `--edit --stdout` skipped the editor. It now waits for the edit
+  (see [the editor](features/editor.md#saving)).
+- The editor said "Copied" and "Saved" before the work was done and counted the
+  annotations as kept even if it then failed (GNOME's missing clipboard, a full disk),
+  so closing lost them without asking. It now waits, and shows failures.
+- Save As failed silently without a FileChooser portal, and started in `/tmp`.
 - Clicking the selector's Window button captured immediately: the release reached the
   canvas as a click. Releases now only count after a press on the canvas.
 - Clearer selector hint ("…or press Enter to capture the whole screen").

@@ -356,16 +356,15 @@ impl Session {
         true
     }
 
-    /// The current annotations are on the clipboard.
-    pub fn mark_copied(&mut self) {
-        self.commit_text();
-        self.copied = Some(self.doc.state().clone());
+    /// The annotations as they were in `state` (see [`Self::export`]) are on the
+    /// clipboard.
+    pub fn mark_copied(&mut self, state: State) {
+        self.copied = Some(state);
     }
 
-    /// The current annotations are saved.
-    pub fn mark_saved(&mut self) {
-        self.commit_text();
-        self.saved = Some(self.doc.state().clone());
+    /// The annotations as they were in `state` are saved.
+    pub fn mark_saved(&mut self, state: State) {
+        self.saved = Some(state);
     }
 
     pub fn is_copied(&self) -> bool {
@@ -387,11 +386,12 @@ impl Session {
         *self.doc.state() != self.pristine && !self.is_copied() && !self.is_saved()
     }
 
-    /// The finished image. Handing it out (copy, save) also settles the editor: typing
-    /// is committed and the selection dropped, so one Esc afterwards closes.
-    pub fn export(&mut self) -> screenie_core::Image {
+    /// The finished image, and the state it shows: once it's copied or saved, pass that
+    /// to [`Self::mark_copied`] / [`Self::mark_saved`] (the user may have drawn more in
+    /// the meantime). Handing it out also settles the editor (see [`Self::settle`]).
+    pub fn export(&mut self) -> (screenie_core::Image, State) {
         self.settle();
-        self.doc.export()
+        (self.doc.export(), self.doc.state().clone())
     }
 
     /// Commit any text being typed and deselect.
@@ -1181,11 +1181,17 @@ mod tests {
         assert!(!s.has_unsaved_work() && !s.is_saved() && !s.is_copied());
         drag(&mut s, pt(10.0, 10.0), pt(100.0, 80.0));
         assert!(s.has_unsaved_work());
-        s.mark_copied();
+        let (_, copied) = s.export();
+        s.mark_copied(copied);
         assert!(s.is_copied() && !s.is_saved() && !s.has_unsaved_work());
         drag(&mut s, pt(10.0, 200.0), pt(100.0, 280.0));
         assert!(!s.is_copied() && s.has_unsaved_work());
-        s.mark_saved();
+        let (_, saved) = s.export();
+        // Drawn while the save was under way: not saved yet.
+        drag(&mut s, pt(200.0, 10.0), pt(300.0, 80.0));
+        s.mark_saved(saved);
+        assert!(!s.is_saved() && s.has_unsaved_work());
+        s.undo();
         assert!(s.is_saved());
         // Back to what was copied: copied again, but not saved.
         s.undo();

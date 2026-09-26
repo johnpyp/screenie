@@ -80,12 +80,13 @@ Other keys:
 
 - Shift snaps lines to 15° and keeps boxes square.
 - **Ctrl+scroll** changes the size, like the wheel over the size stepper. With a shape
-  selected, that shape gets thicker or thinner in place: its points stay put. A run of
-  scrolling is one undo step. `[` and `]` step too, and `1`–`9`, `0` pick the ten
+  selected, or while drawing one, that shape gets thicker or thinner in place: its
+  points stay put. A run of scrolling is one undo step. `[` and `]` step too, and `1`–`9`, `0` pick the ten
   sizes directly.
 - Arrow keys nudge the selection (Shift ×10). Delete removes it, and Ctrl+D duplicates it.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo.
-- Ctrl+C copies, Ctrl+S saves and Ctrl+Shift+S is Save As. Enter is Done (below).
+- Ctrl+C copies (while typing too), Ctrl+S saves and Ctrl+Shift+S is Save As. Enter is
+  Done (below).
 - Esc backs out one level at a time: stop typing, then deselect, then close. Copying
   or saving (including Save As) also commits typing and deselects, so after Ctrl+C one
   Esc closes. Closing with unsaved changes asks first, and so does a window's close
@@ -125,19 +126,33 @@ Bold, with system fonts as fallback for emoji and CJK.
 - **Copy** copies the rendered PNG.
 - **Save** overwrites the capture's file, or picks a new screenshot name if the
   capture was never saved.
-- **Save As** uses the portal file chooser. An overlay steps aside for it.
+- **Save As** uses the portal file chooser. An overlay steps aside for it. It starts
+  in the capture's folder, or for a capture never saved, in the screenshot folder
+  with a new screenshot's name. It writes PNG: a name without an extension gets
+  `.png`, and another image format's (`.jpg`) is replaced. It needs a portal with a
+  FileChooser (xdg-desktop-portal-gtk, -kde or -gnome; -wlr and -hyprland have none),
+  and says so when there isn't one.
+- The editor says "Copied" or "Saved" once that has actually happened. If it fails
+  (no clipboard protocol on GNOME, a full disk), it shows why, and the annotations
+  don't count as kept, so closing still asks first.
 - **Done** applies the after-capture settings and closes. It saves only if `save` is
   on or the capture already has a file (opened from one, given `-o`, or saved in the
   editor), and copies only if `copy` is on. Anything already copied or saved exactly as
   it is now isn't done again. Done's tooltip says what it will do: "Copy and close",
   "Save, copy and close", or just "Close". Editing ends there: no preview card follows.
-- `editor.exit_on_copy` / `editor.exit_on_save` close the editor right after a copy
-  or save.
+- `editor.exit_on_copy` / `editor.exit_on_save` close the editor once a copy or save
+  has gone through (unless more was drawn meanwhile).
 - Closing asks "Keep your annotations?" only if the current annotations were neither
   copied nor saved. Its main button does what Done would (Copy, Save, or Save & copy).
   When Done would only close (the defaults), Done asks too, and the prompt offers Copy
   and Save instead. `editor.confirm_discard: false` turns the prompt off everywhere
   (Esc, Done, a window's close button): unkept annotations are then discarded.
+- `screenie shot --edit` finishes when the editor closes, like any capture. It prints
+  the saved file, if the edit was saved (`--stdout` writes the edited PNG instead:
+  Done then always hands it over). It exits 1 if the editor was closed without Done
+  and nothing was copied or saved. Other captures don't wait for it.
+- The capture shows up in `screenie query last` once: when saved, or at Done. A later
+  save records the file again, but Done doesn't repeat a capture already recorded.
 
 The last colour, size and fill are remembered for the next editor, across restarts, in
 `$XDG_STATE_HOME/screenie/state.yaml` (see `screenie-state`). Until then the editor

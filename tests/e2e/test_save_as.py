@@ -31,7 +31,7 @@ def test_cancelling_brings_the_editor_back(session, daemon, input):
     daemon.wait_log(r"editor keyboard focus active=true", after=mark)  # back, with the keyboard
     input.keys("escape")
     daemon.wait_status("idle")
-    assert shot.wait(timeout=5) == 0
+    assert shot.wait(timeout=5) == 1  # nothing kept
     # And the daemon still works.
     next_shot = daemon.tmp / "next.png"
     assert daemon.cli("shot", "-r", "100,100 300x200", "--no-preview", "-o", str(next_shot)).returncode == 0
@@ -49,12 +49,14 @@ def test_saving_writes_the_file_and_brings_the_editor_back(session, daemon, inpu
     mark = daemon.mark()
     input.keys("enter")
     dialog_gone(session)
-    # The dialog starts in the temporary directory for a capture with no file yet.
-    saved = daemon.tmp / "e2e-saved.png"
+    # The dialog starts in the screenshot folder for a capture with no file yet, and
+    # `.png` is added.
+    saved = daemon.home / "Pictures/Screenshots/e2e-saved.png"
     wait_for(saved.exists, f"{saved} to be written")
     assert saved.read_bytes().startswith(b"\x89PNG")
     daemon.wait_log(r"editor keyboard focus active=true", after=mark)
     input.keys("escape")
     daemon.wait_status("idle")
     assert shot.wait(timeout=5) == 0
+    assert shot.stdout.read().strip() == str(saved)
     daemon.assert_healthy()

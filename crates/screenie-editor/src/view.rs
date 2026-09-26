@@ -12,9 +12,9 @@ use gpui::{
     AnyElement, App, BorderStyle, Bounds, BoxShadow, Context, CursorStyle, DispatchPhase, Entity,
     FocusHandle, FontWeight, Hitbox, HitboxBehavior, Hsla, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollDelta, ScrollWheelEvent,
-    SharedString, Size, Window, canvas, div, fill, point, px, quad, rgba, size,
+    SharedString, Size, Task, Window, canvas, div, fill, point, px, quad, rgba, size,
 };
-use screenie_annotate::{Color, Handle, Kind, Redaction, Shape, Style};
+use screenie_annotate::{Color, Handle, Kind, Redaction, Shape, State, Style};
 use screenie_core::{Image, Point, Rect};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
 use screenie_ui_kit::{Icon, KeyboardGrab, Tip, ui};
@@ -30,22 +30,35 @@ pub enum Output {
     /// Save over the capture's file (or to a new one if it was never saved).
     Save(Image),
     SaveAs(Image, PathBuf),
-    /// Finished: apply the after-capture actions, then the window closes. `copied` and
-    /// `saved` say the image is already on the clipboard / saved exactly like this, so
-    /// there's no need to do it again.
+    /// Finished: apply the after-capture actions (and hand the image over, see
+    /// [`crate::OnDone::hand_over`]); the window closes meanwhile. `copied` and `saved`
+    /// say the image is already on the clipboard / saved exactly like this, so there's
+    /// no need to do it again.
     Done {
         image: Image,
         copied: bool,
         saved: bool,
     },
-    /// The window closed; the last style, to start the next editor with.
+    /// The window closed; the last style, to start the next editor with. `finished`:
+    /// by Done, with nothing to hand out (rather than Esc, Discard, or the window's
+    /// close button).
     Closed {
         style: Style,
+        finished: bool,
     },
 }
 
-/// Handles an [`Output`]; a returned message is shown briefly in the editor.
-pub type OutputHandler = Rc<dyn Fn(Output, &mut App) -> anyhow::Result<Option<String>>>;
+/// Handles an [`Output`]. The task ends once the copy or save has actually happened,
+/// with the file written, if any: only then does the editor say so and count the
+/// annotations as kept. A failure is shown in the editor instead.
+pub type OutputHandler = Rc<dyn Fn(Output, &mut App) -> Task<anyhow::Result<Option<PathBuf>>>>;
+
+/// What to do once a copy or save has gone through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Then {
+    Stay,
+    Close,
+}
 
 /// Space kept free around the image for the bars: top, bottom, sides.
 const WINDOW_INSETS: (f32, f32, f32) = (64.0, 68.0, 28.0);
@@ -119,7 +132,7 @@ pub struct Editor {
     session: Session,
     raster: Raster,
     setup: Rc<Setup>,
-    /// Where Save As starts (and what the last one chose).
+    /// The capture's file: where Save As starts (and what the last save wrote).
     path: Option<PathBuf>,
     focus: FocusHandle,
     /// Last pointer position over the canvas, in image pixels.
@@ -131,6 +144,8 @@ pub struct Editor {
     toast: Option<(SharedString, u64)>,
     /// Asking whether to save before closing.
     confirm_close: bool,
+    /// Done closed it (see [`Output::Closed`]).
+    finished: bool,
     closed: bool,
     /// The window goes only once the keys that closed it are let go (see `KeyboardGrab`).
     grab: Entity<KeyboardGrab>,
@@ -183,6 +198,7 @@ impl Editor {
             bar_width: Rc::default(),
             toast: None,
             confirm_close: false,
+            finished: false,
             closed: false,
             grab,
             k: screenie_ui_kit::ui_scale(cx),
@@ -193,31 +209,48 @@ impl Editor {
         self.setup.mode == Mode::Overlay
     }
 
-    fn emit(&mut self, output: Output, cx: &mut Context<Self>) -> bool {
-        let handler = self.setup.on_output.clone();
-        match handler(output, cx) {
-            Ok(message) => {
-                if let Some(message) = message {
-                    self.show_toast(message, cx);
+    /// Hand `output` to the owner, and once it has gone through, run `kept` (which
+    /// marks what was copied or saved and says so) and then do `then`. A failure is
+    /// shown, and nothing counts as kept.
+    fn deliver(
+        &mut self,
+        output: Output,
+        then: Then,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        kept: impl FnOnce(&mut Self, Option<PathBuf>) -> String + 'static,
+    ) {
+        let task = (self.setup.on_output)(output, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, |e, window, cx| match result {
+                Ok(path) => {
+                    let message = kept(e, path);
+                    e.show_toast(message, cx);
+                    // Unless there's more to keep: drawn while it was under way.
+                    if then == Then::Close && !e.session.has_unsaved_work() {
+                        e.close(window, cx);
+                    }
                 }
-                true
-            }
-            Err(e) => {
-                tracing::error!("{e:#}");
-                self.show_toast(format!("{e:#}"), cx);
-                false
-            }
-        }
+                Err(err) => {
+                    tracing::error!("{err:#}");
+                    e.show_toast(format!("{err:#}"), cx);
+                }
+            });
+        })
+        .detach();
     }
 
+    /// Show `message` briefly: long enough to read it.
     pub(crate) fn show_toast(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
+        let message = message.into();
+        let shown =
+            Duration::from_millis(1800).max(Duration::from_millis(55) * message.len() as u32);
         let generation = self.toast.as_ref().map_or(0, |(_, g)| g + 1);
-        self.toast = Some((message.into(), generation));
+        self.toast = Some((message, generation));
         cx.notify();
         cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(1800))
-                .await;
+            cx.background_executor().timer(shown).await;
             let _ = this.update(cx, |e, cx| {
                 if e.toast.as_ref().is_some_and(|(_, g)| *g == generation) {
                     e.toast = None;
@@ -228,44 +261,70 @@ impl Editor {
         .detach();
     }
 
-    fn copy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let image = self.session.export();
-        if self.emit(Output::Copy(image), cx) {
-            self.session.mark_copied();
-            if self.setup.exit_on_copy {
-                self.close(window, cx);
-            }
-        }
+    fn copy(&mut self, then: Then, window: &mut Window, cx: &mut Context<Self>) {
+        let (image, state) = self.session.export();
+        let then = if self.setup.exit_on_copy {
+            Then::Close
+        } else {
+            then
+        };
+        self.deliver(Output::Copy(image), then, window, cx, |e, _| {
+            e.session.mark_copied(state);
+            "Copied to clipboard".into()
+        });
         cx.notify();
     }
 
-    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let image = self.session.export();
-        if self.emit(Output::Save(image), cx) {
-            self.saved(window, cx);
-        }
+    fn save(&mut self, then: Then, window: &mut Window, cx: &mut Context<Self>) {
+        let (image, state) = self.session.export();
+        let then = self.after_save(then);
+        self.deliver(Output::Save(image), then, window, cx, |e, path| {
+            e.saved(state, path)
+        });
         cx.notify();
     }
 
-    fn saved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.session.mark_saved();
+    fn after_save(&self, then: Then) -> Then {
         if self.setup.exit_on_save {
-            self.close(window, cx);
+            Then::Close
+        } else {
+            then
         }
+    }
+
+    /// `state` is saved, to `path` (as the owner says).
+    fn saved(&mut self, state: State, path: Option<PathBuf>) -> String {
+        self.session.mark_saved(state);
+        let Some(path) = path else {
+            return "Saved".into();
+        };
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        self.path = Some(path);
+        format!("Saved {name}")
     }
 
     fn save_as(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let dir = self
-            .path
-            .as_ref()
-            .and_then(|p| p.parent())
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
-        let name = self
-            .path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().into_owned());
+        // From the capture's file, or where a new one would go: the screenshot folder,
+        // which the file chooser can start in only once it exists.
+        let start = match &self.path {
+            Some(path) => path,
+            None => {
+                let new = &self.setup.suggested_path;
+                if let Some(dir) = new.parent()
+                    && let Err(e) = std::fs::create_dir_all(dir)
+                {
+                    tracing::warn!("creating {}: {e}", dir.display());
+                }
+                new
+            }
+        };
+        let dir = start
+            .parent()
+            .map_or_else(std::env::temp_dir, PathBuf::from);
+        let name = start.file_name().map(|n| n.to_string_lossy().into_owned());
         // Like copying and saving, Save As settles the editor (see `Session::export`).
         self.session.settle();
         let chosen = cx.prompt_for_new_path(&dir, name.as_deref());
@@ -279,24 +338,20 @@ impl Editor {
             cx.default_global::<Overlays>().parked += 1;
             let app: &mut App = cx;
             app.spawn(async move |cx| {
-                let chosen = chosen.await.ok().and_then(Result::ok).flatten();
+                let chosen = chosen.await.unwrap_or(Ok(None));
                 cx.update(|cx| cx.default_global::<Overlays>().parked -= 1);
                 cx.update(
                     |cx| match crate::open_session(session, path, setup.clone(), cx) {
                         Ok(handle) => {
-                            if let Some(chosen) = chosen {
-                                let _ = handle
-                                    .update(cx, |e, window, cx| e.save_to(chosen, window, cx));
-                            }
+                            let _ = handle.update(cx, |e, window, cx| e.chosen(chosen, window, cx));
                         }
                         Err(e) => {
                             tracing::error!("cannot reopen the editor: {e:#}");
-                            let _ = (setup.on_output)(
-                                Output::Closed {
-                                    style: Style::default(),
-                                },
-                                cx,
-                            );
+                            let closed = Output::Closed {
+                                style: Style::default(),
+                                finished: false,
+                            };
+                            (setup.on_output)(closed, cx).detach();
                         }
                     },
                 );
@@ -305,41 +360,65 @@ impl Editor {
             return;
         }
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(path))) = chosen.await else {
-                return;
-            };
-            let _ = this.update_in(cx, |e, window, cx| e.save_to(path, window, cx));
+            let chosen = chosen.await.unwrap_or(Ok(None));
+            let _ = this.update_in(cx, |e, window, cx| e.chosen(chosen, window, cx));
         })
         .detach();
     }
 
-    fn save_to(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let image = self.session.export();
-        if self.emit(Output::SaveAs(image, path.clone()), cx) {
-            self.path = Some(path);
-            self.saved(window, cx);
+    /// The Save As dialog was answered: save, or say why it couldn't open.
+    fn chosen(
+        &mut self,
+        chosen: anyhow::Result<Option<PathBuf>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match chosen {
+            Ok(Some(path)) => self.save_to(path, window, cx),
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("Save As: {e:#}");
+                self.show_toast(save_as_failed(&e), cx);
+            }
         }
+    }
+
+    fn save_to(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let (image, state) = self.session.export();
+        let then = self.after_save(Then::Stay);
+        self.deliver(Output::SaveAs(image, path), then, window, cx, |e, path| {
+            e.saved(state, path)
+        });
         cx.notify();
     }
 
     /// Apply the configured copy / save and close. With nothing to apply, it's closing,
     /// and asks first if annotations would be lost (see `confirm_discard`).
     fn done(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.done_does() == (false, false) {
-            return self.request_close(window, cx);
+        if self.done_only_closes() {
+            if self.must_confirm_close() {
+                self.confirm_close = true;
+                return cx.notify();
+            }
+            self.finished = true;
+            return self.close(window, cx);
         }
-        let image = self.session.export();
+        let (image, _) = self.session.export();
         let (copied, saved) = (self.session.is_copied(), self.session.is_saved());
-        if self.emit(
-            Output::Done {
-                image,
-                copied,
-                saved,
-            },
-            cx,
-        ) {
-            self.close(window, cx);
-        }
+        let done = Output::Done {
+            image,
+            copied,
+            saved,
+        };
+        // The editor goes straight away; its owner reports what goes wrong after.
+        let task = (self.setup.on_output)(done, cx);
+        cx.spawn(async move |_, _| {
+            if let Err(e) = task.await {
+                tracing::error!("finishing the edit: {e:#}");
+            }
+        })
+        .detach();
+        self.close(window, cx);
     }
 
     /// Whether Done will (save, copy): only what's configured and not already done for
@@ -353,12 +432,19 @@ impl Editor {
         )
     }
 
+    /// Done keeps nothing (nothing to copy or save, nobody to hand the image to): it
+    /// just closes.
+    fn done_only_closes(&self) -> bool {
+        self.done_does() == (false, false) && !self.setup.on_done.hand_over
+    }
+
     /// What Done will do, as a sentence and as a button label.
     fn done_says(&self) -> (&'static str, &'static str) {
         match self.done_does() {
             (true, true) => ("Save, copy and close", "Save & copy"),
             (true, false) => ("Save and close", "Save"),
             (false, true) => ("Copy and close", "Copy"),
+            (false, false) if self.setup.on_done.hand_over => ("Finish and close", "Done"),
             (false, false) => ("Close", "Done"),
         }
     }
@@ -402,8 +488,11 @@ impl Editor {
 
     fn finish(&mut self, cx: &mut Context<Self>) {
         if !std::mem::replace(&mut self.closed, true) {
-            let style = self.session.style();
-            self.emit(Output::Closed { style }, cx);
+            let closed = Output::Closed {
+                style: self.session.style(),
+                finished: self.finished,
+            };
+            (self.setup.on_output)(closed, cx).detach();
         }
     }
 
@@ -442,8 +531,8 @@ impl Editor {
                 ("z", true) | ("y", _) => {
                     self.session.redo();
                 }
-                ("c", _) if self.session.text_edit().is_none() => self.copy(window, cx),
-                ("s", false) => self.save(window, cx),
+                ("c", _) => self.copy(Then::Stay, window, cx),
+                ("s", false) => self.save(Then::Stay, window, cx),
                 ("s", true) => self.save_as(window, cx),
                 ("d", _) => {
                     self.session.duplicate_selected();
@@ -807,12 +896,12 @@ impl Editor {
     fn action_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         hud::panel()
             .child(
-                self.button_for("copy", cx, |e, window, cx| e.copy(window, cx))
+                self.button_for("copy", cx, |e, window, cx| e.copy(Then::Stay, window, cx))
                     .icon(Icon::Copy)
                     .tooltip(Tip::new("Copy").key("Ctrl+C")),
             )
             .child(
-                self.button_for("save", cx, |e, window, cx| e.save(window, cx))
+                self.button_for("save", cx, |e, window, cx| e.save(Then::Stay, window, cx))
                     .icon(Icon::Download)
                     .tooltip(
                         Tip::new("Save")
@@ -1030,30 +1119,28 @@ impl Editor {
         let primary = self
             .button_for("keep", cx, |e, window, cx| e.keep_and_close(window, cx))
             .style(ButtonStyle::Accent);
-        match self.done_does() {
-            (false, false) => vec![
+        if self.done_only_closes() {
+            vec![
                 self.button_for("prompt-copy", cx, |e, window, cx| {
-                    e.copy(window, cx);
-                    if e.session.is_copied() && !e.closed {
-                        e.close(window, cx);
-                    }
+                    e.confirm_close = false;
+                    e.copy(Then::Close, window, cx);
                 })
                 .label("Copy"),
                 primary.label("Save"),
-            ],
-            _ => vec![primary.label(self.done_says().1)],
+            ]
+        } else {
+            vec![primary.label(self.done_says().1)]
         }
     }
 
     /// The close prompt's main button (and Enter): keep the annotations the way Done
     /// would, or save them if Done would only close.
     fn keep_and_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.done_does() != (false, false) {
-            return self.done(window, cx);
-        }
-        self.save(window, cx);
-        if self.session.is_saved() && !self.closed {
-            self.close(window, cx);
+        self.confirm_close = false;
+        if self.done_only_closes() {
+            self.save(Then::Close, window, cx);
+        } else {
+            self.done(window, cx);
         }
     }
 
@@ -1314,6 +1401,18 @@ impl Editor {
                 .child(stack),
         };
         vec![column.into_any_element()]
+    }
+}
+
+/// Why Save As couldn't ask for a file. Most often there's no file chooser: the
+/// portals that come with wlroots compositors (-wlr, -hyprland) don't have one.
+fn save_as_failed(e: &anyhow::Error) -> String {
+    if format!("{e:#}").contains("xdg-desktop-portal") {
+        "Save As needs a file chooser portal: install xdg-desktop-portal-gtk or -kde. \
+         Ctrl+S saves to the screenshot folder"
+            .into()
+    } else {
+        format!("Save As failed: {e:#}")
     }
 }
 

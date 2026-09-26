@@ -14,9 +14,10 @@ EDIT = ("shot", "-r", "200,200 600x400", "--edit")
 @pytest.mark.parametrize(
     ("keys", "args", "exit_code"),
     [
-        pytest.param("key escape", EDIT, 0, id="editor-escape"),
+        # `shot --edit` lasts the edit: closed without Done or keeping anything, it's cancelled.
+        pytest.param("key escape", EDIT, 1, id="editor-escape"),
         pytest.param("key enter", EDIT, 0, id="editor-enter-done"),
-        pytest.param("hold ctrl , key q , release ctrl", EDIT, 0, id="editor-ctrl-q"),
+        pytest.param("hold ctrl , key q , release ctrl", EDIT, 1, id="editor-ctrl-q"),
         pytest.param("key escape", ("shot",), 1, id="selector-escape"),
         pytest.param("key enter", ("shot", "--no-preview"), 0, id="selector-enter"),
     ],

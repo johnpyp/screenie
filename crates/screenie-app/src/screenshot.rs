@@ -40,7 +40,12 @@ pub(crate) async fn take(req: ScreenshotRequest, cx: &mut AsyncApp) -> Response 
     {
         return response;
     }
-    match run(req, cx).await {
+    // An edit goes on after the capture: wait for it without holding up other captures.
+    let result = match run(req, cx).await {
+        Ok(Some(delivery)) => delivery.finished(cx).await,
+        other => other.map(|_| None),
+    };
+    match result {
         Ok(Some(delivered)) => Response::Captured {
             path: delivered.path,
             temporary: delivered.temporary,
@@ -78,7 +83,7 @@ pub(crate) fn selector_mode(mode: SelectMode) -> Mode {
 async fn run(
     req: ScreenshotRequest,
     cx: &mut AsyncApp,
-) -> anyhow::Result<Option<deliver::Delivered>> {
+) -> anyhow::Result<Option<deliver::Delivery>> {
     let (config, capture, last_region) = cx.update(|cx| {
         let d = Daemon::get(cx);
         (d.config.clone(), d.capture.clone(), d.last_region())

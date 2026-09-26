@@ -44,6 +44,8 @@ def test_closing_asks_before_discarding(daemon, input):
     daemon.wait_status("idle")
     assert shot.wait(timeout=5) == 0
     assert len(daemon.screenshots) == 1
+    # The command waited for the edit, and printed what it saved.
+    assert shot.stdout.read().strip() == str(daemon.screenshots[0])
 
 
 @pytest.mark.config("editor:\n  confirm_discard: false\n")
@@ -52,4 +54,4 @@ def test_closing_discards_without_asking_if_configured(daemon, input):
     draw_rectangle(input)
     input.keys("escape", "escape")
     daemon.wait_status("idle")
-    assert shot.wait(timeout=5) == 0
+    assert shot.wait(timeout=5) == 1  # discarded

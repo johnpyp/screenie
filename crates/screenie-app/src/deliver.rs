@@ -71,6 +71,55 @@ pub(crate) struct Delivered {
     pub temporary: bool,
 }
 
+/// Where a screenshot's journey stands once its after-capture actions have run.
+pub(crate) enum Delivery {
+    Delivered(Delivered),
+    /// Open in the editor: delivered once it's done with.
+    Editing {
+        editing: crate::editor::Editing,
+        /// The client wants a file even if the edit isn't saved.
+        want_file: bool,
+    },
+}
+
+impl Delivery {
+    /// Wait for an edit to end. `None`: it was discarded.
+    pub async fn finished(self, cx: &mut AsyncApp) -> anyhow::Result<Option<Delivered>> {
+        let (editing, want_file) = match self {
+            Self::Delivered(delivered) => return Ok(Some(delivered)),
+            Self::Editing { editing, want_file } => (editing, want_file),
+        };
+        let Some(kept) = editing.finished().await? else {
+            return Ok(None);
+        };
+        let image = match (kept.path, kept.image) {
+            (Some(path), _) => {
+                return Ok(Some(Delivered {
+                    path: Some(path),
+                    temporary: false,
+                }));
+            }
+            (None, Some(image)) if want_file => image,
+            (None, _) => {
+                return Ok(Some(Delivered {
+                    path: None,
+                    temporary: false,
+                }));
+            }
+        };
+        let path = cx
+            .background_executor()
+            .spawn(async move {
+                write_temporary(&encode_png(&image)?)
+            })
+            .await?;
+        Ok(Some(Delivered {
+            path: Some(path),
+            temporary: true,
+        }))
+    }
+}
+
 /// Write `bytes` to `path` atomically, creating parent directories: readers see the old
 /// file or the new one, never part of one. Nothing is left behind if it fails, not even
 /// the empty file a [`claim_unique`]d name starts as.
@@ -96,6 +145,15 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     written
 }
 
+/// Write a capture to a new file for a client that wants one when it isn't saved
+/// (`--stdout`); the client removes it once read.
+fn write_temporary(png: &[u8]) -> anyhow::Result<PathBuf> {
+    let stamp = chrono::Local::now().format("capture-%Y%m%d-%H%M%S%.3f");
+    claim_unique(Paths::get().runtime_dir(), &stamp.to_string(), "png")
+        .and_then(|path| write_atomic(&path, png).map(|()| path))
+        .context("writing the capture to a temporary file")
+}
+
 /// A new file in the screenshot folder for `capture`, named as configured for when it
 /// was taken. The name is claimed straight away, so two captures can't get the same one;
 /// write it with [`write_atomic`].
@@ -107,6 +165,12 @@ pub(crate) fn screenshot_path(config: &Config, capture: &Capture) -> PathBuf {
         tracing::debug!("claiming a name in {}: {e}", dir.display());
         unique_path(&dir, &stem, "png")
     })
+}
+
+/// Where a new screenshot of `capture` would go, without claiming the name: a starting
+/// point to offer (Save As), not a file about to be written.
+pub(crate) fn suggested_path(config: &Config, capture: &Capture) -> PathBuf {
+    unique_path(&config.screenshot_dir(), &file_stem(config, capture), "png")
 }
 
 fn file_stem(config: &Config, capture: &Capture) -> String {
@@ -135,25 +199,23 @@ pub(crate) fn encode_png(image: &Image) -> anyhow::Result<Vec<u8>> {
 }
 
 /// Run the after-capture actions for a screenshot. When editing, nothing is saved or
-/// copied yet: the editor does that when it's done.
+/// copied yet: the editor does that when it's done (see [`Delivery::finished`]).
 pub(crate) async fn screenshot(
     capture: Capture,
     mut actions: Actions,
     config: Config,
     cx: &mut AsyncApp,
-) -> anyhow::Result<Delivered> {
-    if actions.edit && !actions.want_file {
+) -> anyhow::Result<Delivery> {
+    if actions.edit {
         // Overlay mode edits one capture at a time. Another one waits as a preview card,
         // to be picked up once this edit is done.
         if cx.update(|cx| screenie_editor::overlay_open(cx)) {
             actions.edit = false;
             actions.preview = true;
         } else {
-            cx.update(|cx| crate::editor::open(capture, None, actions, cx))?;
-            return Ok(Delivered {
-                path: None,
-                temporary: false,
-            });
+            let want_file = actions.want_file;
+            let editing = cx.update(|cx| crate::editor::open(capture, None, actions, cx))?;
+            return Ok(Delivery::Editing { editing, want_file });
         }
     }
     let started = std::time::Instant::now();
@@ -182,11 +244,7 @@ pub(crate) async fn screenshot(
                 Err(e) => (None, Some(e)),
             };
             let temp = if saved.is_none() && failed.is_none() && work_actions.want_file {
-                let stamp = chrono::Local::now().format("capture-%Y%m%d-%H%M%S%.3f");
-                let dir = Paths::get().runtime_dir();
-                let path = claim_unique(dir, &stamp.to_string(), "png")
-                    .and_then(|path| write_atomic(&path, &png).map(|()| path))
-                    .context("writing the capture to a temporary file")?;
+                let path = write_temporary(&png)?;
                 Some(path)
             } else {
                 None
@@ -215,7 +273,7 @@ pub(crate) async fn screenshot(
     if let Some(e) = failed {
         return Err(e);
     }
-    Ok(Delivered { path, temporary })
+    Ok(Delivery::Delivered(Delivered { path, temporary }))
 }
 
 /// Run the after-capture actions for a finished recording (it's already saved). `card`:
