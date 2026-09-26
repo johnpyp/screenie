@@ -1,0 +1,7 @@
+# The demo's screenie: cards stay until used, the editor closes on copy.
+preview:
+  timeout: 0
+editor:
+  exit_on_copy: true
+recording:
+  countdown: 3

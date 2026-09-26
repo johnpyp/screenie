@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# The left terminal's opening: fastfetch, then a couple of commands as if typed.
+prompt() { printf '\e[38;2;203;166;247m \e[38;2;137;180;250m~/code/acme-api \e[38;2;166;227;161m❯\e[0m %s\n' "$1"; }
+clear
+fastfetch
+prompt "tail logs/api.log"
+sed -E $'s/^([0-9:]+)/\e[38;2;108;112;134m\\1\e[0m/; s/ INFO / \e[38;2;166;227;161mINFO\e[0m /; s/ WARN / \e[38;2;249;226;175mWARN\e[0m /; s/([a-z]+)=/\e[38;2;137;180;250m\\1\e[0m=/g' logs/api.log
+echo
+prompt "ls --tree"
+eza --tree --icons --level 2 --color=always
+echo
+exec bash -i

@@ -1,0 +1,5 @@
+14:02:11 INFO invoice settled  customer=jane@example.com
+14:02:13 WARN charge failed; retrying in 250ms  attempt=1
+14:02:14 INFO invoice settled  customer=sam@example.com
+14:02:16 WARN charge failed; retrying in 500ms  attempt=2
+14:02:17 INFO invoice settled  customer=priya@example.com

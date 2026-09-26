@@ -9,7 +9,7 @@
 //! wlinput up [left|right|middle]   release a button
 //! wlinput click X Y                move, press, release
 //! wlinput drag X1 Y1 X2 Y2 [STEPS] press at 1, glide to 2, release
-//! wlinput key NAME...              tap keys (escape enter space tab left right up down,
+//! wlinput key NAME...              tap keys (escape enter space tab left right up down print,
 //!                                  letters, digits, and - = [ ] ; ' , . / as themselves)
 //! wlinput hold NAME / release NAME hold or release one key (shift, ctrl, alt, super)
 //! wlinput type TEXT                type text (US layout; Shift where needed)
@@ -88,6 +88,7 @@ fn keycode(name: &str) -> Option<u32> {
         "tab" => 15,
         "backspace" => 14,
         "delete" => 111,
+        "print" | "sysrq" => 99,
         "left" => 105,
         "right" => 106,
         "up" => 103,

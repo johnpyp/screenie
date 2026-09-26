@@ -1,0 +1,30 @@
+# The demo desktop: one 4K output at 2x (1920x1080 logical), Catppuccin Mocha.
+# tools/demo/desktop.sh substitutes @WALLPAPER@ and @STATE@.
+
+output HEADLESS-1 resolution 3840x2160@60Hz position 0 0 scale 2 bg @WALLPAPER@ fill
+seat seat0 fallback true
+seat seat0 xcursor_theme Bibata-Modern-Ice 24
+
+font pango:JetBrainsMono Nerd Font 10
+default_border pixel 2
+default_floating_border pixel 2
+gaps inner 12
+gaps outer 6
+gaps top 0
+
+#                       border  bg      text    indicator child_border
+client.focused          #cba6f7 #1e1e2e #cdd6f4 #f5c2e7   #cba6f7
+client.focused_inactive #45475a #1e1e2e #cdd6f4 #45475a   #45475a
+client.unfocused        #313244 #1e1e2e #a6adc8 #313244   #313244
+
+bar {
+    swaybar_command waybar
+}
+
+bindsym Print exec screenie
+bindsym Shift+Print exec screenie shot screen
+bindsym Alt+Print exec screenie record
+
+for_window [app_id="dev.johnpyp.Screenie"] floating enable
+
+exec sh -c 'printf "export WAYLAND_DISPLAY=%s\nexport SWAYSOCK=%s\n" "$WAYLAND_DISPLAY" "$SWAYSOCK" > "@STATE@/compositor.env"'

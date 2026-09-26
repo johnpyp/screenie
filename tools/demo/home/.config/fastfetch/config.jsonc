@@ -1,0 +1,17 @@
+{
+  "logo": { "color": { "1": "red", "2": "red" }, "padding": { "top": 1, "left": 2, "right": 3 } },
+  "display": { "separator": "  ", "color": { "keys": "magenta" } },
+  "modules": [
+    { "type": "custom", "format": "\u001b[1;35mscreenie\u001b[0m@\u001b[1;34mwayland\u001b[0m" },
+    { "type": "custom", "format": "\u001b[90m─────────────────\u001b[0m" },
+    { "type": "os", "key": "\uf306 os", "format": "{name} {version-id}" },
+    { "type": "kernel", "key": "\uf17c kernel", "format": "{release}" },
+    { "type": "wm", "key": "\uf2d0 wm" },
+    { "type": "terminal", "key": "\ue795 term" },
+    { "type": "shell", "key": "\uea85 shell" },
+    { "type": "cpu", "key": "\uf4bc cpu", "format": "{name}" },
+    { "type": "memory", "key": "\uf2db mem" },
+    "break",
+    { "type": "colors", "symbol": "circle" }
+  ]
+}

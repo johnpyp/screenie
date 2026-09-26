@@ -1,0 +1,32 @@
+/* Catppuccin Mocha islands */
+* {
+  font-family: "JetBrainsMono Nerd Font", "Inter", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+}
+window#waybar { background: transparent; color: #cdd6f4; }
+
+#custom-logo, #workspaces, #window, #clock, #custom-screenie, #cpu, #memory, #custom-power {
+  background: rgba(30, 30, 46, 0.88);
+  border: 1px solid rgba(69, 71, 90, 0.9);
+  border-radius: 12px;
+  padding: 0 14px;
+}
+#custom-logo { color: #cba6f7; font-size: 16px; padding: 0 14px 0 12px; }
+#workspaces { padding: 0 6px; }
+#workspaces button { color: #6c7086; padding: 0 6px; background: transparent; }
+#workspaces button.focused { color: #cba6f7; }
+#window { color: #a6adc8; font-weight: 500; }
+window#waybar.empty #window { background: transparent; border-color: transparent; }
+#clock { color: #b4befe; }
+#cpu { color: #89b4fa; }
+#memory { color: #a6e3a1; }
+#custom-power { color: #f38ba8; padding: 0 14px 0 12px; }
+#custom-screenie { color: #f38ba8; }
+#custom-screenie.idle, #custom-screenie.selecting, #custom-screenie.editing {
+  background: transparent; border-color: transparent; padding: 0; margin: 0;
+}
+#custom-screenie.paused { color: #f9e2af; }

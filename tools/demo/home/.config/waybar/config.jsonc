@@ -1,0 +1,28 @@
+{
+  "layer": "top",
+  "position": "top",
+  "height": 34,
+  "margin-top": 8,
+  "margin-left": 18,
+  "margin-right": 18,
+  "spacing": 8,
+  "modules-left": ["custom/logo", "sway/workspaces", "sway/window"],
+  "modules-center": ["clock"],
+  "modules-right": ["custom/screenie", "cpu", "memory", "custom/power"],
+  "custom/logo": { "format": "\uf306", "tooltip": false },
+  "sway/workspaces": {
+    "persistent-workspaces": { "1": [], "2": [], "3": [], "4": [] },
+    "format": "{name}"
+  },
+  "sway/window": { "max-length": 48, "icon": false },
+  "clock": { "format": "{:%a %d %b  %H:%M}", "tooltip": false },
+  "custom/screenie": {
+    "exec": "screenie query status --format waybar --watch",
+    "return-type": "json",
+    "format": "{}",
+    "on-click": "screenie stop"
+  },
+  "cpu": { "format": "\uf4bc  {usage}%", "interval": 2 },
+  "memory": { "format": "\uf2db  {percentage}%", "interval": 5 },
+  "custom/power": { "format": "⏻", "tooltip": false }
+}
