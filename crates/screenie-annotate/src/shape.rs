@@ -54,8 +54,26 @@ impl Default for Style {
 }
 
 impl Style {
-    /// The preset stroke widths the editor offers.
-    pub const SIZES: [f32; 5] = [2.0, 4.0, 6.0, 8.0, 12.0];
+    /// The stroke widths the editor steps through.
+    pub const SIZES: [f32; 10] = [1.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 26.0, 32.0];
+
+    /// The size `steps` presets up (or down, if negative) from `size`, which needn't be
+    /// a preset itself.
+    pub fn step_size(size: f32, steps: i32) -> f32 {
+        let sizes = Self::SIZES;
+        let last = sizes.len() as i32 - 1;
+        // The first preset at or above `size`; a size between two presets steps to its
+        // neighbours as if it sat just below the upper one.
+        let above = sizes.iter().position(|s| *s >= size).map_or(last + 1, |i| i as i32);
+        let exact = sizes.get(above as usize) == Some(&size);
+        let target = if steps > 0 && !exact { above + steps - 1 } else { above + steps };
+        sizes[target.clamp(0, last) as usize]
+    }
+
+    /// Where `size` sits among the presets, from 1.
+    pub fn size_index(size: f32) -> usize {
+        Self::SIZES.iter().position(|s| *s >= size).unwrap_or(Self::SIZES.len() - 1) + 1
+    }
 
     pub fn font_size(&self) -> f32 {
         8.0 + self.size * 3.5
@@ -358,6 +376,21 @@ fn ellipse_hit(r: &Rect, p: Point, half: f64, solid: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sizes_step_through_the_presets() {
+        assert_eq!(Style::step_size(4.0, 1), 6.0);
+        assert_eq!(Style::step_size(4.0, -2), 1.0);
+        assert_eq!(Style::step_size(32.0, 1), 32.0);
+        assert_eq!(Style::step_size(1.0, -1), 1.0);
+        // Off-preset sizes step to their neighbours.
+        assert_eq!(Style::step_size(5.0, 1), 6.0);
+        assert_eq!(Style::step_size(5.0, -1), 4.0);
+        assert_eq!(Style::step_size(40.0, -1), 32.0);
+        assert_eq!(Style::step_size(0.5, 1), 1.0);
+        assert_eq!(Style::size_index(1.0), 1);
+        assert_eq!(Style::size_index(32.0), 10);
+    }
 
     fn shape(kind: Kind) -> Shape {
         Shape { id: ShapeId(1), kind, style: Style::default() }

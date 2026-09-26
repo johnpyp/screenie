@@ -90,6 +90,7 @@ struct CropEdit {
 /// Smallest crop, in image pixels.
 const MIN_CROP: f64 = 8.0;
 
+#[derive(Clone)]
 pub struct Session {
     doc: Document,
     tool: Tool,
@@ -208,11 +209,22 @@ impl Session {
     }
 
     /// Step through the size presets.
-    pub fn step_size(&mut self, up: bool) {
-        let sizes = Style::SIZES;
-        let current = sizes.iter().position(|s| *s >= self.style.size).unwrap_or(sizes.len() - 1);
-        let next = if up { (current + 1).min(sizes.len() - 1) } else { current.saturating_sub(1) };
-        self.set_size(sizes[next]);
+    pub fn step_size(&mut self, steps: i32) {
+        self.set_size(Style::step_size(self.style.size, steps));
+    }
+
+    /// Step the size from the scroll wheel: a run of these on one shape (keeping its
+    /// geometry) is a single undo step.
+    pub fn scroll_size(&mut self, steps: i32) -> bool {
+        let size = Style::step_size(self.style.size, steps);
+        if size == self.style.size {
+            return false;
+        }
+        self.style.size = size;
+        if let Some(id) = self.target() {
+            self.doc.restyle_merging(id, self.style);
+        }
+        true
     }
 
     pub fn toggle_fill(&mut self) {
@@ -273,10 +285,10 @@ impl Session {
         changed
     }
 
+    /// After undo/redo: drop a selection that no longer exists, and show the style the
+    /// selection has now.
     fn forget_missing(&mut self) {
-        if self.selected.is_some_and(|id| self.doc.shape(id).is_none()) {
-            self.selected = None;
-        }
+        self.select(self.selected.filter(|id| self.doc.shape(*id).is_some()));
     }
 
     pub fn delete_selected(&mut self) -> bool {
@@ -657,20 +669,21 @@ impl Session {
             }
             Key::Text(t) => match t.as_str() {
                 "[" => {
-                    self.step_size(false);
+                    self.step_size(-1);
                     Outcome::Redraw
                 }
                 "]" => {
-                    self.step_size(true);
+                    self.step_size(1);
                     Outcome::Redraw
                 }
                 "f" => {
                     self.toggle_fill();
                     Outcome::Redraw
                 }
-                d if d.len() == 1 && ('1'..='5').contains(&d.chars().next().unwrap_or(' ')) => {
-                    let i = d.parse::<usize>().unwrap_or(1) - 1;
-                    self.set_size(Style::SIZES[i]);
+                // 1–9 and 0 pick the ten sizes.
+                d if d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => {
+                    let i = (d.as_bytes()[0] - b'0') as usize;
+                    self.set_size(Style::SIZES[(i + 9) % 10]);
                     Outcome::Redraw
                 }
                 other => match crate::tool::Tool::from_key(&other.to_lowercase()) {
@@ -916,6 +929,30 @@ mod tests {
         assert_eq!(s.selected().unwrap().style.size, 8.0);
         s.key(Key::Text("1".into()), NONE);
         assert_eq!(s.style().size, Style::SIZES[0]);
+        s.key(Key::Text("0".into()), NONE);
+        assert_eq!(s.style().size, Style::SIZES[9]);
+    }
+
+    #[test]
+    fn scrolling_resizes_the_selection_in_one_undo_step() {
+        let mut s = session();
+        drag(&mut s, pt(10.0, 10.0), pt(100.0, 80.0));
+        let before = s.selected().unwrap().clone();
+        for _ in 0..3 {
+            assert!(s.scroll_size(1));
+        }
+        let after = s.selected().unwrap();
+        assert_eq!(after.style.size, Style::step_size(before.style.size, 3));
+        // Thicker, same geometry.
+        assert_eq!(after.kind, before.kind);
+        s.undo();
+        assert_eq!(s.doc().shape(before.id).unwrap().style.size, before.style.size);
+        assert_eq!(s.doc().shapes().len(), 1);
+        // The style bar follows the selection back.
+        assert_eq!(s.style().size, before.style.size);
+        // At the end of the range nothing changes.
+        s.set_size(Style::SIZES[9]);
+        assert!(!s.scroll_size(1));
     }
 
     #[test]

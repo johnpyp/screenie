@@ -1,8 +1,11 @@
-//! The annotation editor: a window for marking up a capture with arrows, boxes, text,
-//! numbered steps, redactions and more, then copying or saving the result.
+//! The annotation editor: marking up a capture with arrows, boxes, text, numbered
+//! steps, redactions and more, then copying or saving the result.
+//!
+//! It opens as an overlay over the screen, with the capture where it was taken
+//! ([`Mode::Overlay`]), or as a regular window ([`Mode::Window`]).
 //!
 //! The document model and renderer live in `screenie-annotate`; this crate is the
-//! interaction ([`Session`], UI-free and unit-tested) and the GPUI window around it.
+//! interaction ([`Session`], UI-free and unit-tested) and the GPUI view around it.
 
 mod raster;
 mod session;
@@ -12,13 +15,28 @@ mod view;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::{App, AppContext as _, Bounds, Size, WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowHandle, WindowOptions, px, size};
+use gpui::{
+    App, AppContext as _, Bounds, Size, WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowHandle,
+    WindowOptions, px, size,
+};
 use screenie_annotate::{Color, Document, Style};
-use screenie_core::Image;
+use screenie_core::{Image, OutputInfo, Rect};
+use screenie_ui_kit::layer::{LayerSpec, fallback_options, layer_options};
 
 pub use session::{Cursor, Key, Modifiers, Outcome, Reach, Session, TextEdit};
 pub use tool::Tool;
 pub use view::{Editor, Output, OutputHandler};
+
+/// How the editor appears.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Mode {
+    /// Over everything on the capture's screen, the capture shown where it was taken and
+    /// the rest dimmed (like the selector it follows).
+    #[default]
+    Overlay,
+    /// A regular, resizable window.
+    Window,
+}
 
 pub struct EditorOptions {
     pub title: String,
@@ -28,8 +46,12 @@ pub struct EditorOptions {
     pub scale: f32,
     pub palette: Vec<Color>,
     pub style: Style,
-    /// Output (connector name) to open on.
-    pub output: Option<String>,
+    pub mode: Mode,
+    /// The screen to open on.
+    pub output: Option<OutputInfo>,
+    /// Where the capture was on that screen (logical pixels, relative to it), so the
+    /// overlay can show it in place.
+    pub placement: Option<Rect>,
     /// `path` holds exactly this image already, so Done needn't save it again.
     pub on_disk: bool,
     /// Close as soon as the image is copied / saved.
@@ -37,8 +59,45 @@ pub struct EditorOptions {
     pub exit_on_save: bool,
 }
 
-/// Open an editor window for `image`. `on_output` receives copies, saves and the final
-/// result.
+/// What an editor needs besides its session; kept to reopen the overlay after stepping
+/// aside for a file dialog.
+pub(crate) struct Setup {
+    pub title: String,
+    pub palette: Vec<Color>,
+    pub mode: Mode,
+    pub output: Option<OutputInfo>,
+    pub placement: Option<Rect>,
+    pub exit_on_copy: bool,
+    pub exit_on_save: bool,
+    pub on_output: OutputHandler,
+}
+
+/// The overlay editors open: one at most, though Save As briefly closes it for the
+/// file dialog ("parked").
+#[derive(Default)]
+pub(crate) struct Overlays {
+    pub open: Vec<WindowHandle<Editor>>,
+    pub parked: usize,
+}
+
+impl gpui::Global for Overlays {}
+
+/// Overlay mode allows one editor at a time: if one is open, show it `message` and
+/// return true.
+pub fn overlay_busy(message: &str, cx: &mut App) -> bool {
+    let Some(overlays) = cx.try_global::<Overlays>() else { return false };
+    let (current, parked) = (overlays.open.last().copied(), overlays.parked > 0);
+    if let Some(handle) = current {
+        let message = message.to_string();
+        let _ = handle.update(cx, |editor, window, cx| {
+            editor.show_toast(message, cx);
+            window.activate_window();
+        });
+    }
+    current.is_some() || parked
+}
+
+/// Open an editor for `image`. `on_output` receives copies, saves and the final result.
 pub fn open(
     image: &Image,
     options: EditorOptions,
@@ -46,32 +105,72 @@ pub fn open(
     cx: &mut App,
 ) -> anyhow::Result<WindowHandle<Editor>> {
     screenie_annotate::text::warm_up();
-    let doc = Document::new(image, options.scale);
-    let display = options.output.as_deref().and_then(|name| screenie_ui_kit::display_for_output(cx, name));
-    let window_size = initial_size(&doc, display.and_then(|d| cx.find_display(d)).map(|d| d.bounds().size));
-    let window_options = WindowOptions {
-        titlebar: Some(gpui::TitlebarOptions { title: Some(options.title.clone().into()), ..Default::default() }),
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(display, window_size, cx))),
-        window_min_size: Some(size(px(780.), px(480.))),
-        window_decorations: Some(WindowDecorations::Server),
-        window_background: WindowBackgroundAppearance::Opaque,
-        display_id: display,
-        app_id: Some(screenie_ui_kit::APP_ID.to_string()),
-        focus: true,
-        show: true,
-        ..Default::default()
-    };
-    let session = Session::new(doc, options.style, options.on_disk);
-    let on_output: OutputHandler = Rc::new(on_output);
-    let behavior = view::Behavior {
+    let session = Session::new(Document::new(image, options.scale), options.style, options.on_disk);
+    let setup = Rc::new(Setup {
+        title: options.title,
         palette: options.palette,
-        path: options.path,
+        mode: options.mode,
+        output: options.output,
+        placement: options.placement,
         exit_on_copy: options.exit_on_copy,
         exit_on_save: options.exit_on_save,
+        on_output: Rc::new(on_output),
+    });
+    open_session(session, options.path, setup, cx)
+}
+
+/// Open a window editing `session`.
+pub(crate) fn open_session(
+    session: Session,
+    path: Option<PathBuf>,
+    setup: Rc<Setup>,
+    cx: &mut App,
+) -> anyhow::Result<WindowHandle<Editor>> {
+    let name = setup.output.as_ref().map(|o| o.name.as_str());
+    let display = name.and_then(|name| screenie_ui_kit::display_for_output(cx, name));
+    let screen = setup.output.as_ref().map(|o| size(px(o.logical.width as f32), px(o.logical.height as f32)));
+    let build = {
+        let setup = setup.clone();
+        move |session: Session, path| {
+            let setup = setup.clone();
+            move |window: &mut gpui::Window, cx: &mut App| cx.new(|cx| Editor::new(session, path, setup, window, cx))
+        }
     };
-    let handle = cx.open_window(window_options, move |window, cx| {
-        cx.new(|cx| Editor::new(session, behavior, on_output, window, cx))
-    })?;
+    let handle = match setup.mode {
+        Mode::Overlay => {
+            // The surface stretches over the whole output; the size only seeds the first
+            // frame, and must be the output's own or the compositor centres it instead.
+            let spec = LayerSpec::fullscreen_overlay(
+                "screenie-editor",
+                name.unwrap_or_default(),
+                screen.unwrap_or(size(px(1280.), px(800.))),
+            );
+            let spec = LayerSpec { output: name.map(String::from), ..spec };
+            match cx.open_window(layer_options(cx, &spec), build(session.clone(), path.clone())) {
+                Ok(handle) => handle,
+                Err(e) => {
+                    tracing::debug!("layer-shell editor failed ({e}); falling back to a fullscreen window");
+                    cx.open_window(fallback_options(cx, &spec), build(session, path))?
+                }
+            }
+        }
+        Mode::Window => {
+            let window_size = initial_size(session.doc(), screen);
+            let options = WindowOptions {
+                titlebar: Some(gpui::TitlebarOptions { title: Some(setup.title.clone().into()), ..Default::default() }),
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(display, window_size, cx))),
+                window_min_size: Some(size(px(780.), px(480.))),
+                window_decorations: Some(WindowDecorations::Server),
+                window_background: WindowBackgroundAppearance::Opaque,
+                display_id: display,
+                app_id: Some(screenie_ui_kit::APP_ID.to_string()),
+                focus: true,
+                show: true,
+                ..Default::default()
+            };
+            cx.open_window(options, build(session, path))?
+        }
+    };
     handle.update(cx, |_, window, _| window.activate_window())?;
     Ok(handle)
 }

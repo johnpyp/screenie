@@ -9,8 +9,9 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
   re-uploads it. That takes tens of milliseconds on a 4K capture. Moving a spotlight
   re-renders a full-size tile per frame. Fine so far; if it isn't, render
   the composite on a background thread or split it into tiles.
-- **Editor windows tile on tiling compositors.** Wayland has no "please float" hint
-  for toplevels. The README documents a float rule for the app id.
+- **Editor windows tile on tiling compositors** (`editor.mode = "window"` only; the
+  default overlay doesn't). Wayland has no "please float" hint for toplevels. The README
+  documents a float rule for the app id.
 
 - **A killed daemon loses its running recording.** On SIGTERM/SIGKILL (logout, OOM)
   the faststart MP4 is never finalized. `screenie quit` saves properly. Options:

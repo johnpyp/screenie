@@ -8,9 +8,9 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use gpui::{App, AsyncApp};
 use screenie_annotate::Color;
-use screenie_config::Subject;
+use screenie_config::{EditorMode, Subject};
 use screenie_core::Image;
-use screenie_editor::{EditorOptions, Output};
+use screenie_editor::{EditorOptions, Mode, Output};
 use screenie_ipc::CaptureKind;
 
 use crate::clipboard;
@@ -18,10 +18,23 @@ use crate::daemon::Daemon;
 use crate::deliver::{Actions, Capture, encode_png, screenshot_path, write_atomic};
 use crate::preview::{self, PreviewItem};
 
+/// Why a second editor can't open.
+const ALREADY_EDITING: &str = "Already editing a capture: finish this one first";
+
+/// Overlay mode allows one editor at a time; if one is open, it says so and this is an
+/// error.
+pub(crate) fn ensure_free(cx: &mut App) -> anyhow::Result<()> {
+    if Daemon::get(cx).config.editor.mode == EditorMode::Overlay && screenie_editor::overlay_busy(ALREADY_EDITING, cx) {
+        anyhow::bail!("already editing a capture; finish that edit first");
+    }
+    Ok(())
+}
+
 /// Open a capture for editing. `path` is where it's saved, if it is: Save and Done
 /// write back there. `actions` decide what Done does (copy, save, preview card); an
 /// already-saved capture is always saved back.
-pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx: &mut App) {
+pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx: &mut App) -> anyhow::Result<()> {
+    ensure_free(cx)?;
     let d = Daemon::get(cx);
     let config = &d.config.editor;
     let palette: Vec<Color> = config.palette.iter().filter_map(|c| c.parse().ok()).collect();
@@ -43,7 +56,15 @@ pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx
         scale: capture.scale,
         palette: if palette.is_empty() { default_palette() } else { palette },
         style,
-        output: capture.output.clone(),
+        mode: match config.mode {
+            EditorMode::Overlay => Mode::Overlay,
+            EditorMode::Window => Mode::Window,
+        },
+        output: capture
+            .output
+            .as_deref()
+            .and_then(|name| d.capture.outputs().ok()?.into_iter().find(|o| o.name == name)),
+        placement: capture.placement,
         on_disk,
         exit_on_copy: config.exit_on_copy,
         exit_on_save: config.exit_on_save,
@@ -51,41 +72,41 @@ pub(crate) fn open(capture: Capture, path: Option<PathBuf>, actions: Actions, cx
     let image = capture.image.clone();
     let target = Rc::new(RefCell::new(path));
     let handler = move |out: Output, cx: &mut App| handle(out, &target, &capture, &actions, cx);
-    match screenie_editor::open(&image, options, handler, cx) {
-        Ok(_) => Daemon::update(cx, |d, _| {
-            d.editors += 1;
-            d.broadcast();
-        }),
-        Err(e) => tracing::error!("cannot open the editor: {e:#}"),
-    }
+    screenie_editor::open(&image, options, handler, cx).context("opening the editor")?;
+    Daemon::update(cx, |d, _| {
+        d.editors += 1;
+        d.broadcast();
+    });
+    Ok(())
 }
 
 /// `screenie edit FILE`.
 pub(crate) async fn open_file(path: PathBuf, cx: &mut AsyncApp) -> anyhow::Result<()> {
+    cx.update(ensure_free)?;
     let load = path.clone();
     let image = cx
         .background_executor()
         .spawn(async move { Image::load_png(&load) })
         .await
         .with_context(|| format!("opening {} (only PNG images can be edited)", path.display()))?;
-    // A file doesn't say what scale it was captured at; assume the focused screen's.
+    // A file doesn't say what scale it was captured at; open it on the focused screen
+    // and assume that one's.
     let capture_ctx = cx.update(|cx| Daemon::get(cx).capture.clone());
-    let scale = cx
+    let (output, scale) = cx
         .background_executor()
         .spawn(async move {
             let outputs = capture_ctx.outputs().unwrap_or_default();
             let focused = capture_ctx.compositor().focused_output().ok().flatten();
             let output = outputs.iter().find(|o| Some(&o.name) == focused.as_ref()).or(outputs.first());
-            output.map_or(1.0, |o| o.scale as f32)
+            (output.map(|o| o.name.clone()), output.map_or(1.0, |o| o.scale as f32))
         })
         .await;
     cx.update(|cx| {
         let config = &Daemon::get(cx).config.screenshot.after_capture;
         let actions = Actions::resolve(config, &Default::default(), None, false);
-        let capture = Capture { image, scale, subject: Subject::default(), output: None };
-        open(capture, Some(path), actions, cx);
-    });
-    Ok(())
+        let capture = Capture { image, scale, subject: Subject::default(), output, placement: None };
+        open(capture, Some(path), actions, cx)
+    })
 }
 
 fn default_palette() -> Vec<Color> {

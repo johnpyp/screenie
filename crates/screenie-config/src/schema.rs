@@ -183,6 +183,9 @@ impl Default for SelectorConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EditorConfig {
+    /// `overlay`: over the screen, the capture where it was taken; `window`: a regular
+    /// window.
+    pub mode: EditorMode,
     /// Hex colors offered in the palette.
     pub palette: Vec<String>,
     pub default_color: String,
@@ -199,12 +202,21 @@ impl Default for EditorConfig {
             palette: ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#1c1c1e"]
                 .map(String::from)
                 .to_vec(),
+            mode: EditorMode::Overlay,
             default_color: "#ff3b30".into(),
             stroke_width: 4.0,
             exit_on_copy: false,
             exit_on_save: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EditorMode {
+    #[default]
+    Overlay,
+    Window,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

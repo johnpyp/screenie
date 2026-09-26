@@ -97,6 +97,8 @@ pub enum Icon {
     Sparkles,
     Hand,
     Droplet,
+    Minus,
+    Plus,
 }
 
 impl Icon {
@@ -150,6 +152,8 @@ impl Icon {
             Icon::Sparkles => "icons/screenie/sparkles.svg",
             Icon::Hand => "icons/screenie/hand.svg",
             Icon::Droplet => "icons/screenie/droplet.svg",
+            Icon::Minus => "icons/screenie/minus.svg",
+            Icon::Plus => "icons/screenie/plus.svg",
         }
     }
 
@@ -178,7 +182,7 @@ mod tests {
             Area, Window, Screen, Select, Arrow, Line, Rectangle, Ellipse, Pen, Highlighter, Text, Step, Pixelate,
             Spotlight, Crop, Pin, Copy, Download, Save, Close, Mic, MicOff, Volume, VolumeOff, Video, Camera, Stop,
             Pause, Play, Settings, Image, Ocr, Undo, Redo, Picker, Check, FolderOpen, ExternalLink, ZoomIn, ZoomOut,
-            Eraser, Trash, Timer, Film, Drag, Sparkles, Hand, Droplet,
+            Eraser, Trash, Timer, Film, Drag, Sparkles, Hand, Droplet, Minus, Plus,
         ] {
             assert!(Icons::get(icon.path()).is_some(), "{icon:?} missing at {}", icon.path());
         }

@@ -11,6 +11,7 @@
 //! wlinput drag X1 Y1 X2 Y2 [STEPS] press at 1, glide to 2, release
 //! wlinput key NAME...              tap keys (escape enter space tab left right up down, letters, digits)
 //! wlinput hold NAME / release NAME hold or release one key (shift, ctrl, alt, super)
+//! wlinput scroll N                 N wheel clicks (negative: up)
 //! wlinput sleep MS
 //! ```
 //! Several commands can be chained: `wlinput move 10 10 , sleep 100 , click 50 50`.
@@ -111,6 +112,14 @@ impl Input {
         self.pointer.motion_absolute(t, (x - ox).max(0.0) as u32, (y - oy).max(0.0) as u32, w as u32, h as u32);
         self.pointer.frame();
         self.pos = (x, y);
+        self.flush();
+    }
+
+    fn scroll(&mut self, clicks: i32) {
+        let time = self.time();
+        self.pointer.axis_source(wl_pointer::AxisSource::Wheel);
+        self.pointer.axis_discrete(time, wl_pointer::Axis::VerticalScroll, 15.0 * clicks as f64, clicks);
+        self.pointer.frame();
         self.flush();
     }
 
@@ -246,6 +255,13 @@ fn main() {
                 let name = rest.first().expect("key name");
                 let code = keycode(name).unwrap_or_else(|| panic!("unknown key {name}"));
                 input.key(code, cmd == "hold");
+            }
+            "scroll" => {
+                let clicks = num(rest.first()) as i32;
+                for _ in 0..clicks.abs() {
+                    input.scroll(clicks.signum());
+                    std::thread::sleep(Duration::from_millis(30));
+                }
             }
             "sleep" => std::thread::sleep(Duration::from_millis(num(rest.first()) as u64)),
             other => panic!("unknown command {other}"),

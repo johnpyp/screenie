@@ -48,6 +48,11 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
         let d = Daemon::get(cx);
         (d.config.clone(), d.capture.clone(), d.last_region)
     });
+    // Overlay mode edits one capture at a time: refuse another before taking it.
+    let actions = Actions::resolve(&config.screenshot.after_capture, &req.actions, req.output.clone(), req.want_file);
+    if actions.edit && !actions.want_file {
+        cx.update(crate::editor::ensure_free)?;
+    }
     if req.delay > 0 {
         cx.background_executor().timer(std::time::Duration::from_secs(req.delay as u64)).await;
     }
@@ -132,17 +137,22 @@ async fn run(req: ScreenshotRequest, cx: &mut AsyncApp) -> anyhow::Result<Option
         bail!("the region is empty");
     }
     let output_name = output_for(&snapshot, region);
+    let placement = output_name.as_deref().and_then(|name| snapshot.output_named(name)).and_then(|o| {
+        let screen = o.output.logical;
+        (screen.intersection(&region) == Some(region))
+            .then(|| Rect::new(region.x - screen.x, region.y - screen.y, region.width, region.height))
+    });
     let render_snapshot = snapshot.clone();
     let image = cx.background_executor().spawn(async move { render_snapshot.render_region(region) }).await;
     drop(snapshot);
     cx.update(|cx| Daemon::update(cx, |d, _| d.last_region = Some(region)));
 
-    let actions = Actions::resolve(&config.screenshot.after_capture, &req.actions, req.output.clone(), req.want_file);
     let capture = Capture {
         scale: (image.width() as f64 / region.width) as f32,
         image,
         subject: window.map(|w| Subject { app: Some(w.app_id), title: Some(w.title) }).unwrap_or_default(),
         output: output_name,
+        placement,
     };
     deliver::screenshot(capture, actions, config, cx).await.map(Some)
 }

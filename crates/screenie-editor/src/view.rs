@@ -1,6 +1,8 @@
-//! The editor window: a canvas with the capture, a tool bar along the top, and a style
-//! bar along the bottom showing only what applies to the current tool or selection.
+//! The editor view: a canvas with the capture, the tool bar, and a style bar showing
+//! only what applies to the current tool or selection. As an overlay the bars hang off
+//! the capture; in a window they run along the top and bottom.
 
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
@@ -9,7 +11,7 @@ use gpui::prelude::*;
 use gpui::{
     AnyElement, App, BorderStyle, Bounds, BoxShadow, Context, CursorStyle, DispatchPhase, FocusHandle, FontWeight,
     Hitbox, HitboxBehavior, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    SharedString, Window, canvas, div, fill, point, px, quad, rgba, size,
+    ScrollDelta, ScrollWheelEvent, SharedString, Size, Window, canvas, div, fill, point, px, quad, rgba, size,
 };
 use screenie_annotate::{Color, Handle, Kind, Redaction, Shape, Style};
 use screenie_core::{Image, Point, Rect};
@@ -19,6 +21,7 @@ use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
 use crate::raster::Raster;
 use crate::session::{Cursor, Key, Modifiers, Outcome, Reach, Session};
 use crate::tool::Tool;
+use crate::{Mode, Overlays, Setup};
 
 /// What the editor hands back to its owner.
 pub enum Output {
@@ -37,10 +40,16 @@ pub enum Output {
 /// Handles an [`Output`]; a returned message is shown briefly in the editor.
 pub type OutputHandler = Rc<dyn Fn(Output, &mut App) -> anyhow::Result<Option<String>>>;
 
-/// Space kept free around the image for the bars.
-const INSET_TOP: f32 = 64.0;
-const INSET_BOTTOM: f32 = 68.0;
-const INSET_SIDE: f32 = 28.0;
+/// Space kept free around the image for the bars: top, bottom, sides.
+const WINDOW_INSETS: (f32, f32, f32) = (64.0, 68.0, 28.0);
+/// As an overlay, when the capture isn't shown in place: the bars go below it.
+const OVERLAY_INSETS: (f32, f32, f32) = (48.0, 132.0, 48.0);
+/// Distance between the capture and the bars hanging off it, between bars, and from
+/// the screen edges.
+const BAR_GAP: f32 = 10.0;
+const SCREEN_MARGIN: f32 = 8.0;
+/// How much the overlay dims the screen around the capture.
+const OVERLAY_DIM: f32 = 0.5;
 
 fn workspace() -> Hsla {
     rgba(0x141416ff).into()
@@ -77,35 +86,27 @@ impl Viewport {
 pub struct Editor {
     session: Session,
     raster: Raster,
-    palette: Vec<Color>,
+    setup: Rc<Setup>,
+    /// Where Save As starts (and what the last one chose).
     path: Option<PathBuf>,
     focus: FocusHandle,
-    on_output: OutputHandler,
     /// Last pointer position over the canvas, in image pixels.
     pointer: Option<Point>,
+    /// Scroll-wheel travel not yet turned into size steps.
+    scrolled: f32,
+    /// The overlay's bars as last laid out, to place them next frame.
+    bars: Rc<Cell<Option<Size<Pixels>>>>,
     toast: Option<(SharedString, u64)>,
     /// Asking whether to save before closing.
     confirm_close: bool,
     closed: bool,
-    exit_on_copy: bool,
-    exit_on_save: bool,
-}
-
-/// How the editor behaves (from the config).
-pub(crate) struct Behavior {
-    pub palette: Vec<Color>,
-    pub path: Option<PathBuf>,
-    /// Close as soon as the image is copied.
-    pub exit_on_copy: bool,
-    /// Close as soon as the image is saved.
-    pub exit_on_save: bool,
 }
 
 impl Editor {
     pub(crate) fn new(
         session: Session,
-        behavior: Behavior,
-        on_output: OutputHandler,
+        path: Option<PathBuf>,
+        setup: Rc<Setup>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -113,24 +114,33 @@ impl Editor {
         window.focus(&focus, cx);
         let this = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| this.update(cx, |e, cx| e.should_close(cx)).unwrap_or(true));
+        if setup.mode == Mode::Overlay
+            && let Some(handle) = window.window_handle().downcast::<Editor>()
+        {
+            cx.default_global::<Overlays>().open.push(handle);
+            cx.on_release(move |_, cx| cx.default_global::<Overlays>().open.retain(|h| *h != handle)).detach();
+        }
         Self {
             session,
             raster: Raster::default(),
-            palette: behavior.palette,
-            path: behavior.path,
-            exit_on_copy: behavior.exit_on_copy,
-            exit_on_save: behavior.exit_on_save,
+            setup,
+            path,
             focus,
-            on_output,
             pointer: None,
+            scrolled: 0.0,
+            bars: Rc::default(),
             toast: None,
             confirm_close: false,
             closed: false,
         }
     }
 
+    fn overlay(&self) -> bool {
+        self.setup.mode == Mode::Overlay
+    }
+
     fn emit(&mut self, output: Output, cx: &mut Context<Self>) -> bool {
-        let handler = self.on_output.clone();
+        let handler = self.setup.on_output.clone();
         match handler(output, cx) {
             Ok(message) => {
                 if let Some(message) = message {
@@ -146,7 +156,7 @@ impl Editor {
         }
     }
 
-    fn show_toast(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
+    pub(crate) fn show_toast(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
         let generation = self.toast.as_ref().map_or(0, |(_, g)| g + 1);
         self.toast = Some((message.into(), generation));
         cx.notify();
@@ -166,7 +176,7 @@ impl Editor {
         let image = self.session.export();
         if self.emit(Output::Copy(image), cx) {
             self.session.mark_copied();
-            if self.exit_on_copy {
+            if self.setup.exit_on_copy {
                 self.close(window, cx);
             }
         }
@@ -183,7 +193,7 @@ impl Editor {
 
     fn saved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.session.mark_saved();
-        if self.exit_on_save {
+        if self.setup.exit_on_save {
             self.close(window, cx);
         }
     }
@@ -192,18 +202,47 @@ impl Editor {
         let dir = self.path.as_ref().and_then(|p| p.parent()).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
         let name = self.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
         let chosen = cx.prompt_for_new_path(&dir, name.as_deref());
+        if self.overlay() {
+            // The dialog would open underneath the overlay, so step aside until it's
+            // answered, then come back just as things were.
+            self.session.commit_text();
+            let (session, path, setup) = (self.session.clone(), self.path.clone(), self.setup.clone());
+            self.closed = true;
+            window.remove_window();
+            cx.default_global::<Overlays>().parked += 1;
+            let app: &mut App = cx;
+            app.spawn(async move |cx| {
+                let chosen = chosen.await.ok().and_then(Result::ok).flatten();
+                cx.update(|cx| cx.default_global::<Overlays>().parked -= 1);
+                cx.update(|cx| match crate::open_session(session, path, setup.clone(), cx) {
+                    Ok(handle) => {
+                        if let Some(chosen) = chosen {
+                            let _ = handle.update(cx, |e, window, cx| e.save_to(chosen, window, cx));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("cannot reopen the editor: {e:#}");
+                        let _ = (setup.on_output)(Output::Closed { style: Style::default() }, cx);
+                    }
+                });
+            })
+            .detach();
+            return;
+        }
         cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(path))) = chosen.await else { return };
-            let _ = this.update_in(cx, |e, window, cx| {
-                let image = e.session.export();
-                if e.emit(Output::SaveAs(image, path.clone()), cx) {
-                    e.path = Some(path);
-                    e.saved(window, cx);
-                }
-                cx.notify();
-            });
+            let _ = this.update_in(cx, |e, window, cx| e.save_to(path, window, cx));
         })
         .detach();
+    }
+
+    fn save_to(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let image = self.session.export();
+        if self.emit(Output::SaveAs(image, path.clone()), cx) {
+            self.path = Some(path);
+            self.saved(window, cx);
+        }
+        cx.notify();
     }
 
     fn done(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -320,16 +359,37 @@ impl Editor {
 
     fn viewport(&self, bounds: Bounds<Pixels>) -> Viewport {
         let doc = self.session.doc();
+        // As an overlay, the capture stays exactly where it was taken (cropping included).
+        if let Some(place) = self.placement(bounds.size) {
+            let zoom = place.width as f32 / doc.width() as f32;
+            return Viewport { origin: bounds.origin + point(px(place.x as f32), px(place.y as f32)), zoom };
+        }
         // In crop mode the whole image shows, so the crop can grow again.
         let shown = if self.session.crop_edit().is_some() { doc.bounds() } else { doc.visible() };
-        let avail_w = (f32::from(bounds.size.width) - INSET_SIDE * 2.0).max(40.0);
-        let avail_h = (f32::from(bounds.size.height) - INSET_TOP - INSET_BOTTOM).max(40.0);
+        let (inset_top, inset_bottom, inset_side) = if self.overlay() { OVERLAY_INSETS } else { WINDOW_INSETS };
+        let avail_w = (f32::from(bounds.size.width) - inset_side * 2.0).max(40.0);
+        let avail_h = (f32::from(bounds.size.height) - inset_top - inset_bottom).max(40.0);
         // Never beyond the capture's own size on screen (logical 1:1), so it stays sharp.
         let zoom = (avail_w / shown.width as f32).min(avail_h / shown.height as f32).min(1.0 / doc.scale());
         let (w, h) = (shown.width as f32 * zoom, shown.height as f32 * zoom);
-        let left = f32::from(bounds.origin.x) + INSET_SIDE + (avail_w - w) / 2.0;
-        let top = f32::from(bounds.origin.y) + INSET_TOP + (avail_h - h) / 2.0;
+        let left = f32::from(bounds.origin.x) + inset_side + (avail_w - w) / 2.0;
+        let top = f32::from(bounds.origin.y) + inset_top + (avail_h - h) / 2.0;
         Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom }
+    }
+
+    /// Where the overlay shows the capture in place: the spot it was taken from, if that
+    /// is on this screen.
+    fn placement(&self, screen: Size<Pixels>) -> Option<Rect> {
+        let place = self.setup.placement.filter(|_| self.overlay())?;
+        let screen = Rect::new(0.0, 0.0, f64::from(screen.width), f64::from(screen.height));
+        (place.width >= 1.0 && screen.intersection(&place) == Some(place)).then_some(place)
+    }
+
+    /// The window rectangle the (visible part of the) capture occupies.
+    fn shown(&self, bounds: Bounds<Pixels>) -> Bounds<Pixels> {
+        let doc = self.session.doc();
+        let vp = self.viewport(bounds);
+        vp.rect(if self.session.crop_edit().is_some() { doc.bounds() } else { doc.visible() })
     }
 
     fn paint_canvas(&mut self, bounds: Bounds<Pixels>, hitbox: &Hitbox, window: &mut Window, cx: &mut Context<Self>) {
@@ -487,17 +547,40 @@ impl Editor {
             )
     }
 
+    /// The tool whose options apply: the selection's, or the current one.
+    fn styled_tool(&self) -> Tool {
+        match self.session.selected().or_else(|| self.session.text_edit().and_then(|t| self.session.doc().shape(t.id)))
+        {
+            Some(shape) => tool_for(&shape.kind),
+            None => self.session.tool(),
+        }
+    }
+
+    /// Wheel travel resizes (a run of it on one shape is one undo step).
+    fn scroll_size(&mut self, delta: ScrollDelta, cx: &mut Context<Self>) {
+        if !self.styled_tool().uses_size() || self.session.crop_edit().is_some() {
+            return;
+        }
+        // In notches: GPUI reports a wheel click as 3 lines; touchpads scroll pixels.
+        self.scrolled += match delta {
+            ScrollDelta::Lines(d) => d.y / 3.0,
+            ScrollDelta::Pixels(d) => f32::from(d.y) / 40.0,
+        };
+        let steps = self.scrolled.trunc();
+        if steps != 0.0 {
+            self.scrolled -= steps;
+            if self.session.scroll_size(steps as i32) {
+                cx.notify();
+            }
+        }
+    }
+
     /// Colour, size and per-tool options, for the selection or the current tool.
     fn style_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if let Some(crop) = self.session.crop_edit() {
             return Some(self.crop_bar(crop, cx).into_any_element());
         }
-        let tool = match self.session.selected().or_else(|| {
-            self.session.text_edit().and_then(|t| self.session.doc().shape(t.id))
-        }) {
-            Some(shape) => tool_for(&shape.kind),
-            None => self.session.tool(),
-        };
+        let tool = self.styled_tool();
         if !(tool.uses_color() || tool.uses_size() || tool == Tool::Redact) {
             return None;
         }
@@ -505,7 +588,7 @@ impl Editor {
         let mut bar = hud::panel().gap_1();
 
         if tool.uses_color() {
-            for (i, c) in self.palette.iter().copied().enumerate() {
+            for (i, c) in self.setup.palette.iter().copied().enumerate() {
                 let this = cx.entity();
                 bar = bar.child(swatch(("swatch", i), c, c == style.color).on_click(move |_, _, cx| {
                     this.update(cx, |e, cx| {
@@ -528,33 +611,7 @@ impl Editor {
             }
         }
         if tool.uses_size() {
-            bar = bar.child(hud::separator());
-            for (i, s) in Style::SIZES.into_iter().enumerate() {
-                let dot = 4.0 + i as f32 * 2.5;
-                let this = cx.entity();
-                bar = bar.child(
-                    div()
-                        .id(("size", i))
-                        .size(px(30.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(9.))
-                        .cursor_pointer()
-                        .when(style.size == s, |d| d.bg(color::selected()))
-                        .hover(|d| d.bg(color::hover()))
-                        .tooltip(move |window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new(format!("Size {}  {}", i + 1, i + 1)).build(window, cx)
-                        })
-                        .child(div().size(px(dot)).rounded_full().bg(color::text()))
-                        .on_click(move |_, _, cx| {
-                            this.update(cx, |e, cx| {
-                                e.session.set_size(s);
-                                cx.notify();
-                            })
-                        }),
-                );
-            }
+            bar = bar.child(hud::separator()).child(self.size_stepper(style.size, cx));
         }
         if tool.uses_fill() {
             let fill = style.fill;
@@ -589,6 +646,48 @@ impl Editor {
             );
         }
         Some(bar.into_any_element())
+    }
+
+    /// Smaller / current size / larger. The wheel over it (or Ctrl+wheel anywhere)
+    /// steps too.
+    fn size_stepper(&self, size: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        let index = Style::size_index(size);
+        let (smallest, largest) = (Style::SIZES[0], Style::SIZES[Style::SIZES.len() - 1]);
+        let dot = 3.0 + index as f32 * 1.6;
+        let this = cx.entity();
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .child(
+                self.button_for("size-down", cx, |e, _, _| e.session.step_size(-1))
+                    .icon(Icon::Minus)
+                    .tooltip("Smaller  [")
+                    .disabled(size <= smallest),
+            )
+            .child(
+                div()
+                    .id("size")
+                    .w(px(30.))
+                    .h(px(30.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .tooltip(move |window, cx| {
+                        let tip = format!("Size {index} of {}  ·  Ctrl+scroll, 1–9, 0", Style::SIZES.len());
+                        gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
+                    })
+                    .on_scroll_wheel(move |e, _, cx| {
+                        this.update(cx, |editor, cx| editor.scroll_size(e.delta, cx));
+                    })
+                    .child(div().size(px(dot)).rounded_full().bg(color::text())),
+            )
+            .child(
+                self.button_for("size-up", cx, |e, _, _| e.session.step_size(1))
+                    .icon(Icon::Plus)
+                    .tooltip("Larger  ]")
+                    .disabled(size >= largest),
+            )
     }
 
     fn crop_bar(&self, crop: Rect, cx: &mut Context<Self>) -> impl IntoElement {
@@ -666,6 +765,34 @@ impl Render for Editor {
         .absolute()
         .inset_0();
 
+        let bars = if self.overlay() { self.overlay_bars(window, cx) } else { self.window_bars(cx) };
+        div()
+            .id("editor")
+            .size_full()
+            .relative()
+            .bg(if self.overlay() { color::scrim(OVERLAY_DIM) } else { workspace() })
+            .font_family(screenie_ui_kit::FONT)
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(Self::on_key_down))
+            .on_scroll_wheel(cx.listener(|e, event: &ScrollWheelEvent, _, cx| {
+                if event.modifiers.control {
+                    e.scroll_size(event.delta, cx);
+                }
+            }))
+            .child(canvas)
+            .children(bars)
+            .when(self.confirm_close, |d| d.child(self.close_prompt(cx)))
+    }
+}
+
+impl Editor {
+    fn toast_pill(&self) -> Option<gpui::Div> {
+        self.toast.as_ref().map(|(message, _)| hud::pill(message.clone()))
+    }
+
+    /// In a window: history, tools and actions along the top, style bar and toasts along
+    /// the bottom.
+    fn window_bars(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let top = div()
             .absolute()
             .top(px(12.))
@@ -681,31 +808,94 @@ impl Render for Editor {
         let bottom = self.style_bar(cx).map(|bar| {
             div().absolute().bottom(px(14.)).left_0().right_0().flex().flex_row().justify_center().child(bar)
         });
-        let toast = self.toast.as_ref().map(|(message, _)| {
-            div()
-                .absolute()
-                .bottom(px(70.))
-                .left_0()
-                .right_0()
-                .flex()
-                .flex_row()
-                .justify_center()
-                .child(hud::pill(message.clone()))
+        let toast = self.toast_pill().map(|pill| {
+            div().absolute().bottom(px(70.)).left_0().right_0().flex().flex_row().justify_center().child(pill)
         });
+        let mut out = vec![top.into_any_element()];
+        out.extend(bottom.map(IntoElement::into_any_element));
+        out.extend(toast.map(IntoElement::into_any_element));
+        out
+    }
 
-        div()
-            .id("editor")
-            .size_full()
+    /// As an overlay: one stack of bars hanging off the capture, below it if there's
+    /// room, else above, else inside its bottom edge (a full-screen capture), centred on
+    /// it and kept on screen.
+    fn overlay_bars(&self, window: &Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let screen = window.viewport_size();
+        let (w, h) = (f32::from(screen.width), f32::from(screen.height));
+        let shown = self.shown(Bounds::new(point(px(0.), px(0.)), screen));
+        let (top, bottom) = (f32::from(shown.top()), f32::from(shown.bottom()));
+        let measured = self.bars.get();
+        let need = measured.map_or(100.0, |m| f32::from(m.height));
+
+        #[derive(PartialEq)]
+        enum Side {
+            Below,
+            Above,
+            Inside,
+        }
+        let side = if bottom + BAR_GAP + need <= h - SCREEN_MARGIN {
+            Side::Below
+        } else if top - BAR_GAP - need >= SCREEN_MARGIN {
+            Side::Above
+        } else {
+            Side::Inside
+        };
+
+        let main = div()
+            .flex()
+            .flex_row()
+            .gap_2()
+            .child(self.history_bar(cx))
+            .child(self.tool_bar(cx))
+            .child(self.action_bar(cx));
+        let slot = self.bars.clone();
+        let mut stack = div()
             .relative()
-            .bg(workspace())
-            .font_family(screenie_ui_kit::FONT)
-            .track_focus(&self.focus)
-            .on_key_down(cx.listener(Self::on_key_down))
-            .child(canvas)
-            .child(top)
-            .children(bottom)
-            .children(toast)
-            .when(self.confirm_close, |d| d.child(self.close_prompt(cx)))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(BAR_GAP - 2.0))
+            .when(measured.is_none(), |d| d.opacity(0.))
+            .child(canvas(
+                move |bounds, window, _| {
+                    if slot.get() != Some(bounds.size) {
+                        slot.set(Some(bounds.size));
+                        window.on_next_frame(|window, _| window.refresh());
+                    }
+                },
+                |_, _, _, _| {},
+            ).absolute().inset_0());
+        // The main bar sits nearest the capture.
+        let style = self.style_bar(cx);
+        if side == Side::Below {
+            stack = stack.child(main).children(style);
+        } else {
+            stack = stack.children(style).child(main);
+        }
+
+        // Centred on the capture; against the nearer screen edge when too wide for that.
+        let center = f32::from(shown.center().x).clamp(0.0, w);
+        let half = (center - SCREEN_MARGIN).min(w - SCREEN_MARGIN - center).max(0.0);
+        let fits = measured.is_none_or(|m| f32::from(m.width) <= half * 2.0);
+        let mut column = div().absolute().flex().flex_col().gap(px(BAR_GAP - 2.0));
+        column = if fits {
+            column.left(px(center - half)).w(px(half * 2.0)).items_center()
+        } else if center < w / 2.0 {
+            column.left(px(SCREEN_MARGIN)).right(px(SCREEN_MARGIN)).items_start()
+        } else {
+            column.left(px(SCREEN_MARGIN)).right(px(SCREEN_MARGIN)).items_end()
+        };
+        // Toasts go on the far side of the bars, so the bars never move for them.
+        let toast = self.toast_pill();
+        column = match side {
+            Side::Below => column.top(px(bottom + BAR_GAP)).child(stack).children(toast),
+            Side::Above => column.bottom(px(h - top + BAR_GAP)).children(toast).child(stack),
+            Side::Inside => {
+                column.bottom(px((h - bottom).max(0.0) + BAR_GAP + 4.0)).children(toast).child(stack)
+            }
+        };
+        vec![column.into_any_element()]
     }
 }
 

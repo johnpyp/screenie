@@ -43,6 +43,8 @@ paint program. The bar is Screendrop's and CleanShot's editors, with Flameshot's
 - **What you see is the file.** The canvas and the export share one renderer, and
   sizes are in logical pixels, so HiDPI captures look the way they did on screen.
 - **Fast.** Only the shape under your hands is re-rendered while it changes.
+- **In place.** The editor is an overlay over the screen, with the capture right where
+  it was taken, so annotating continues the selection instead of opening a new window.
 - **Finishing is one key.** Enter saves, copies and closes. Esc backs out one level at
   a time and never throws work away without asking.
 
@@ -82,7 +84,7 @@ paint program. The bar is Screendrop's and CleanShot's editors, with Flameshot's
 | `screenie-annotate` | Annotation document model and tiny-skia renderer shared by the editor and export. |
 | `screenie-ui-kit` | GPUI look and feel: bundled font and icons, HUD panels and buttons, layer-shell helpers. |
 | `screenie-selector` | The capture overlay: frozen or live backdrop, region/window/screen picking, loupe. |
-| `screenie-editor` | The annotation editor window. |
+| `screenie-editor` | The annotation editor (overlay or window). |
 | `screenie-app` | The daemon: request routing, after-capture pipeline, preview cards, pins, recording pill, settings. |
 | `screenie` | The binary: CLI parsing and client, `screenie daemon` entry point. |
 

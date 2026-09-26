@@ -2,28 +2,51 @@
 
 Status: **shipped** (first version).
 
-A window for marking up a capture, then copying or saving it. It's opened from the
-preview card's pencil button, with `screenie shot --edit` (or `after_capture.edit`), or
-with `screenie edit FILE.png`.
+Marks up a capture, then copies or saves it. It opens from the preview card's pencil
+button, with `screenie shot --edit` (or `after_capture.edit`), or with
+`screenie edit FILE.png`.
 
 It's minimal on purpose. The references are Screendrop's editor (an object canvas with
 quiet selection chrome), Flameshot (one key per tool, nothing to set up before
 drawing) and CleanShot X.
 
+## Overlay and window
+
+`editor.mode` picks how it appears:
+
+- **`overlay`** (default), like Flameshot. A layer-shell surface covers the capture's
+  screen and dims it. The capture sits exactly where it was taken, so annotating feels
+  like a continuation of selecting. Cropping keeps it in place too. A capture that isn't
+  wholly on one screen, or a file from `screenie edit`, is centred and fitted instead.
+  The overlay takes the keyboard until you're done. On compositors without layer-shell
+  (GNOME) it's a fullscreen window.
+- **`window`**: a regular, resizable window (app id `dev.johnpyp.Screenie`).
+
+In overlay mode there is **one editor at a time**. While it's open, anything else that
+would open one is refused and the open editor says so: `shot --edit`, before the
+selector even appears, `screenie edit`, and the preview card's pencil. Plain captures
+still work.
+
+**Save As** would open the portal file chooser underneath the overlay. So the overlay
+steps aside while the chooser is up, then comes back exactly as it was.
+
 ## Layout
 
 ```
- [↶ ↷]      [▸ ↗ ─ □ ○ ✎ ▬ T ① ▦ ◐ | ⌗]      [⧉ ⤓ ✓ Done]
                  ┌─────────────────────────┐
                  │        the capture      │
                  └─────────────────────────┘
-            [● ● ● ● ● ● ● ●  |  · • • ● ●  |  ▢]
+      [↶ ↷] [▸ ↗ ─ □ ○ ✎ ▬ T ① ▦ ◐ | ⌗] [⧉ ⤓ ✓ Done]
+            [● ● ● ● ● ● ● ●  |  − • +  |  ▢]
 ```
 
-- The **tool bar** is at the top centre, with undo/redo on the left and the actions
-  (Copy, Save, Done) on the right.
-- The **style bar** is at the bottom. It shows only what applies to the selected shape
-  or the current tool: palette, five sizes, fill (rectangles, ellipses, and the label
+- **As an overlay**, the bars hang off the capture, centred on it. They go below it if
+  there's room, otherwise above, otherwise just inside its bottom edge (a full-screen
+  capture), and are kept on screen. The main bar sits nearest the capture.
+- **In a window**, the tool bar runs along the top, with undo/redo on the left and the
+  actions on the right. The style bar is at the bottom.
+- The **style bar** shows only what applies to the selected shape or the current tool.
+  That means the palette, the size stepper, fill (rectangles, ellipses, and the label
   background for text), and Pixelate/Blur for redactions. In crop mode it's replaced by
   the crop size, Reset, Cancel and Crop.
 - The capture is shown at most at its on-screen size (logical 1:1), so it stays sharp,
@@ -49,13 +72,16 @@ drawing) and CleanShot X.
 Other keys:
 
 - Shift snaps lines to 15° and keeps boxes square.
-- `1`–`5` pick a size, `[` and `]` step through them.
+- **Ctrl+scroll** changes the size, like the wheel over the size stepper. With a shape
+  selected, that shape gets thicker or thinner in place: its points stay put. A run of
+  scrolling is one undo step. `[` and `]` step too, and `1`–`9`, `0` pick the ten
+  sizes directly.
 - Arrow keys nudge the selection (Shift ×10). Delete removes it, and Ctrl+D duplicates it.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo.
 - Ctrl+C copies, Ctrl+S saves and Ctrl+Shift+S is Save As. Enter is Done: save, copy
   and close.
 - Esc backs out one level at a time: stop typing, then deselect, then close. Closing
-  with unsaved changes asks first, and so does the window's close button.
+  with unsaved changes asks first, and so does a window's close button.
 
 Drawing tools stay active after a shape, and the new shape is selected so it can be
 adjusted straight away. Pressing on the selected shape moves it, and pressing anywhere
@@ -65,7 +91,8 @@ else draws a new one. A click without a drag draws nothing.
 
 Shapes are stored in image pixels. Widths are in logical pixels, multiplied by the
 capture's output scale, so a size-4 arrow looks the same on a 2× capture as on a 1×
-one. One size control drives everything:
+one. There are ten sizes: 1, 2, 4, 6, 8, 12, 16, 20, 26 and 32. One size control
+drives everything:
 
 | | from width `w` (logical px) |
 | --- | --- |
@@ -90,7 +117,7 @@ Bold, with system fonts as fallback for emoji and CJK.
 - **Copy** copies the rendered PNG.
 - **Save** overwrites the capture's file, or picks a new screenshot name if the
   capture was never saved.
-- **Save As** uses the portal file chooser.
+- **Save As** uses the portal file chooser. An overlay steps aside for it.
 - **Done** applies the after-capture settings (copy, and save if it's on or the
   capture already has a file), closes, and shows a preview card. Anything already
   copied or saved exactly as it is now isn't done again.
@@ -116,7 +143,7 @@ The last colour and size are remembered for the next editor while the daemon run
 
 ## Later
 
-- Zoom and pan (Ctrl+scroll, fit/100%).
+- Zoom and pan (fit/100%, and a zoom gesture that isn't Ctrl+scroll, which sizes).
 - Multi-select and marquee selection.
 - Curved arrows, rotation, arrowhead styles.
 - Keeping annotations editable after saving (a sidecar file).

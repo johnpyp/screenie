@@ -85,12 +85,15 @@ Or hover a preview card and click the pencil. With `--edit`, nothing is copied o
 until you're done: Enter (Done) applies the after-capture settings (copy, and save if
 it's on), and Ctrl+S saves explicitly. Each tool has one key: **A**rrow,
 **L**ine, **R**ectangle, **O** ellipse, **P**en, **H**ighlighter, **T**ext,
-**N**umbered step, **B** pixelate/blur, **S**potlight, **C**rop, **V** select. Keys
-`1`–`5` pick a size and **F** toggles fill. Enter saves, copies and closes, and Esc
-backs out. See [the editor doc](docs/features/editor.md) for the rest.
+**N**umbered step, **B** pixelate/blur, **S**potlight, **C**rop, **V** select.
+Ctrl+scroll (or `[` `]`) changes the size, of the selected shape too, and **F** toggles
+fill. Enter saves, copies and closes, and Esc backs out. See
+[the editor doc](docs/features/editor.md) for the rest.
 
-On tiling compositors the editor opens as a normal window. To float it, match its app
-id `dev.johnpyp.Screenie`, e.g. on Hyprland:
+The editor opens as an overlay on the capture's screen, with the capture right where
+it was taken, and only one at a time. For a regular window, set `editor.mode =
+"window"`. On tiling compositors, float that window by matching its app id
+`dev.johnpyp.Screenie`, e.g. on Hyprland:
 `windowrule = float, class:dev.johnpyp.Screenie`.
 
 ### Recording
@@ -175,9 +178,10 @@ capture_on_release = true # false: adjust the selection, then press Enter
 dim = 0.45
 
 [editor]
+mode = "overlay"          # over the screen, the capture in place; or "window"
 palette = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#1c1c1e"]
 default_color = "#ff3b30"
-stroke_width = 4.0        # logical pixels; 2, 4, 6, 8, 12 are the presets
+stroke_width = 4.0        # logical pixels; sizes are 1 2 4 6 8 12 16 20 26 32
 exit_on_copy = false      # close the editor once the image is copied (Ctrl+C / Copy)
 exit_on_save = false      # … or saved (Ctrl+S / Save / Save As)
 ```
@@ -227,7 +231,7 @@ per-feature docs are in [`docs/features/`](docs/features), and known problems ar
 | `screenie` | The CLI binary |
 | `screenie-app` | The daemon: request routing, capture/record flows, preview cards, recording controls |
 | `screenie-selector` | The capture overlay and its (unit-tested) interaction model |
-| `screenie-editor` | The annotation editor window and its (unit-tested) interaction model |
+| `screenie-editor` | The annotation editor (overlay or window) and its (unit-tested) interaction model |
 | `screenie-annotate` | Annotation documents and their tiny-skia renderer (shared by canvas and export) |
 | `screenie-record` | GStreamer recording engine |
 | `screenie-capture` | "Freeze the desktop" facade and backend selection |

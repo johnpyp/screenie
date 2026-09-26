@@ -15,6 +15,7 @@ pub struct State {
     pub crop: Option<Rect>,
 }
 
+#[derive(Clone)]
 pub struct Document {
     base: Arc<Pixmap>,
     /// Image pixels per logical pixel (the capture's output scale), so a stroke width
@@ -24,6 +25,9 @@ pub struct Document {
     next_id: u64,
     undo: Vec<State>,
     redo: Vec<State>,
+    /// The shape the last undo step restyled, while further restyles of it may join
+    /// that step (a run of scroll-wheel resizes undoes as one).
+    merging: Option<ShapeId>,
 }
 
 const HISTORY_LIMIT: usize = 200;
@@ -38,6 +42,7 @@ impl Document {
             next_id: 1,
             undo: Vec::new(),
             redo: Vec::new(),
+            merging: None,
         }
     }
 
@@ -106,6 +111,7 @@ impl Document {
 
     /// Remember the current state as an undo step.
     pub fn checkpoint(&mut self) {
+        self.merging = None;
         self.undo.push(self.state.clone());
         if self.undo.len() > HISTORY_LIMIT {
             self.undo.remove(0);
@@ -122,10 +128,12 @@ impl Document {
 
     /// Mutate without recording an undo step (call [`Self::checkpoint`] first).
     pub fn state_mut(&mut self) -> &mut State {
+        self.merging = None;
         &mut self.state
     }
 
     pub fn shape_mut(&mut self, id: ShapeId) -> Option<&mut Shape> {
+        self.merging = None;
         self.state.shapes.iter_mut().find(|s| s.id == id)
     }
 
@@ -150,6 +158,21 @@ impl Document {
         }
     }
 
+    /// Like [`Self::restyle`], but a run of these on the same shape, with no other edit
+    /// in between, is a single undo step.
+    pub fn restyle_merging(&mut self, id: ShapeId, style: Style) {
+        if self.merging == Some(id) {
+            if let Some(s) = self.state.shapes.iter_mut().find(|s| s.id == id) {
+                s.style = style;
+            }
+            return;
+        }
+        self.restyle(id, style);
+        if self.undo.last().is_some_and(|previous| *previous != self.state) {
+            self.merging = Some(id);
+        }
+    }
+
     pub fn set_crop(&mut self, crop: Option<Rect>) {
         let crop = crop.and_then(|c| c.intersection(&self.bounds())).map(|c| c.round()).filter(|c| *c != self.bounds());
         if crop != self.state.crop {
@@ -167,12 +190,14 @@ impl Document {
     }
 
     pub fn undo(&mut self) -> bool {
+        self.merging = None;
         let Some(previous) = self.undo.pop() else { return false };
         self.redo.push(std::mem::replace(&mut self.state, previous));
         true
     }
 
     pub fn redo(&mut self) -> bool {
+        self.merging = None;
         let Some(next) = self.redo.pop() else { return false };
         self.undo.push(std::mem::replace(&mut self.state, next));
         true
@@ -222,6 +247,26 @@ mod tests {
         assert_eq!((d.step_number(a), d.step_number(b), d.step_number(c)), (1, 2, 3));
         d.remove(a);
         assert_eq!((d.step_number(b), d.step_number(c)), (1, 2));
+    }
+
+    #[test]
+    fn merging_restyles_undo_as_one() {
+        let mut d = doc();
+        let a = step(&mut d, 20.0);
+        for size in [6.0, 8.0, 12.0] {
+            d.restyle_merging(a, Style { size, ..Style::default() });
+        }
+        assert_eq!(d.shape(a).unwrap().style.size, 12.0);
+        d.undo();
+        assert_eq!(d.shape(a).unwrap().style.size, Style::default().size);
+        // Another edit in between starts a new step.
+        d.redo();
+        d.restyle_merging(a, Style { size: 16.0, ..Style::default() });
+        let b = step(&mut d, 80.0);
+        d.restyle_merging(a, Style { size: 20.0, ..Style::default() });
+        d.undo();
+        assert_eq!(d.shape(a).unwrap().style.size, 16.0);
+        assert!(d.shape(b).is_some());
     }
 
     #[test]

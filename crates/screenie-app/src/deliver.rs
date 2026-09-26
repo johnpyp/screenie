@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use gpui::AsyncApp;
 use screenie_config::{AfterCapture, Config, Paths, Subject, expand_template, unique_path};
-use screenie_core::Image;
+use screenie_core::{Image, Rect};
 use screenie_ipc::{ActionOverrides, CaptureKind};
 
 use crate::clipboard;
@@ -49,6 +49,9 @@ pub(crate) struct Capture {
     pub subject: Subject,
     /// The output showing most of it, where cards and editors appear.
     pub output: Option<String>,
+    /// Where it was on that output (logical, relative to the output), if entirely on it:
+    /// the overlay editor shows it right there.
+    pub placement: Option<Rect>,
 }
 
 pub(crate) struct Delivered {
@@ -86,7 +89,7 @@ pub(crate) fn encode_png(image: &Image) -> anyhow::Result<Vec<u8>> {
 /// copied yet: the editor does that when it's done.
 pub(crate) async fn screenshot(capture: Capture, actions: Actions, config: Config, cx: &mut AsyncApp) -> anyhow::Result<Delivered> {
     if actions.edit && !actions.want_file {
-        cx.update(|cx| crate::editor::open(capture, None, actions, cx));
+        cx.update(|cx| crate::editor::open(capture, None, actions, cx))?;
         return Ok(Delivered { path: None, temporary: false });
     }
     let started = std::time::Instant::now();

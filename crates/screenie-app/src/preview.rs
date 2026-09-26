@@ -316,12 +316,18 @@ impl PreviewStack {
     fn edit(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(item) = self.item(id) else { return };
         let Media::Screenshot { mut capture, .. } = item.media.clone() else { return };
+        // The card stays if another edit is under way.
+        if crate::editor::ensure_free(cx).is_err() {
+            return;
+        }
         let path = item.path.clone();
         capture.output = capture.output.or_else(|| self.output.clone());
         self.remove(id, cx);
         let config = &Daemon::get(cx).config.screenshot.after_capture;
         let actions = crate::deliver::Actions::resolve(config, &Default::default(), None, false);
-        crate::editor::open(capture, path, actions, cx);
+        if let Err(e) = crate::editor::open(capture, path, actions, cx) {
+            tracing::warn!("{e:#}");
+        }
     }
 
     fn delete(&mut self, id: u64, cx: &mut Context<Self>) {
