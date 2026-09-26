@@ -71,3 +71,7 @@ inherits = "release"
 incremental = false
 lto = "thin"
 codegen-units = 1
+
+# Local fixes to dependencies; each is described in patches/README.md.
+[patch.crates-io]
+gpui-pre-linux = { path = "patches/gpui-pre-linux" }

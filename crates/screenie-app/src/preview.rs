@@ -549,7 +549,19 @@ impl PreviewStack {
             .shadow(hud::panel_shadow())
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| this.open(id, cx)))
-            .child(img(item.thumb.clone()).size_full().object_fit(ObjectFit::Contain).rounded(px(11.)))
+            // Sized explicitly to the inside of the card: GPUI's `img` imposes the image's
+            // own aspect ratio on relative sizes, so `size_full` made a tall capture spill
+            // out of the bottom of the card. `object_fit` then letterboxes it within.
+            .child(
+                img(item.thumb.clone())
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .w(px(w - 2.))
+                    .h(px(h - 2.))
+                    .object_fit(ObjectFit::Contain)
+                    .rounded(px(11.)),
+            )
             .children(badge)
             .children(overlay)
             .children(corner_info)
