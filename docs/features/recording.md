@@ -31,9 +31,13 @@ recording, for status bars (see the README for the formats).
 3. The pill goes below the region, else above, else beside it, else on another output.
    A recording of the only output's whole area has no pill. The countdown then says to
    stop with the record shortcut or `screenie stop`.
-4. Stopping shows a preview card: the last frame and a duration badge. On hover it
-   offers **Copy** (the file) until it's copied, **Show in folder**, and delete. Clicking the card opens the video. `recording.after_capture`
-   works like the screenshot one (default: no copy, preview on).
+4. Stopping shows a preview card at once: the last frame and a duration badge, with a
+   spinner while the file is finished (writing the index can take a moment for long
+   recordings). Capture stops first, so the card is never in the video. It doesn't time
+   out while saving, and gets its file actions once the file is written. On hover it
+   offers **Copy** (the file) until it's copied, **Show in folder**, and delete.
+   Clicking the card opens the video. `recording.after_capture` works like the
+   screenshot one (default: no copy, preview on).
 
 Nothing screenie draws ever lands inside the region, so it never appears in the video.
 The chrome redraws only when the timer's second changes, because every redraw is damage

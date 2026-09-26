@@ -117,6 +117,8 @@ struct Shared {
     /// The source ended (a recorded window closed): time to stop and save.
     ended: AtomicBool,
     failure: Mutex<Option<String>>,
+    /// The last frame pushed, for a thumbnail before the file is finished.
+    latest: Mutex<Option<Image>>,
 }
 
 impl Shared {
@@ -144,9 +146,11 @@ impl Clock {
 pub struct Recording {
     pipeline: gst::Pipeline,
     shared: Arc<Shared>,
-    capture: Option<JoinHandle<Option<Image>>>,
+    capture: Option<JoinHandle<()>>,
     eos: mpsc::Receiver<Result<(), String>>,
     clock: Mutex<Clock>,
+    /// The video's length, once capture has stopped.
+    length: Option<Duration>,
     path: PathBuf,
     temp: PathBuf,
     size: (u32, u32),
@@ -205,6 +209,7 @@ impl Recording {
         let clock = Clock { started: Instant::now(), paused_at: None, paused_total: Duration::ZERO };
         let mut feed = Feed { appsrc, fps, size, caps: None, pushed: 0 };
         feed.push(&first);
+        *shared.latest.lock().unwrap() = Some(first.clone());
 
         let capture = {
             let shared = shared.clone();
@@ -227,6 +232,7 @@ impl Recording {
             capture: Some(capture),
             eos,
             clock: Mutex::new(clock),
+            length: None,
             path: spec.path,
             temp,
             size,
@@ -245,11 +251,21 @@ impl Recording {
 
     /// Recorded time so far, excluding pauses.
     pub fn elapsed(&self) -> Duration {
-        self.clock.lock().unwrap().elapsed()
+        self.length.unwrap_or_else(|| self.clock.lock().unwrap().elapsed())
     }
 
     pub fn is_paused(&self) -> bool {
         self.shared.paused.load(Ordering::Relaxed)
+    }
+
+    /// The newest recorded frame: what the video ends on if stopped now.
+    pub fn latest_frame(&self) -> Option<Image> {
+        self.shared.latest.lock().unwrap().clone()
+    }
+
+    /// The video's size.
+    pub fn size(&self) -> (u32, u32) {
+        self.size
     }
 
     /// Whether the source ended (a recorded window closed), so the recording should be
@@ -282,7 +298,8 @@ impl Recording {
 
     /// Finish the file. Blocks until the muxer has written everything.
     pub fn stop(mut self) -> Result<Finished> {
-        let last = self.stop_capture();
+        self.stop_capture();
+        let last = self.latest_frame();
         if self.is_paused() {
             self.set_paused(false)?;
         }
@@ -308,9 +325,14 @@ impl Recording {
         tracing::info!(path = %self.path.display(), "recording cancelled");
     }
 
-    fn stop_capture(&mut self) -> Option<Image> {
+    /// End the video here: nothing after this is recorded (so a preview card shown next
+    /// can't end up in it). [`Recording::stop`] then finishes the file. Blocks briefly
+    /// while the capture thread hands over its last frame.
+    pub fn stop_capture(&mut self) {
+        let Some(capture) = self.capture.take() else { return };
+        self.length = Some(self.elapsed());
         self.shared.stop.store(true, Ordering::Relaxed);
-        self.capture.take().and_then(|h| h.join().ok()).flatten()
+        let _ = capture.join();
     }
 
     fn teardown(&mut self) {
@@ -542,7 +564,7 @@ fn push(appsrc: &gst_app::AppSrc, image: &Image, (width, height): (u32, u32), fo
 /// Pull frames from the source until stopped, pushing at most `fps` per second (or all
 /// of them). The newest frame always wins, and one that arrives early (or while the
 /// pipeline is busy) is held rather than dropped, so the video never ends on a stale
-/// frame. Returns the last frame, after pushing it once more (unless paused) so a still
+/// frame. The last frame is pushed once more at the end (unless paused), so a still
 /// ending lasts until the stop.
 ///
 /// Frames replaced before they could be pushed are counted and logged at the end: with
@@ -553,7 +575,7 @@ fn capture_loop(
     shared: Arc<Shared>,
     first: Image,
     fps: Option<u32>,
-) -> Option<Image> {
+) {
     let mut pacer = Pacer::new(fps);
     let started = Instant::now();
     pacer.tick(started); // the first frame, pushed by the caller
@@ -599,6 +621,7 @@ fn capture_loop(
             longest_gap = longest_gap.max(now - last_push);
             pacer.tick(now);
             feed.push(&frame);
+            *shared.latest.lock().unwrap() = Some(frame.clone());
             last = frame;
             last_push = now;
         }
@@ -618,7 +641,6 @@ fn capture_loop(
     if skipped * 20 > received {
         tracing::warn!("the encoder couldn't keep up: {skipped} of {received} frames were skipped");
     }
-    Some(last)
 }
 
 /// Whether two frames show the same pixels, within what's recorded of them.

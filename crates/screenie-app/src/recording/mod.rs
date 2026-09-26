@@ -20,6 +20,7 @@ use screenie_selector::{Backdrop, Purpose, RecordOptions, SelectorConfig, Select
 
 use crate::daemon::Daemon;
 use crate::deliver::{self, Actions};
+use crate::preview::{self, PreviewItem};
 use controls::{Chrome, Controls, Phase};
 
 pub(crate) struct Active {
@@ -84,16 +85,40 @@ pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
         set_saving(false, cx);
         return Response::Cancelled;
     };
-    let finished = cx.background_executor().spawn(async move { recording.stop() }).await;
+    // The video ends now, and its card shows (with a spinner) while the file is finished
+    // rather than after: that can take a moment. In that order, so the card can't end up
+    // in the video.
+    let background = cx.background_executor().clone();
+    let recording = background
+        .spawn(async move {
+            let mut recording = recording;
+            recording.stop_capture();
+            recording
+        })
+        .await;
+    let card = if active.actions.preview {
+        let (frame, size, duration) = (recording.latest_frame(), recording.size(), recording.elapsed());
+        let item = PreviewItem::recording_saving(frame, size, duration, cx).await;
+        let id = item.id();
+        let output = active.output.clone();
+        cx.update(|cx| preview::show(item, Some(output), cx));
+        Some(id)
+    } else {
+        None
+    };
+    let finished = background.spawn(async move { recording.stop() }).await;
     set_saving(false, cx);
     match finished {
         Ok(finished) => {
             let path = finished.path.clone();
-            deliver::recording(finished, active.actions, Some(active.output), cx).await;
+            deliver::recording(finished, active.actions, Some(active.output), card, cx).await;
             Response::Captured { path: Some(path), temporary: false }
         }
         Err(e) => {
             tracing::error!("finishing the recording failed: {e}");
+            if let Some(card) = card {
+                cx.update(|cx| preview::discard(card, cx));
+            }
             Response::error(format!("finishing the recording failed: {e}"))
         }
     }

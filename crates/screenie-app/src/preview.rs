@@ -1,6 +1,9 @@
 //! The floating preview stack: a card per fresh capture at the edge of the screen
 //! (`preview.position`: a corner or the middle of an edge), with quick actions on hover. Cards slide away on their own unless the pointer is on them.
 //!
+//! A recording's card appears the moment it's stopped, with a spinner while the file is
+//! finished (which can take a moment), and gets its file actions once it's written.
+//!
 //! Hovering shows only what's left to do: Copy and Save buttons until the capture is
 //! copied or saved. What's done shows as a "✓ Copied & Saved" pill in the corner, hovered
 //! or not. Show in folder and Delete appear once there's a file.
@@ -118,7 +121,8 @@ impl CardAction {
         let screenshot = matches!(item.media, Media::Screenshot { .. });
         let saved = item.path.is_some();
         match self {
-            Self::Copy => !item.is_copied(),
+            // A recording is copied as its file.
+            Self::Copy => !item.is_copied() && (screenshot || saved),
             Self::Save => screenshot && !saved,
             // Nothing to show or delete until there's a file.
             Self::Reveal | Self::Delete => saved,
@@ -143,7 +147,11 @@ impl CardAction {
 #[derive(Clone)]
 pub(crate) enum Media {
     Screenshot { capture: Capture, png: Arc<Vec<u8>> },
-    Recording { duration: Duration },
+    Recording {
+        duration: Duration,
+        /// The file is still being finished.
+        saving: bool,
+    },
 }
 
 pub(crate) struct PreviewItem {
@@ -179,8 +187,24 @@ impl PreviewItem {
     pub async fn recording(finished: screenie_record::Finished, copied: bool, cx: &mut AsyncApp) -> Self {
         let (w, h) = finished.size;
         let frame = finished.last_frame.unwrap_or_else(|| Image::new(w, h, screenie_core::PixelFormat::Bgra));
-        let media = Media::Recording { duration: finished.duration };
+        let media = Media::Recording { duration: finished.duration, saving: false };
         Self::new(media, frame, finished.bytes, Some(finished.path), copied, cx).await
+    }
+
+    /// A recording that's been stopped but whose file is still being finished; see
+    /// [`saved`].
+    pub async fn recording_saving(frame: Option<Image>, size: (u32, u32), duration: Duration, cx: &mut AsyncApp) -> Self {
+        let frame = frame.unwrap_or_else(|| Image::new(size.0, size.1, screenie_core::PixelFormat::Bgra));
+        let media = Media::Recording { duration, saving: true };
+        Self::new(media, frame, 0, None, false, cx).await
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    fn is_saving(&self) -> bool {
+        matches!(self.media, Media::Recording { saving: true, .. })
     }
 
     /// The thumbnail is scaled on a background thread.
@@ -229,7 +253,8 @@ impl PreviewItem {
             Media::Screenshot { .. } => {
                 format!("{} × {} · {}", self.pixel_size.0, self.pixel_size.1, format_bytes(self.bytes))
             }
-            Media::Recording { duration } => format!("{} · {}", format_duration(*duration), format_bytes(self.bytes)),
+            Media::Recording { duration, saving: true } => format!("{} · Saving…", format_duration(*duration)),
+            Media::Recording { duration, .. } => format!("{} · {}", format_duration(*duration), format_bytes(self.bytes)),
         }
     }
 }
@@ -293,6 +318,22 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
         Ok(handle) => cx.global_mut::<Previews>().window = Some((handle, placement)),
         Err(e) => tracing::warn!("cannot show the preview card: {e}"),
     }
+}
+
+/// A recording's card, shown while it was being finished, now has its file.
+pub(crate) fn saved(id: u64, finished: &screenie_record::Finished, copied: bool, cx: &mut App) {
+    let (path, bytes, duration) = (finished.path.clone(), finished.bytes, finished.duration);
+    with_stack(cx, move |stack, cx| stack.saved(id, path, bytes, duration, copied, cx));
+}
+
+/// Take a card away, e.g. a recording that couldn't be finished.
+pub(crate) fn discard(id: u64, cx: &mut App) {
+    with_stack(cx, move |stack, cx| stack.remove(id, cx));
+}
+
+fn with_stack(cx: &mut App, f: impl FnOnce(&mut PreviewStack, &mut Context<PreviewStack>)) {
+    let Some((handle, _)) = cx.try_global::<Previews>().and_then(|p| p.window.clone()) else { return };
+    let _ = handle.update(cx, |stack, _, cx| f(stack, cx));
 }
 
 /// A card's id and where it was painted.
@@ -363,7 +404,7 @@ impl PreviewStack {
     fn expire(&mut self, cx: &mut Context<Self>) {
         let now = Instant::now();
         let before = self.items.len();
-        self.items.retain(|i| i.hovered || i.deadline.is_none_or(|d| d > now));
+        self.items.retain(|i| i.hovered || i.is_saving() || i.deadline.is_none_or(|d| d > now));
         if self.items.len() != before {
             cx.notify();
         }
@@ -372,6 +413,18 @@ impl PreviewStack {
     fn remove(&mut self, id: u64, cx: &mut Context<Self>) {
         self.items.retain(|i| i.id != id);
         self.sync_keyboard(false, cx);
+        cx.notify();
+    }
+
+    fn saved(&mut self, id: u64, path: PathBuf, bytes: u64, duration: Duration, copied: bool, cx: &mut Context<Self>) {
+        let timeout = Self::timeout(cx);
+        let Some(item) = self.item(id) else { return };
+        item.media = Media::Recording { duration, saving: false };
+        item.path = Some(path);
+        item.bytes = bytes;
+        item.copied = copied.then(clipboard::generation);
+        // Its time starts now that there's something to do with it.
+        item.deadline = timeout.map(|t| Instant::now() + t);
         cx.notify();
     }
 
@@ -624,7 +677,7 @@ impl PreviewStack {
 
         // Videos are marked so they aren't mistaken for screenshots.
         let badge = match (&item.media, hovered) {
-            (Media::Recording { duration }, false) => Some(
+            (Media::Recording { duration, .. }, false) => Some(
                 div()
                     .absolute()
                     .bottom(ui(8.))
@@ -645,6 +698,31 @@ impl PreviewStack {
             _ => None,
         };
 
+        let saving = item.is_saving();
+        let spinner = || hud::spinner(("saving", id), ui(20.), gpui::white());
+        // While the file is finished: the spinner in the middle, over a light tint (the
+        // hover overlay has it instead of the buttons).
+        let pending = (saving && !hovered).then(|| {
+            div()
+                .absolute()
+                .inset_0()
+                .rounded(ui(11.))
+                .bg(rgba(0x00000059))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .size(ui(36.))
+                        .rounded_full()
+                        .bg(rgba(0x000000a6))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(spinner()),
+                )
+        });
+
         let overlay = hovered.then(|| {
             let offers: Vec<CardAction> = CardAction::ALL.into_iter().filter(|a| a.offered(item, cx)).collect();
             let offered = |action| offers.contains(&action);
@@ -652,6 +730,7 @@ impl PreviewStack {
                 .flex()
                 .flex_row()
                 .gap_3()
+                .when(saving, |d| d.child(spinner()))
                 .when(offered(CardAction::Copy), |d| d.child(middle(CardAction::Copy, cx)))
                 .when(offered(CardAction::Save), |d| d.child(middle(CardAction::Save, cx)))
                 .when(offered(CardAction::Reveal), |d| d.child(middle(CardAction::Reveal, cx)));
@@ -700,6 +779,7 @@ impl PreviewStack {
                     .rounded(ui(11.)),
             )
             .children(badge)
+            .children(pending)
             .children(overlay)
             .children(corner_info)
             .child(

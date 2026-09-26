@@ -23,7 +23,9 @@ let finished = recording.stop()?; // path, duration, size, bytes, last frame
   run on the GPU (`vapostproc`) with VA-API encoders.
 - Each recording logs how many frames it received, pushed and skipped: skips mean the
   pipeline couldn't keep up.
-- `stop()` blocks until the file is finalized. `cancel()` or dropping the recording
+- `stop_capture()` ends the video there (its length and last frame are final, see
+  `latest_frame()`), so the caller can show a preview before `stop()` finishes the
+  file. `stop()` blocks until the file is finalized. `cancel()` or dropping the recording
   deletes it. `failure()` reports a broken pipeline so the caller can salvage the file,
   and `ended()` a source that went away (a recorded window closed).
 

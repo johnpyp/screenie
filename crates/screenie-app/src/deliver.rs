@@ -148,11 +148,13 @@ pub(crate) async fn screenshot(
     Ok(Delivered { path, temporary })
 }
 
-/// Run the after-capture actions for a finished recording (it's already saved).
+/// Run the after-capture actions for a finished recording (it's already saved). `card`:
+/// its preview card, shown while it was being finished.
 pub(crate) async fn recording(
     finished: screenie_record::Finished,
     actions: Actions,
     output_name: Option<String>,
+    card: Option<u64>,
     cx: &mut AsyncApp,
 ) {
     let path = finished.path.clone();
@@ -164,8 +166,12 @@ pub(crate) async fn recording(
             .await
             .is_ok()
     };
-    if actions.preview {
-        let item = PreviewItem::recording(finished, copied, cx).await;
-        cx.update(|cx| preview::show(item, output_name, cx));
+    match (actions.preview, card) {
+        (true, Some(card)) => cx.update(|cx| preview::saved(card, &finished, copied, cx)),
+        (true, None) => {
+            let item = PreviewItem::recording(finished, copied, cx).await;
+            cx.update(|cx| preview::show(item, output_name, cx));
+        }
+        (false, _) => {}
     }
 }

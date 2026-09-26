@@ -99,6 +99,8 @@ pub enum Icon {
     Droplet,
     Minus,
     Plus,
+    /// A three-quarter circle, for [`crate::hud::spinner`].
+    Loader,
 }
 
 impl Icon {
@@ -154,6 +156,7 @@ impl Icon {
             Icon::Droplet => "icons/screenie/droplet.svg",
             Icon::Minus => "icons/screenie/minus.svg",
             Icon::Plus => "icons/screenie/plus.svg",
+            Icon::Loader => "icons/screenie/loader-circle.svg",
         }
     }
 

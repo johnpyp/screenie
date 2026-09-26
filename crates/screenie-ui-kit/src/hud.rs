@@ -3,9 +3,11 @@
 //! reads on any wallpaper and next to any app.
 
 use gpui::prelude::*;
+use std::time::Duration;
+
 use gpui::{
-    AnyElement, App, BoxShadow, ClickEvent, Div, ElementId, FontWeight, Hsla, Rems, SharedString, Stateful, Window, div,
-    point, px, rgba,
+    Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Div, ElementId, FontWeight, Hsla, Rems,
+    SharedString, Stateful, Transformation, Window, div, percentage, point, px, rgba,
 };
 
 use crate::assets::Icon;
@@ -145,6 +147,16 @@ pub fn pill(text: impl Into<SharedString>) -> Div {
 
 pub fn separator() -> Div {
     div().w(px(1.)).h(ui(20.)).mx_1().bg(color::separator())
+}
+
+/// Something is under way: a turning circle. It redraws every frame, so use it only
+/// while something's pending.
+pub fn spinner(id: impl Into<ElementId>, size: Rems, color: impl Into<Hsla>) -> impl IntoElement {
+    Icon::Loader.element().size(size).text_color(color.into()).with_animation(
+        id,
+        Animation::new(Duration::from_millis(800)).repeat(),
+        |icon, turn| icon.with_transformation(Transformation::rotate(percentage(turn))),
+    )
 }
 
 /// A keyboard key hint.
