@@ -36,8 +36,14 @@ doesn't move. sway enforces a pointer lock for the surface with the keyboard and
 every motion while the cursor is over another one, so a game that locks its pointer
 while the cursor is on a card (which never takes the keyboard) freezes the cursor there.
 The relative motion still reaches the card, and `screenie_ui_kit::Hover` steps aside
-when told. The examples aren't vendored (their `[[example]]` entries are removed from
-`Cargo.toml`). Upstream: none; it's screenie's policy on top of a sway quirk.
+when told.
+
+HACK: it exists for a sway bug (1.12 and master as of 2026-09): sway activates a pointer
+constraint without giving its surface pointer focus, which the protocol guarantees.
+Drop it, and the step-aside in `Hover`, once sway fixes that.
+
+The examples aren't vendored (their `[[example]]` entries are removed from
+`Cargo.toml`).
 
 `src/window.rs` (`Window::dispatch_event`, `mouse_hit_test_in`, `TooltipId::is_hovered`)
 and `src/elements/div.rs` (the tooltip's prepaint hover check): forget the hover when the

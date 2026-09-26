@@ -2541,7 +2541,11 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
 
 delegate_noop!(WaylandClientStatePtr: ignore zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1);
 
-/// screenie patch: how many relative moves over a window, with none of them moving the
+/// screenie patch. HACK: detects a sway bug (1.12 and master as of 2026-09): with a
+/// pointer constraint active on another surface, sway drops all motion while the cursor
+/// is over this one, but still sends it the relative moves. See `screenie_ui_kit::Hover`.
+///
+/// How many relative moves over a window, with none of them moving the
 /// pointer, make it stuck. Compositors send the relative move first and the motion right
 /// after, so one alone is normal; a few in a row mean the motion is being dropped.
 const STUCK_AFTER: u32 = 3;

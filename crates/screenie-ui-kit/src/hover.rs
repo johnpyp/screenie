@@ -8,7 +8,7 @@
 //! later reads Shift as Shift+Tab. Notifications, bars and docks work the same way, for
 //! the same reason: what they offer, the pointer does.
 //!
-//! sway has a catch. It enforces a pointer constraint (a game's pointer lock or confine)
+//! HACK: sway has a bug. It enforces a pointer constraint (a game's pointer lock or confine)
 //! for the surface that has the keyboard, and drops every motion while the cursor is over
 //! another surface, so a game that locks the pointer while the cursor is on a card would
 //! freeze it there. The pointer still reports relative motion to the card, which is how
@@ -172,6 +172,12 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
 
     /// The pointer is stuck on the surface (see the module docs): take no input for a
     /// moment, so it moves on to the surface that holds it.
+    ///
+    /// HACK: works around a sway bug (1.12 and master as of 2026-09). sway activates a
+    /// pointer constraint when its surface gets keyboard focus but leaves pointer focus
+    /// on whatever is under the cursor, then drops every motion while that isn't the
+    /// constrained surface, although pointer-constraints guarantees the constrained
+    /// surface already has pointer focus. Drop this once sway gives it the pointer.
     fn step_aside(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         tracing::debug!("overlay stepping aside for a stuck pointer");
         self.aside = true;
@@ -222,6 +228,10 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
     }
 }
 
+/// HACK: part of the sway workaround in [`Hover::step_aside`]. sway (1.12 and master as
+/// of 2026-09) doesn't pick the surface under the cursor again when an input region
+/// changes, only when a surface maps or unmaps.
+///
 /// Have the compositor pick the surface under the pointer again, as it does whenever a
 /// surface maps or unmaps. Nothing else is sure to: sway (up to 1.12) doesn't for a
 /// changed input region, and under a lock no motion does it either. So this maps an empty

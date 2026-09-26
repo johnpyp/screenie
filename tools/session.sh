@@ -7,6 +7,7 @@
 #
 # Usage:
 #   tools/session.sh start [sway]   # start the compositor (default: sway)
+#   SWAY=~/code/sway/build/sway/sway tools/session.sh start   # a sway build to try
 #   tools/session.sh stop
 #   tools/session.sh env            # print `export` lines for the running session
 #   tools/session.sh shot [file]    # grim screenshot of the whole layout (default: session.png)
@@ -48,7 +49,7 @@ start() {
     env -u WAYLAND_DISPLAY -u DISPLAY \
       WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER="${WLR_RENDERER:-gles2}" \
       XDG_CURRENT_DESKTOP=sway XDG_SESSION_TYPE=wayland \
-      setsid sway -c "$STATE/sway.conf" >"$STATE/sway.log" 2>&1 </dev/null &
+      setsid "${SWAY:-sway}" -c "$STATE/sway.conf" >"$STATE/sway.log" 2>&1 </dev/null &
     ;;
   *)
     echo "unknown compositor: $compositor" >&2
