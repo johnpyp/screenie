@@ -49,7 +49,9 @@ steps aside while the chooser is up, then comes back exactly as it was.
 
 - **As an overlay**, the bars hang off the capture, centred on it. They go below it if
   there's room, otherwise above, otherwise just inside its bottom edge (a full-screen
-  capture), and are kept on screen. The main bar sits nearest the capture.
+  capture), and are kept on screen. The main bar sits nearest the capture. Their
+  strip, gaps included, takes the pointer: a near miss on a button never deselects or
+  draws on the capture underneath.
 - **In a window**, the tool bar runs along the top, with undo/redo on the left and the
   actions on the right. The style bar is at the bottom.
 - The **style bar** shows only what applies to the selected shape or the current tool.
@@ -148,8 +150,10 @@ Bold, with system fonts as fallback for emoji and CJK.
 - Closing asks "Keep your annotations?" only if the current annotations were neither
   copied nor saved. Its main button does what Done would (Copy, Save, or Save & copy).
   When Done would only close (the defaults), Done asks too, and the prompt offers Copy
-  and Save instead. `editor.confirm_discard: false` turns the prompt off everywhere
-  (Esc, Done, a window's close button): unkept annotations are then discarded.
+  and Save instead. Clicking outside the prompt cancels it, like Esc, and nothing
+  behind it can be drawn on or pressed meanwhile. `editor.confirm_discard: false`
+  turns the prompt off everywhere (Esc, Done, a window's close button): unkept
+  annotations are then discarded.
 - `screenie shot --edit` finishes when the editor closes, like any capture. It prints
   the saved file, if the edit was saved (`--stdout` writes the edited PNG instead:
   Done then always hands it over). It exits 1 if the editor was closed without Done

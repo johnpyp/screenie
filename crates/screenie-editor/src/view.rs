@@ -1160,6 +1160,7 @@ impl Editor {
     fn close_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let card = div()
             .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .w(ui(340.))
             .p(ui(18.))
             .flex()
@@ -1199,9 +1200,19 @@ impl Editor {
                     )
                     .children(self.prompt_actions(cx)),
             );
+        // The scrim takes the pointer, so nothing behind it is drawn on or pressed, and
+        // clicking it cancels, like Esc.
         div()
             .absolute()
             .inset_0()
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|e, _, _, cx| {
+                    e.confirm_close = false;
+                    cx.notify();
+                }),
+            )
             .bg(color::scrim(0.45))
             .flex()
             .items_center()
@@ -1256,7 +1267,7 @@ impl Render for Editor {
             )
             .font_family(screenie_ui_kit::FONT)
             .on_scroll_wheel(cx.listener(|e, event: &ScrollWheelEvent, _, cx| {
-                if event.modifiers.control {
+                if event.modifiers.control && !e.confirm_close {
                     e.scroll_size(event.delta, cx);
                 }
             }))
@@ -1371,7 +1382,10 @@ impl Editor {
                 .absolute()
                 .inset_0(),
             );
+        // The bars' strip (gaps included) is chrome: a near miss on a button mustn't
+        // deselect or draw on the capture under it.
         let mut stack = div()
+            .occlude()
             .flex()
             .flex_col()
             .items_center()
