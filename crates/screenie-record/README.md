@@ -41,7 +41,15 @@ let finished = recording.stop()?; // path, duration, size, bytes, last frame
   recording deletes it. `failure()` reports a broken pipeline so the caller can salvage the file,
   and `ended()` a source that went away (a recorded window closed).
 
-See [docs/features/recording.md](../../docs/features/recording.md) for the design.
+- Audio comes through `pulsesrc` (PipeWire and PulseAudio both serve it): the default
+  sink's monitor and the default mic, mixed and encoded as AAC (`avenc_aac`,
+  `fdkaacenc`, `voaacenc`), or Opus without an AAC encoder.
+- The MP4 has its index up front (faststart). mp4mux keeps the media data in a hidden
+  scratch file next to the output until `stop()`.
+
+`tools/rec_stress.py` measures frame rate and gaps against an uncapped fullscreen
+`weston-simple-egl` in the headless session, and `tools/scanout.py` shows whether a
+fullscreen app stays on direct scanout while it's recorded.
 
 ```sh
 cargo run -p screenie-record --example rec -- encoders

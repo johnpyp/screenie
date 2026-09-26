@@ -10,21 +10,15 @@ Everything is built in: selector, capture, clipboard, encoder and UI. You don't 
 [GPUI](https://www.gpui.rs/) interface.
 
 <p align="center">
-  <a href="docs/media/screenie-demo.mp4"><img src="docs/media/desktop.webp" alt="The annotation editor over a sway desktop: a capture of some code, marked up with a box, an arrow, a note and numbered steps"></a>
+  <img src="docs/media/hero.webp" alt="screenie on a sway desktop: the annotation editor over a capture of code, marked up with a box, an arrow, a note and numbered steps; below it, a window picked in the selector, a recording's timer pill and ring, and a preview card's actions">
   <br>
   <a href="docs/media/screenie-demo.mp4"><b>▶ Watch the one-minute tour</b></a>
 </p>
 
-## Highlights
-
 | | |
 | :-: | :-: |
-| ![Dragging out a region on the frozen screen, with the magnifier and its size](docs/media/select-area.webp) | ![A window highlighted under the pointer in the selector](docs/media/select-window.webp) |
-| **Select any area** on a frozen, pixel-exact overlay, with a loupe | **…or a window, or the whole screen**: `1` `2` `3` switch |
-| ![Annotations on a capture of code: a box, an arrow, a note, numbered steps](docs/media/annotate.webp) | ![Customer emails in a log, pixelated in the editor](docs/media/pixelate.webp) |
-| **Annotate** in place: arrows, shapes, text, numbered steps | **Pixelate or blur** anything private |
-| ![Recording a region: a red ring around it, the timer pill, the time in waybar](docs/media/recording.webp) | ![A preview card, hovered: copy, save, annotate, dismiss](docs/media/cards.webp) |
-| **Record** a region: a ring marks it, a pill runs it, your bar shows it | **Preview cards** to copy, save, annotate or dismiss |
+| ![Dragging out a region on the frozen screen, with the magnifier and its size](docs/media/select-area.webp) | ![Customer emails in a log, pixelated in the editor](docs/media/pixelate.webp) |
+| **Select any area** on a frozen, pixel-exact overlay, with a loupe. `1` `2` `3` switch to window or screen | **Pixelate or blur** anything private |
 
 ## Status
 
@@ -42,7 +36,23 @@ Everything is built in: selector, capture, clipboard, encoder and UI. You don't 
 Native capture works on wlroots-family compositors and anything else with
 `ext-image-copy-capture-v1` or `wlr-screencopy`: Sway, Hyprland, niri, river, Wayfire,
 COSMIC… Window picking uses compositor IPC where it's available (Sway, Hyprland, niri).
-See [the compositor matrix](docs/features/compositors.md).
+See [the compositor matrix](crates/screenie-compositor/README.md#compositor-support).
+
+### Known limitations
+
+- GNOME and KDE capture needs the xdg-desktop-portal backend, which isn't written yet.
+  GNOME also has no data-control protocol, so there's no clipboard there.
+- Preview cards can't be dragged into other apps yet (GPUI can't start a Wayland drag
+  with our own data).
+- The window-mode editor tiles on tiling compositors; float it by app id (see
+  [Annotating](#annotating)).
+- A recording is only saved if the daemon stops cleanly (`screenie stop`,
+  `screenie quit`). If it's killed (logout, OOM), the data stays in a hidden
+  `.NAME.mp4.part` file without an index.
+- Upgrading empties the clipboard: the daemon serves what it copied, so a copy not yet
+  pasted goes with the old daemon.
+- Recording a whole output leaves no room outside it for the pill; stop with the record
+  shortcut or `screenie stop`.
 
 ## Usage
 
@@ -106,7 +116,7 @@ saved file, if any. Ctrl+C and Ctrl+S copy and save explicitly. Each tool has on
 **N**umbered step, **B** pixelate/blur, **S**potlight, **C**rop, **V** select.
 Ctrl+scroll (or `[` `]`) changes the size, of the selected shape too, and **F** toggles
 fill. Esc backs out. See
-[the editor doc](docs/features/editor.md) for the rest.
+[the editor's keys](crates/screenie-editor/README.md#keys) for the rest.
 
 The editor opens as an overlay on the capture's screen, with the capture right where
 it was taken, and only one at a time. For a regular window, set `editor.mode =
@@ -295,7 +305,7 @@ The daemon logs to `~/.local/state/screenie/daemon.log` (the previous run's log 
 You need Rust (stable, via [mise](https://mise.jdx.dev) or rustup) and, on Debian/Ubuntu:
 
 ```sh
-sudo apt install clang mold pkg-config \
+sudo apt install build-essential pkg-config \
   libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
   libwayland-dev libvulkan-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
@@ -325,9 +335,9 @@ At runtime, recording uses VA-API when a driver is present (`mesa-va-drivers`,
 ## Development
 
 The workspace is split into small crates so builds stay fast. Each one has its own
-README. The design and its reasoning are in [`docs/NORTH_STAR.md`](docs/NORTH_STAR.md),
-per-feature docs are in [`docs/features/`](docs/features), and known problems are in
-[`docs/ISSUES.md`](docs/ISSUES.md).
+README. Why things are the way they are is in
+[`ai-docs/key-decisions.md`](ai-docs/key-decisions.md), and the bugs that took real
+digging are in [`ai-docs/key-lessons.md`](ai-docs/key-lessons.md).
 
 | Crate | Role |
 | --- | --- |
@@ -345,6 +355,9 @@ per-feature docs are in [`docs/features/`](docs/features), and known problems ar
 | `screenie-config` | Config schema, XDG paths, file naming |
 | `screenie-state` | What's remembered between runs: a versioned, migrated state file |
 | `screenie-core` | Geometry, images, snapshots, frame sources |
+
+A plain `cargo build` builds just the app. Pass `--workspace` to check or test
+everything: `cargo clippy --workspace --all-targets`, `cargo test --workspace`.
 
 You don't need a display to develop. `tools/` has a headless sway session with two
 mixed-DPI outputs, a virtual pointer and keyboard, and an image diff:
@@ -376,5 +389,5 @@ headless demo desktop, a scripted run through the features, and a renderer for t
 
 ## License
 
-MIT. The bundled Inter font (in `assets/fonts`) is under the SIL Open Font License, and the Lucide icons
+[MIT](LICENSE). The bundled Inter font (in `assets/fonts`) is under the SIL Open Font License, and the Lucide icons
 are under ISC.
