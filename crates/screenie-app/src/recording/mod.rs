@@ -223,9 +223,9 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
             .context("listing outputs")?
     };
     let focused = {
-        let compositor = compositor.clone();
+        let capture = capture.clone();
         background
-            .spawn(async move { compositor.focused_output().ok().flatten() })
+            .spawn(async move { capture.focused_output() })
             .await
     };
     let mut audio = RecordOptions {

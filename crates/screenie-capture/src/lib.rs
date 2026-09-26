@@ -198,6 +198,23 @@ impl CaptureContext {
         Ok(prime(capturer.into_window_stream(window, cursor)?)?)
     }
 
+    /// Connector name of the output the user is on: from the compositor's IPC, or else
+    /// from where the compositor puts a surface that doesn't pick one (layer-shell). Blocking.
+    pub fn focused_output(&self) -> Option<String> {
+        match self.compositor.focused_output() {
+            Ok(Some(name)) => return Some(name),
+            Ok(None) => {}
+            Err(e) => tracing::debug!("the compositor didn't say which output is focused: {e}"),
+        }
+        if !self.support.layer_shell {
+            return None;
+        }
+        screenie_wayland::focused_output()
+            .inspect_err(|e| tracing::debug!("probing the focused output failed: {e}"))
+            .ok()
+            .flatten()
+    }
+
     /// Output layout without capturing pixels.
     pub fn outputs(&self) -> Result<Vec<OutputInfo>> {
         Ok(Capturer::connect()?.outputs())

@@ -4,6 +4,9 @@ The "freeze the desktop now" facade. `CaptureContext` owns a Wayland `Capturer` 
 detected `Compositor`. `snapshot(options)` returns a `Snapshot` with all outputs
 captured and the window list fetched concurrently.
 
+`focused_output()` is the output the user is on: from compositor IPC, or else from the
+layer-shell probe in `screenie-wayland`.
+
 `stream(...)` starts a live stream of an output or a region of it, and `stream_window`
 one of a window by itself where `can_stream_window` says the compositor allows it. Both
 block until the first frame arrives.

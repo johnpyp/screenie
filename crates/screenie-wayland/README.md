@@ -23,6 +23,9 @@ to grim.
     (`ext-foreign-toplevel-image-capture-source-v1`), found through
     `ext-foreign-toplevel-list-v1` by identifier, or by app id and title. Its frames
     change size with the window, and the stream ends when it closes.
+- `focused_output()` finds the output the user is on without compositor IPC: it maps a
+  transparent 1×1 layer surface with no output (the compositor places it on the one the
+  user last interacted with), reads `wl_surface.enter`, and removes it.
 - Protocols: `ext-image-copy-capture-v1` and `wlr-screencopy-unstable-v1`, chosen
   automatically or forced with `Backend`.
 - Handles 8-bit and 10-bit shm formats, y-invert, and all output transforms. Results are

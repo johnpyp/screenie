@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, anyhow, bail};
 use gpui::AsyncApp;
-use screenie_capture::SnapshotOptions;
+use screenie_capture::{CaptureContext, SnapshotOptions};
 use screenie_config::Subject;
 use screenie_core::{Rect, Snapshot, WindowInfo};
 use screenie_ipc::{Response, ScreenshotRequest, SelectMode, Target};
@@ -85,11 +85,7 @@ async fn run(
     let mut window: Option<WindowInfo> = None;
     let region: Rect = match &req.target {
         Target::Select { mode } => {
-            let compositor = capture.compositor().clone();
-            let focused = cx
-                .background_executor()
-                .spawn(async move { compositor.focused_output().ok().flatten() })
-                .await;
+            let focused = focused_output(&capture, cx).await;
             let selector = SelectorConfig {
                 purpose: Purpose::Screenshot,
                 mode: selector_mode(*mode),
@@ -120,12 +116,7 @@ async fn run(
         Target::Screen { output } => {
             let name = match output {
                 Some(name) => Some(name.clone()),
-                None => {
-                    let compositor = capture.compositor().clone();
-                    cx.background_executor()
-                        .spawn(async move { compositor.focused_output().ok().flatten() })
-                        .await
-                }
+                None => focused_output(&capture, cx).await,
             };
             let chosen = match &name {
                 Some(n) => snapshot
@@ -202,6 +193,14 @@ async fn run(
     deliver::screenshot(capture, actions, config, cx)
         .await
         .map(Some)
+}
+
+/// The output the user is on (see [`CaptureContext::focused_output`]).
+async fn focused_output(capture: &Arc<CaptureContext>, cx: &mut AsyncApp) -> Option<String> {
+    let capture = capture.clone();
+    cx.background_executor()
+        .spawn(async move { capture.focused_output() })
+        .await
 }
 
 /// The output showing most of `region`.

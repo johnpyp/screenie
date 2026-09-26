@@ -112,7 +112,7 @@ pub(crate) async fn open_file(path: PathBuf, cx: &mut AsyncApp) -> anyhow::Resul
         .background_executor()
         .spawn(async move {
             let outputs = capture_ctx.outputs().unwrap_or_default();
-            let focused = capture_ctx.compositor().focused_output().ok().flatten();
+            let focused = capture_ctx.focused_output();
             let output = outputs
                 .iter()
                 .find(|o| Some(&o.name) == focused.as_ref())

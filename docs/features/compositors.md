@@ -16,6 +16,12 @@ for window snapping and "active window".
 Without IPC, window mode has no windows to pick, so clicks select screens. Area and screen
 modes work everywhere.
 
+The output you're on (for `shot screen`, where the selector's toolbar starts, and where
+`screenie edit` opens) comes from IPC where there is one. Elsewhere screenie asks
+layer-shell: a surface opened without an output goes where the compositor thinks you
+are, so a transparent pixel is mapped for a moment and `wl_surface.enter` names the
+output (`screenie_wayland::focused_output`).
+
 Recording a window by itself needs `ext-foreign-toplevel-image-capture-source-v1` and
 `ext-foreign-toplevel-list-v1` (sway 1.11+ and other wlroots 0.19+ compositors). Sway's
 IPC reports each window's toplevel identifier, so the match is exact. Elsewhere it's by

@@ -18,6 +18,7 @@
 //! side copies.
 
 mod dmabuf;
+mod focus;
 mod shm;
 mod state;
 
@@ -32,6 +33,7 @@ use wayland_client::protocol::wl_output;
 use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::Options;
 
+pub use focus::focused_output;
 pub use shm::transform_image;
 use state::{
     Capture, Constraints, Gpu, InFlight, OutputState, Phase, Protocol, State, Target, ToplevelInfo,
