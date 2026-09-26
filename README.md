@@ -20,7 +20,7 @@ Everything is built in: selector, capture, clipboard, encoder and UI. You don't 
 | | |
 | :-: | :-: |
 | ![Dragging out a region on the frozen screen, with the magnifier and its size](docs/media/select-area.webp) | ![A window highlighted under the pointer in the selector](docs/media/select-window.webp) |
-| **Select any area** on a frozen, pixel-exact overlay, with a loupe | **…or snap to a window** (Sway, Hyprland, niri) |
+| **Select any area** on a frozen, pixel-exact overlay, with a loupe | **…or a window, or the whole screen**: `1` `2` `3` switch |
 | ![Annotations on a capture of code: a box, an arrow, a note, numbered steps](docs/media/annotate.webp) | ![Customer emails in a log, pixelated in the editor](docs/media/pixelate.webp) |
 | **Annotate** in place: arrows, shapes, text, numbered steps | **Pixelate or blur** anything private |
 | ![Recording a region: a red ring around it, the timer pill, the time in waybar](docs/media/recording.webp) | ![A preview card, hovered: copy, save, annotate, dismiss](docs/media/cards.webp) |

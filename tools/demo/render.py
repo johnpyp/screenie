@@ -3,8 +3,8 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy", "opencv-python-headless", "pillow"]
 # ///
-"""Turn the tour's raw 4K recording into the finished video: an eased camera that
-zooms to where the action is, captions, key presses, a title and an outro.
+"""Turn the tour's raw 4K recording into the finished video: captions, key presses, a
+title and an outro over the recording.
 
     tools/demo/render.py [OUT.mp4]   # default .cache/demo/screenie-demo.mp4
 
@@ -16,7 +16,6 @@ Each frame is warped at 4K and box-filtered down, so text stays crisp while zoom
 """
 
 import json
-import math
 import subprocess
 import sys
 from functools import lru_cache
@@ -33,10 +32,10 @@ FPS = 60
 W, H = 1920, 1080  # the video, and the desktop in logical pixels
 SW, SH = 3840, 2160  # the recording
 
-MOVE = 1.1  # seconds a camera move takes
 TITLE = 3.0  # seconds of title over the opening
 OUTRO_IN = 0.6  # the outro starts this long after its mark
-CAPTION_BOTTOM = H - 96
+CAPTION_TOP = 66  # under the bar
+MARGIN = 40
 
 TEXT = (205, 214, 244)
 SUBTEXT = (166, 173, 200)
@@ -136,55 +135,9 @@ def find_sync(path, park):
     raise SystemExit("no sync jump found in the recording")
 
 
-# The camera.
-
-
-class Camera:
-    """Where the video looks: eased moves between focus targets from the timeline."""
-
-    def __init__(self, events):
-        self.moves = []  # (start, from, to)
-        state = (W / 2, H / 2, 1.0)
-        for e in events:
-            if e["kind"] != "focus":
-                continue
-            start = e["t"]
-            current = self.at(start) if self.moves else state
-            self.moves.append((start, current, self.target(e.get("rect"), e.get("zoom"))))
-
-    @staticmethod
-    def target(rect, zoom):
-        if not rect:
-            return (W / 2, H / 2, 1.0)
-        x0, y0, x1, y1 = rect
-        z = zoom or min(0.85 * W / (x1 - x0), 0.85 * H / (y1 - y0))
-        z = max(1.0, min(z, 2.4))
-        vw, vh = W / z, H / z
-        cx = min(max((x0 + x1) / 2, vw / 2), W - vw / 2)
-        cy = min(max((y0 + y1) / 2, vh / 2), H - vh / 2)
-        return (cx, cy, z)
-
-    def at(self, t):
-        state = (W / 2, H / 2, 1.0)
-        for start, frm, to in self.moves:
-            if t < start:
-                break
-            k = ease((t - start) / MOVE)
-            # Zoom in log space, so zooming in and out feel alike.
-            z = math.exp(math.log(frm[2]) + (math.log(to[2]) - math.log(frm[2])) * k)
-            # Pan so the point under the camera moves along with the zoom.
-            state = (frm[0] + (to[0] - frm[0]) * k, frm[1] + (to[1] - frm[1]) * k, z)
-        return state
-
-
-def view(frame, cx, cy, z):
-    """The 1920x1080 view of a 4K frame centred on logical (cx, cy) at zoom z."""
-    if abs(z - 1) < 1e-4 and abs(cx - W / 2) < 1e-3 and abs(cy - H / 2) < 1e-3:
-        big = frame
-    else:
-        m = np.float32([[z, 0, SW / 2 - z * cx * 2], [0, z, SH / 2 - z * cy * 2]])
-        big = cv2.warpAffine(frame, m, (SW, SH), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-    return cv2.resize(big, (W, H), interpolation=cv2.INTER_AREA)
+def view(frame):
+    """A 4K frame at 1920x1080."""
+    return cv2.resize(frame, (W, H), interpolation=cv2.INTER_AREA)
 
 
 # Overlays: RGBA images blended onto the frame.
@@ -207,37 +160,19 @@ def blend(frame, overlay, x, y, alpha=1.0):
     frame[y0:y1, x0:x1] = (roi * (1 - a) + rgb * a).astype(np.uint8)
 
 
-def frost(frame, x, y, w, h, radius):
-    """Blur what's behind a panel, for a frosted-glass look."""
-    x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + w, W), min(y + h, H)
-    if x1 > x0 and y1 > y0:
-        frame[y0:y1, x0:x1] = cv2.GaussianBlur(frame[y0:y1, x0:x1], (0, 0), radius)
-
-
-def panel(w, h, radius, fill, border=(255, 255, 255, 28), shadow=True):
-    """A rounded panel with a soft shadow, as RGBA; returns (image, pad)."""
-    pad = 24 if shadow else 0
-    img = Image.new("RGBA", (w + 2 * pad, h + 2 * pad), (0, 0, 0, 0))
-    if shadow:
-        sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        ImageDraw.Draw(sh).rounded_rectangle((pad, pad + 6, pad + w, pad + h + 6), radius, fill=(0, 0, 0, 110))
-        img = Image.alpha_composite(img, sh.filter(ImageFilter.GaussianBlur(12)))
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle((pad, pad, pad + w - 1, pad + h - 1), radius, fill=fill, outline=border, width=1)
-    return img, pad
-
-
 @lru_cache(maxsize=None)
 def caption_image(text):
-    f = font("SemiBold", 27)
-    tw = int(f.getlength(text))
-    w, h = tw + 64, 58
-    img, pad = panel(w, h, 29, (24, 24, 37, 205))
-    d = ImageDraw.Draw(img)
-    d.ellipse((pad + 24, pad + h / 2 - 4, pad + 32, pad + h / 2 + 4), fill=MAUVE)
-    d.text((pad + 44, pad + h / 2), text, font=f, fill=TEXT, anchor="lm")
-    img = img.crop((0, 0, img.width + 12, img.height))  # room for the dot
-    return img, pad, w + 12, h
+    """Plain text, right-aligned in the top-right corner, with a soft shadow so it
+    reads over anything: nothing that could pass for part of screenie's interface."""
+    f = font("SemiBold", 34)
+    pad = 28
+    w, h = int(f.getlength(text)) + 2 * pad, 44 + 2 * pad
+    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).text((w - pad, h / 2 + 2), text, font=f, fill=(0, 0, 0, 230), anchor="rm")
+    shadow = shadow.filter(ImageFilter.GaussianBlur(9))
+    img = Image.alpha_composite(shadow, shadow.filter(ImageFilter.GaussianBlur(3)))
+    ImageDraw.Draw(img).text((w - pad, h / 2), text, font=f, fill=(245, 245, 250, 255), anchor="rm")
+    return img, pad
 
 
 @lru_cache(maxsize=None)
@@ -325,19 +260,14 @@ class Overlays:
             k = ease((t - self.outro) / 0.9)
             self.backdrop(frame, k)
             blend(frame, title_image(), 0, 0, k)
-        # Captions: slide up and fade in, fade out, at the bottom centre (clear of the
-        # selector's bar below them).
-        right = W / 2  # where a key press shows: right of the caption
+        # Captions: top right, fading in with a slight rise, and out.
         for start, stop, text in self.captions:
             if start <= t < stop + 0.3 and t < self.outro:
                 a = ease((t - start) / 0.35) * (1 - ease((t - stop) / 0.3))
-                img, pad, w, h = caption_image(text)
-                x = (W - w) / 2
-                y = CAPTION_BOTTOM - h + 12 * (1 - ease((t - start) / 0.35))
-                frost(frame, int(x), int(y), w, h, 14 * a + 0.1)
-                blend(frame, img, x - pad, y - pad, a)
-                right = max(right, (W + w) / 2 + 16) if t < stop else right
-        # Keys: pop in beside the caption, then fade.
+                img, pad = caption_image(text)
+                y = CAPTION_TOP - pad + 10 * (1 - ease((t - start) / 0.35))
+                blend(frame, img, W - MARGIN - img.width + pad, y, a)
+        # Keys: pop in under the caption, then fade.
         for start, label in self.keys:
             if start <= t < start + 1.5:
                 p = t - start
@@ -345,8 +275,9 @@ class Overlays:
                 img, pad, w, h = keys_image(label)
                 s = 0.85 + 0.15 * ease_out_back(p / 0.3)
                 im = img.resize((max(1, int(img.width * s)), max(1, int(img.height * s))), Image.LANCZOS)
-                x = right - pad * s if right > W / 2 else (W - im.width) / 2
-                y = CAPTION_BOTTOM - 58 / 2 - im.height / 2
+                # Scaled about the caps' right edge, which lines up with the caption's.
+                x = W - MARGIN - (pad + w) * s
+                y = CAPTION_TOP + 62 - pad * s
                 blend(frame, im, x, y, a)
 
     @staticmethod
@@ -368,7 +299,6 @@ def main():
     end = outro + 3.4
     print(f"sync at {offset:.3f}s; {end:.1f}s of video", flush=True)
 
-    camera = Camera(events)
     overlays = Overlays(events, end)
     enc = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}",
@@ -381,8 +311,7 @@ def main():
         if i >= total:
             break
         t = i / FPS
-        cx, cy, z = camera.at(t)
-        frame = view(src, cx, cy, z)
+        frame = view(src)
         overlays.draw(frame, t, end)
         # Fade in from, and out to, black.
         fade = min(ease(t / 0.5), 1 - ease((t - (end - 0.6)) / 0.6))

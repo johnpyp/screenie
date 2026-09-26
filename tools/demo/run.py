@@ -37,8 +37,10 @@ def sway_windows():
 
     def walk(node):
         if node.get("app_id"):
-            r = node["rect"]
-            rects[node["app_id"]] = (r["x"], r["y"], r["x"] + r["width"], r["y"] + r["height"])
+            # The content, inside the border: what a window capture takes.
+            r, c = node["rect"], node["window_rect"]
+            x, y = r["x"] + c["x"], r["y"] + c["y"]
+            rects[node["app_id"]] = (x, y, x + c["width"], y + c["height"])
         for child in node.get("nodes", []) + node.get("floating_nodes", []):
             walk(child)
 
@@ -98,10 +100,6 @@ class Tour:
     def caption(self, text):
         self.timeline.mark("caption", text=text)
 
-    def focus(self, rect=None, zoom=None):
-        """Point the video's camera at a logical rect, or back at the whole screen."""
-        self.timeline.mark("focus", rect=rect, zoom=zoom)
-
     def key(self, *keys, label=None):
         self.timeline.mark("key", label=label or " + ".join(k.capitalize() for k in keys))
         if len(keys) == 1:
@@ -153,13 +151,21 @@ class Tour:
         self.timeline.mark("title")
         self.wait(3.2)
         self.area()
-        self.window(win)
-        self.annotate()
         self.pixelate()
+        self.modes(win)
+        self.annotate()
         self.record(win)
         self.screen()
         self.outro()
         self.finish()
+
+    def edit_card(self, index):
+        """Open card `index` in the editor, which shows it centred (see `centred`)."""
+        self.input.glide(*self.cards.buttons(index)["edit"], ms=1000)
+        self.wait(0.5)
+        self.input.click()
+        self.cards.remove(index)  # the edit takes the capture off its card
+        self.wait(1.0)
 
     def area(self):
         self.caption("Select any area, on a frozen screen")
@@ -167,7 +173,6 @@ class Tour:
         self.wait(0.2)
         self.key("print", label="PrtSc")
         self.wait(0.9)
-        self.focus((20, 440, 720, 660), zoom=1.7)
         self.input.glide(30, 478, ms=700)
         self.wait(0.35)
         # Captured on release.
@@ -178,85 +183,13 @@ class Tour:
         self.still("select-area")
         self.input.do("up left")
         self.cards.add(1200, 272)
-        self.focus(None)
-        self.wait(0.5)
-
-        self.caption("Every capture lands in a preview card")
-        card = self.cards.rect(0)
-        self.focus((card[0] - 180, card[1] - 120, 1920, 1080), zoom=1.9)
-        self.input.glide(*self.cards.buttons(0)["copy"], ms=1100)
-        self.wait(0.6)
-        self.still("card-hover")
-        self.input.click()
-        self.wait(1.1)
-
-    def window(self, win):
-        self.focus(None)
-        self.caption("Or snap to a window")
-        self.input.glide(*UNDER_TOOLBAR, ms=800)
-        self.wait(0.2)
-        self.key("print", label="PrtSc")
-        self.wait(0.9)
-        btop, code = win["term-btop"], win["term-code"]
-        self.input.glide(1300, 860, ms=700)
-        self.wait(0.7)
-        self.input.glide(1250, 380, ms=900)
-        self.wait(0.6)
-        self.still("select-window")
-        self.input.click()
-        w, h = (code[2] - code[0]) * 2, (code[3] - code[1]) * 2
-        self.cards.add(w, h)
-        self.wait(1.3)
-
-    def annotate(self):
-        self.caption("Annotate right from the card")
-        card = self.cards.rect(1)
-        self.focus((card[0] - 200, card[1] - 200, 1920, 1080), zoom=1.7)
-        self.input.glide(*self.cards.buttons(1)["edit"], ms=1000)
-        self.wait(0.5)
-        self.input.click()
-        self.cards.remove(1)  # the edit takes the capture off its card
-        self.wait(1.0)
-        self.focus(None)
-        # The editor centres the capture, its toolbars under it.
-        self.caption("Arrows, shapes, text and numbered steps")
-        self.key("r")
-        self.input.glide(636, 556, ms=800)
-        self.input.drag(768, 585, ms=650)
-        self.wait(0.3)
-        self.key("a")
-        self.input.glide(1030, 640, ms=600)
-        self.input.drag(782, 578, ms=550, arc=0.1)
-        self.wait(0.3)
-        self.key("t")
-        self.input.click(1040, 628)
-        self.wait(0.3)
-        self.input.type("cap the backoff?", cps=14)
-        self.wait(0.3)
-        self.key("escape", label="Esc")
-        self.wait(0.2)
-        self.key("n")
-        self.input.click(452, 398)
-        self.wait(0.35)
-        self.input.click(452, 511)
-        self.wait(0.8)
-        self.still("annotate")
-        self.caption("Copy it and get back to work")
-        self.key("ctrl", "c", label="Ctrl + C")
+        self.caption("It lands in a preview card")
         self.wait(1.4)
 
     def pixelate(self):
         self.caption("Pixelate anything private")
-        card = self.cards.rect(0)
-        self.focus((card[0] - 200, card[1] - 150, 1920, card[3] + 30), zoom=1.7)
-        self.input.glide(*self.cards.buttons(0)["edit"], ms=1000)
-        self.wait(0.4)
-        self.input.click()
-        self.cards.remove(0)
-        self.wait(1.0)
-        # The logs capture, centred: 600x136 at (660, 422).
-        x0, y0 = 960 - 300, 422
-        self.focus((x0 - 40, y0 - 40, x0 + 640, y0 + 240), zoom=1.8)
+        self.edit_card(0)
+        x0, y0 = centred(600, 136)
         self.key("b")
         for line in (1, 3, 5):
             y = y0 + (511 - 478) + (line - 1) * 22.5 - 11
@@ -265,12 +198,65 @@ class Tour:
             self.wait(0.15)
         self.wait(0.7)
         self.still("pixelate")
+        self.caption("Copy it and get back to work")
         self.key("ctrl", "c", label="Ctrl + C")
+        self.wait(1.3)
+
+    def modes(self, win):
+        self.caption("Switch between area, window and screen")
+        self.input.glide(*UNDER_TOOLBAR, ms=800)
+        self.wait(0.2)
+        self.key("print", label="PrtSc")
         self.wait(0.9)
-        self.focus(None)
+        self.input.glide(1300, 860, ms=700)
+        self.key("2")
+        self.wait(0.9)
+        self.input.glide(1250, 380, ms=900)
+        self.wait(0.6)
+        self.key("3")
+        self.wait(1.1)
+        self.key("2")
+        self.wait(0.7)
+        self.still("select-window")
+        self.caption("Click a window to capture it")
+        self.input.glide(1280, 400, ms=400)
+        self.wait(0.5)
+        self.input.click()
+        code = win["term-code"]
+        self.cards.add((code[2] - code[0]) * 2, (code[3] - code[1]) * 2)
+        self.wait(1.3)
+
+    def annotate(self):
+        self.caption("Arrows, shapes, text and numbered steps")
+        self.edit_card(0)
+        code = sway_windows()["term-code"]
+        x0, y0 = centred(code[2] - code[0], code[3] - code[1])
+        self.key("r")
+        self.input.glide(x0 + 214, y0 + 373, ms=800)
+        self.input.drag(x0 + 346, y0 + 402, ms=650)
+        self.wait(0.3)
+        self.key("a")
+        self.input.glide(x0 + 608, y0 + 449, ms=600)
+        self.input.drag(x0 + 360, y0 + 388, ms=550, arc=0.1)
+        self.wait(0.3)
+        self.key("t")
+        self.input.click(x0 + 618, y0 + 437)
+        self.wait(0.3)
+        self.input.type("cap the backoff?", cps=14)
+        self.wait(0.3)
+        self.key("escape", label="Esc")
+        self.wait(0.2)
+        self.key("n")
+        self.input.click(x0 + 30, y0 + 207)
+        self.wait(0.35)
+        self.input.click(x0 + 30, y0 + 320)
+        self.wait(0.8)
+        self.still("annotate")
+        self.key("ctrl", "c", label="Ctrl + C")
+        self.wait(1.4)
 
     def record(self, win):
-        self.caption("Record a region, with a tiny timer pill")
+        self.caption("Record a region")
         self.key("alt", "print", label="Alt + PrtSc")
         self.wait(1.0)
         btop = win["term-btop"]
@@ -280,17 +266,13 @@ class Tour:
         self.input.glide(1035, 55, ms=900)  # Record
         self.wait(0.3)
         self.input.click()
-        self.focus((btop[0] - 20, btop[1] - 60, btop[2] + 20, btop[3] + 20), zoom=1.4)
         self.input.glide(1300, 560, ms=1000)
         self.wait(3.4)  # countdown
-        self.caption("…and its status in your bar")
-        self.focus((1400, 0, 1920, 300), zoom=2.2)
-        self.wait(2.2)
+        self.caption("A tiny pill runs it, your bar shows it")
+        self.wait(2.6)
         self.still("recording")
-        self.focus(None)
         rx = (btop[0] + 30 + btop[2] - 12) / 2
         stop = (rx + 42, btop[1] + 24 - 32)
-        self.wait(0.8)
         self.input.glide(*stop, ms=900)
         self.wait(0.4)
         self.input.click()
@@ -302,15 +284,30 @@ class Tour:
         self.input.glide(1150, 420, ms=800)
         self.key("shift", "print", label="Shift + PrtSc")
         self.cards.add(3840, 2160)
-        self.wait(1.6)
+        self.wait(1.2)
+        self.caption("Copy or save it from its card")
+        self.input.glide(*self.cards.buttons(1)["copy"], ms=1000)
+        self.wait(0.6)
+        self.still("card-hover")
+        self.input.click()
+        self.wait(1.2)
 
     def outro(self):
         self.caption(None)
-        self.input.glide(1780, 700, ms=900)
+        self.input.glide(1500, 700, ms=900)
         self.wait(0.6)
         self.still("cards")
         self.timeline.mark("outro")
         self.wait(3.5)
+
+
+def centred(w, h):
+    """Where the overlay editor shows a w x h capture it doesn't show in place: centred
+    together with its bars and a toast's row below (130 logical pixels, see
+    `CHROME_HEIGHT` in screenie-editor)."""
+    chrome = 130
+    top = (1080 - h - chrome) / 2 if h + chrome + 16 <= 1080 else (1080 - h) / 2
+    return (1920 - w) / 2, top
 
 
 if __name__ == "__main__":
