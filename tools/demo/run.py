@@ -121,9 +121,23 @@ class Tour:
             raw = DEMO / "raw.mkv"
             raw.unlink(missing_ok=True)
             self.recorder = subprocess.Popen(
-                ["wf-recorder", "-y", "-c", "libx264", "-p", "preset=ultrafast", "-p", "crf=10",
-                 "-r", "60", "-f", str(raw)],
-                env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                [
+                    "wf-recorder",
+                    "-y",
+                    "-c",
+                    "libx264",
+                    "-p",
+                    "preset=ultrafast",
+                    "-p",
+                    "crf=10",
+                    "-r",
+                    "60",
+                    "-f",
+                    str(raw),
+                ],
+                env=ENV,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             time.sleep(2.0)
         else:

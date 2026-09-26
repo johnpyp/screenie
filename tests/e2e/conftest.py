@@ -20,11 +20,17 @@ ARTIFACTS = ROOT / ".cache/e2e"
 @pytest.fixture(scope="session")
 def session() -> Session:
     subprocess.run(["cargo", "build", "--release", "-q", "-p", "screenie"], cwd=ROOT, check=True)
-    subprocess.run(["cargo", "build", "--release", "-q", "-p", "wlinput", "-p", "wllock"], cwd=ROOT, check=True)
-    started = subprocess.run([str(ROOT / "tools/session.sh"), "start"], capture_output=True, text=True, check=True)
+    subprocess.run(
+        ["cargo", "build", "--release", "-q", "-p", "wlinput", "-p", "wllock"], cwd=ROOT, check=True
+    )
+    started = subprocess.run(
+        [str(ROOT / "tools/session.sh"), "start"], capture_output=True, text=True, check=True
+    )
     session = Session.load()
     # A daemon left over from development would own the socket.
-    subprocess.run([str(SCREENIE), "quit"], env=session.env, capture_output=True, timeout=10, check=False)
+    subprocess.run(
+        [str(SCREENIE), "quit"], env=session.env, capture_output=True, timeout=10, check=False
+    )
     yield session
     if "already running" not in started.stdout and not os.environ.get("SCREENIE_E2E_KEEP_SESSION"):
         subprocess.run([str(ROOT / "tools/session.sh"), "stop"], capture_output=True, check=False)

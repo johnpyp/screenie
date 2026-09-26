@@ -1,0 +1,6 @@
+# One style for every Python script and test in the repo (`uvx ruff format`, `uvx ruff check`).
+line-length = 100
+target-version = "py311"
+
+[lint.isort]
+known-first-party = ["harness"]

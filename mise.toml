@@ -9,3 +9,7 @@ run = "uv run --script tools/fetch_references.py"
 [tasks."test:e2e"]
 description = "End-to-end tests in the headless sway session (args go to pytest)"
 run = "uv run --project tests/e2e pytest tests/e2e"
+
+[tasks.fmt]
+description = "Format and lint everything: Rust with rustfmt, Python with ruff"
+run = ["cargo fmt --all", "uvx ruff format", "uvx ruff check --fix"]

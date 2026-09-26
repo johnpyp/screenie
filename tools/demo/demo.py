@@ -78,7 +78,9 @@ class Input:
         if ms is None:
             ms = min(1100, 320 + dist * 0.55)
         interval = 1000 / 120
-        chain = " , ".join(f"move {px:.2f} {py:.2f} , sleep {interval:.0f}" for px, py in self.path(x, y, ms, arc))
+        chain = " , ".join(
+            f"move {px:.2f} {py:.2f} , sleep {interval:.0f}" for px, py in self.path(x, y, ms, arc)
+        )
         if chain:
             self.do(chain)
         self.pos = (x, y)
@@ -102,7 +104,13 @@ class Input:
     def combo(self, *keys):
         """E.g. combo("ctrl", "c"): hold the modifiers, tap the last."""
         *mods, last = keys
-        self.do(" , ".join([f"hold {m}" for m in mods] + ["sleep 40", f"key {last}", "sleep 40"] + [f"release {m}" for m in reversed(mods)]))
+        self.do(
+            " , ".join(
+                [f"hold {m}" for m in mods]
+                + ["sleep 40", f"key {last}", "sleep 40"]
+                + [f"release {m}" for m in reversed(mods)]
+            )
+        )
 
     def type(self, text, cps=16):
         for ch in text:

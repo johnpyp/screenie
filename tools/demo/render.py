@@ -18,7 +18,7 @@ Each frame is warped at 4K and box-filtered down, so text stays crisp while zoom
 import json
 import subprocess
 import sys
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 import cv2
@@ -63,9 +63,23 @@ def ease_out_back(t):
 def frames(path, start):
     """BGR frames of the recording from `start` seconds."""
     proc = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-ss", f"{start:.4f}", "-i", str(path), "-f", "rawvideo",
-         "-pix_fmt", "bgr24", "-"],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=SW * SH * 3,
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-ss",
+            f"{start:.4f}",
+            "-i",
+            str(path),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        bufsize=SW * SH * 3,
     )
     size = SW * SH * 3
     try:
@@ -160,7 +174,7 @@ def blend(frame, overlay, x, y, alpha=1.0):
     frame[y0:y1, x0:x1] = (roi * (1 - a) + rgb * a).astype(np.uint8)
 
 
-@lru_cache(maxsize=None)
+@cache
 def caption_image(text):
     """Plain text, right-aligned in the top-right corner, with a soft shadow so it
     reads over anything: nothing that could pass for part of screenie's interface."""
@@ -168,14 +182,16 @@ def caption_image(text):
     pad = 28
     w, h = int(f.getlength(text)) + 2 * pad, 44 + 2 * pad
     shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).text((w - pad, h / 2 + 2), text, font=f, fill=(0, 0, 0, 230), anchor="rm")
+    ImageDraw.Draw(shadow).text(
+        (w - pad, h / 2 + 2), text, font=f, fill=(0, 0, 0, 230), anchor="rm"
+    )
     shadow = shadow.filter(ImageFilter.GaussianBlur(9))
     img = Image.alpha_composite(shadow, shadow.filter(ImageFilter.GaussianBlur(3)))
     ImageDraw.Draw(img).text((w - pad, h / 2), text, font=f, fill=(245, 245, 250, 255), anchor="rm")
     return img, pad
 
 
-@lru_cache(maxsize=None)
+@cache
 def keys_image(label):
     """Keycaps for "Ctrl + C": a cap per key, joined by plus signs."""
     f = font("SemiBold", 26)
@@ -187,7 +203,9 @@ def keys_image(label):
         cap = Image.new("RGBA", (cw, ch + 5), (0, 0, 0, 0))
         d = ImageDraw.Draw(cap)
         d.rounded_rectangle((0, 5, cw - 1, ch + 4), 12, fill=(12, 12, 20, 235))
-        d.rounded_rectangle((0, 0, cw - 1, ch - 1), 12, fill=(49, 50, 68, 245), outline=(108, 112, 134, 200))
+        d.rounded_rectangle(
+            (0, 0, cw - 1, ch - 1), 12, fill=(49, 50, 68, 245), outline=(108, 112, 134, 200)
+        )
         d.text((cw / 2, ch / 2 - 1), p, font=f, fill=TEXT, anchor="mm")
         caps.append(cap)
     plus_w = 34
@@ -198,7 +216,9 @@ def keys_image(label):
     sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
     x = pad
     for i, c in enumerate(caps):
-        ImageDraw.Draw(sh).rounded_rectangle((x, pad + 8, x + c.width, pad + h + 8), 12, fill=(0, 0, 0, 120))
+        ImageDraw.Draw(sh).rounded_rectangle(
+            (x, pad + 8, x + c.width, pad + h + 8), 12, fill=(0, 0, 0, 120)
+        )
         x += c.width + plus_w
     img = Image.alpha_composite(img, sh.filter(ImageFilter.GaussianBlur(10)))
     d = ImageDraw.Draw(img)
@@ -212,7 +232,7 @@ def keys_image(label):
     return img, pad, w, h
 
 
-@lru_cache(maxsize=None)
+@cache
 def title_image():
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -220,12 +240,20 @@ def title_image():
     sub = font("Medium", 38)
     small = font("Medium", 26)
     d.text((W / 2, H / 2 - 70), "screenie", font=big, fill=TEXT, anchor="mm")
-    d.text((W / 2, H / 2 + 50), "Screenshots and screen recordings for Wayland", font=sub, fill=SUBTEXT, anchor="mm")
+    d.text(
+        (W / 2, H / 2 + 50),
+        "Screenshots and screen recordings for Wayland",
+        font=sub,
+        fill=SUBTEXT,
+        anchor="mm",
+    )
     row = "select  ·  annotate  ·  record  ·  one daemon, no scripts"
     d.text((W / 2, H / 2 + 118), row, font=small, fill=(147, 153, 178), anchor="mm")
     # A soft glow behind the wordmark.
     glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(glow).text((W / 2, H / 2 - 70), "screenie", font=big, fill=MAUVE + (150,), anchor="mm")
+    ImageDraw.Draw(glow).text(
+        (W / 2, H / 2 - 70), "screenie", font=big, fill=MAUVE + (150,), anchor="mm"
+    )
     glow = glow.filter(ImageFilter.GaussianBlur(28))
     return Image.alpha_composite(glow, img)
 
@@ -272,9 +300,11 @@ class Overlays:
             if start <= t < start + 1.5:
                 p = t - start
                 a = ease(p / 0.15) * (1 - ease((p - 1.15) / 0.35))
-                img, pad, w, h = keys_image(label)
+                img, pad, w, _h = keys_image(label)
                 s = 0.85 + 0.15 * ease_out_back(p / 0.3)
-                im = img.resize((max(1, int(img.width * s)), max(1, int(img.height * s))), Image.LANCZOS)
+                im = img.resize(
+                    (max(1, int(img.width * s)), max(1, int(img.height * s))), Image.LANCZOS
+                )
                 # Scaled about the caps' right edge, which lines up with the caption's.
                 x = W - MARGIN - (pad + w) * s
                 y = CAPTION_TOP + 62 - pad * s
@@ -301,9 +331,33 @@ def main():
 
     overlays = Overlays(events, end)
     enc = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}",
-         "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "slow", "-crf", "18",
-         "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)],
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{W}x{H}",
+            "-r",
+            str(FPS),
+            "-i",
+            "-",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "slow",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(out),
+        ],
         stdin=subprocess.PIPE,
     )
     total = int(end * FPS)
@@ -326,8 +380,25 @@ def main():
     web = ROOT / "docs" / "media" / "screenie-demo.mp4"
     web.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-i", str(out), "-c:v", "libx264", "-preset", "veryslow",
-         "-crf", "26", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(web)],
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(out),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryslow",
+            "-crf",
+            "26",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(web),
+        ],
         check=True,
     )
     print(web)

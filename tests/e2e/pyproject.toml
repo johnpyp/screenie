@@ -12,9 +12,3 @@ package = false
 # One compositor and one seat: tests share keyboard focus, so they run one at a time.
 timeout = 60
 addopts = "-ra"
-
-[tool.ruff]
-line-length = 120
-
-[tool.ruff.lint.isort]
-known-first-party = ["harness"]

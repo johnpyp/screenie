@@ -15,7 +15,11 @@ DIALOG = "Save File"
 def open_save_as(daemon, input, session):
     shot = daemon.open_editor("-r", "200,200 600x400")
     input.chord("ctrl", "shift", key="s")
-    wait_for(lambda: (w := session.window(DIALOG)) and w["focused"], "the file chooser to take focus", timeout=10)
+    wait_for(
+        lambda: (w := session.window(DIALOG)) and w["focused"],
+        "the file chooser to take focus",
+        timeout=10,
+    )
     return shot
 
 
@@ -34,7 +38,10 @@ def test_cancelling_brings_the_editor_back(session, daemon, input):
     assert shot.wait(timeout=5) == 1  # nothing kept
     # And the daemon still works.
     next_shot = daemon.tmp / "next.png"
-    assert daemon.cli("shot", "-r", "100,100 300x200", "--no-preview", "-o", str(next_shot)).returncode == 0
+    assert (
+        daemon.cli("shot", "-r", "100,100 300x200", "--no-preview", "-o", str(next_shot)).returncode
+        == 0
+    )
     assert next_shot.read_bytes().startswith(b"\x89PNG")
     daemon.assert_healthy()
 

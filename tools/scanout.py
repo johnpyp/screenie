@@ -71,13 +71,17 @@ def mark(what: str) -> None:
 
 
 try:
-    wait_for(lambda: env_file.exists() and env_file.read_text().strip(), "sway to start", timeout=10)
+    wait_for(
+        lambda: env_file.exists() and env_file.read_text().strip(), "sway to start", timeout=10
+    )
     session = Session(
         {k: v for k, v in os.environ.items() if k != "DISPLAY"}
         | dict(pair.split("=", 1) for pair in env_file.read_text().split())
     )
     session.swaymsg("focus output HEADLESS-1")
-    player = subprocess.Popen(["weston-simple-egl", "-f", "-b"], env=session.env, stdout=subprocess.DEVNULL)
+    player = subprocess.Popen(
+        ["weston-simple-egl", "-f", "-b"], env=session.env, stdout=subprocess.DEVNULL
+    )
     daemon = Daemon(session, home)
     daemon.config(f"recording: {{ countdown: 0, {settings} }}\n")
     try:

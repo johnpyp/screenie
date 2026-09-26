@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A gently varying CPU load, so btop's graphs have something to show on camera.
 
-    tools/demo/load.py [WORKERS]   # until killed
+tools/demo/load.py [WORKERS]   # until killed
 """
 
 import math

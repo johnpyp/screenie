@@ -79,7 +79,9 @@ def load_manifest() -> list[Reference]:
 
 
 def git(*args: str, cwd: Path) -> str:
-    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False, env=GIT_ENV)
+    result = subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False, env=GIT_ENV
+    )
     if result.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
     return result.stdout.strip()
@@ -113,7 +115,11 @@ def local_commit(path: Path) -> str | None:
     if not (path / ".git").exists():
         return None
     result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=path, capture_output=True, text=True, check=False
+        ["git", "rev-parse", "--verify", "--quiet", "HEAD"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return result.stdout.strip() if result.returncode == 0 else None
 
@@ -143,7 +149,17 @@ def sync(ref: Reference, force: bool) -> tuple[Reference, str, bool]:
                 return ref, "skipped: local modifications (use --force)", False
 
         # Just the new snapshot; objects the checkout already has aren't sent again.
-        git_remote(ref, "fetch", "--quiet", "--depth", "1", "--no-tags", "origin", ref.ref or "HEAD", cwd=ref.path)
+        git_remote(
+            ref,
+            "fetch",
+            "--quiet",
+            "--depth",
+            "1",
+            "--no-tags",
+            "origin",
+            ref.ref or "HEAD",
+            cwd=ref.path,
+        )
         git("reset", "--quiet", "--hard", "FETCH_HEAD", cwd=ref.path)
         git("clean", "--quiet", "-fdx", cwd=ref.path)
         # No reflog, so the superseded snapshot is unreachable at once and gc can drop it.
@@ -181,7 +197,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip())
     parser.add_argument("names", nargs="*", help="only sync these references")
     parser.add_argument("--list", action="store_true", help="show references and status")
-    parser.add_argument("--force", action="store_true", help="discard local modifications when syncing")
+    parser.add_argument(
+        "--force", action="store_true", help="discard local modifications when syncing"
+    )
     args = parser.parse_args()
 
     refs = load_manifest()

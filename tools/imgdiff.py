@@ -14,5 +14,7 @@ if a.shape != b.shape:
     sys.exit(1)
 d = np.abs(a - b)
 n = int((d.max(axis=2) > 0).sum())
-print(f"shape {a.shape}, differing pixels {n} ({100 * n / (a.shape[0] * a.shape[1]):.3f}%), max delta {d.max()}")
+print(
+    f"shape {a.shape}, differing pixels {n} ({100 * n / (a.shape[0] * a.shape[1]):.3f}%), max delta {d.max()}"
+)
 sys.exit(0 if n == 0 else 1)

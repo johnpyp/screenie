@@ -31,6 +31,10 @@ def test_closing_with_keys_doesnt_leak(daemon, input, keylog, keys, args, exit_c
     mark = keylog.wait(r"enter", after=mark)  # it closed, and focus came back
     time.sleep(0.05)  # a leaked release arrives right behind the enter
     # Keys still held are listed under the enter as `sym:` lines; their release as `key:`.
-    leaked = [line for line in keylog.since(mark - 1) if "key:" in line or line.startswith(" ") and "sym:" in line]
+    leaked = [
+        line
+        for line in keylog.since(mark - 1)
+        if "key:" in line or line.startswith(" ") and "sym:" in line
+    ]
     assert leaked == []
     assert shot.wait(timeout=5) == exit_code

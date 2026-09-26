@@ -30,7 +30,9 @@ def test_done_copies_and_closes(daemon, input):
     input.keys("enter")
     daemon.wait_status("idle")
     assert shot.wait(timeout=5) == 0
-    types = subprocess.run(["wl-paste", "-l"], env=daemon.env, capture_output=True, text=True, timeout=5, check=True)
+    types = subprocess.run(
+        ["wl-paste", "-l"], env=daemon.env, capture_output=True, text=True, timeout=5, check=True
+    )
     assert "image/png" in types.stdout.split()
 
 

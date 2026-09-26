@@ -20,12 +20,16 @@ def test_editor_shows_the_capture_in_place(session, daemon, input, home, output,
     outside = [(region.x - 4, region.y - 4), (region.x + region.width + 4, region.y + 4)]
     before = session.screenshot(home / "before.png")
 
-    shot = daemon.open_editor("-r", f"{region.x:.0f},{region.y:.0f} {region.width:.0f}x{region.height:.0f}")
+    shot = daemon.open_editor(
+        "-r", f"{region.x:.0f},{region.y:.0f} {region.width:.0f}x{region.height:.0f}"
+    )
     after = session.screenshot(home / "after.png")
     for p in inside:
         assert after.pixel(*p) == before.pixel(*p), f"the capture moved: {p}"
     for p in outside:
-        assert after.brightness(*p) < before.brightness(*p) * 0.7, f"not dimmed around the capture: {p}"
+        assert after.brightness(*p) < before.brightness(*p) * 0.7, (
+            f"not dimmed around the capture: {p}"
+        )
     input.keys("escape")
     # Closed without keeping anything.
     assert shot.wait(timeout=5) == 1
@@ -45,7 +49,10 @@ def private_bus(session, home):
     settings can change without touching the real desktop's."""
     env = {**session.env, "XDG_CONFIG_HOME": str(home / "desktop-config")}
     bus = subprocess.Popen(
-        ["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=env, stdout=subprocess.PIPE, text=True
+        ["dbus-daemon", "--session", "--nofork", "--print-address=1"],
+        env=env,
+        stdout=subprocess.PIPE,
+        text=True,
     )
     address = bus.stdout.readline().strip()
     yield {**env, "DBUS_SESSION_BUS_ADDRESS": address}
@@ -60,7 +67,11 @@ def test_auto_follows_gtk_text_scaling(daemon, private_bus):
     # The portal starts on demand on the new bus, which takes a moment.
     mark = daemon.wait_log(r"desktop text scaling scale=1\.0", after=mark, timeout=15)
     subprocess.run(
-        ["gsettings", "set", "org.gnome.desktop.interface", "text-scaling-factor", "1.25"], env=private_bus, check=True
+        ["gsettings", "set", "org.gnome.desktop.interface", "text-scaling-factor", "1.25"],
+        env=private_bus,
+        check=True,
     )
     daemon.wait_log(r"interface scale scale=1\.25", after=mark)
-    assert (Path(private_bus["XDG_CONFIG_HOME"]) / "dconf/user").exists(), "dconf wrote somewhere else"
+    assert (Path(private_bus["XDG_CONFIG_HOME"]) / "dconf/user").exists(), (
+        "dconf wrote somewhere else"
+    )

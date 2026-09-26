@@ -43,12 +43,16 @@ def record(big: str) -> Daemon:
     session.swaymsg(f"focus output {big}")
     # weston's EGL demo, fullscreen and not waiting for frame callbacks (like a game with
     # an uncapped frame rate): new content as fast as the GPU draws it.
-    player = subprocess.Popen(["weston-simple-egl", "-f", "-b", "-o"], env=session.env, stdout=subprocess.DEVNULL)
+    player = subprocess.Popen(
+        ["weston-simple-egl", "-f", "-b", "-o"], env=session.env, stdout=subprocess.DEVNULL
+    )
     input = Input(session)
     daemon = Daemon(session, home)
     if len(sys.argv) > 4:
         daemon.env["GST_DEBUG"] = sys.argv[4]
-    daemon.config(f"recording: {{ countdown: 0, {settings} }}\n{os.environ.get('SCREENIE_CONFIG', '')}\n")
+    daemon.config(
+        f"recording: {{ countdown: 0, {settings} }}\n{os.environ.get('SCREENIE_CONFIG', '')}\n"
+    )
     daemon.start()
     try:
         wait_for(lambda: session.window("simple-egl"), "the demo", timeout=10)
@@ -106,7 +110,9 @@ pts = subprocess.run(
 ).stdout.split()
 pts = [float(p.split(",")[0]) for p in pts if p.split(",")[0]]
 gaps = [(a, b) for a, b in itertools.pairwise(pts) if b - a > 0.1]
-print(f"{len(pts)} frames over {pts[-1]:.2f}s ({len(pts) / pts[-1]:.1f} fps), {len(gaps)} gaps > 100ms")
+print(
+    f"{len(pts)} frames over {pts[-1]:.2f}s ({len(pts) / pts[-1]:.1f} fps), {len(gaps)} gaps > 100ms"
+)
 for a, b in gaps[:20]:
     print(f"  {a:7.3f} -> {b:7.3f}  ({b - a:.3f}s)")
 log = daemon.log()

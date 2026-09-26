@@ -21,7 +21,9 @@ def content(window):
 def resize(session, app_id, width, height):
     """Resize a floating window; foot rounds the size to whole character cells."""
     session.swaymsg(f"[app_id={app_id}] resize set {width} {height}")
-    wait_for(lambda: abs(session.window(app_id)["rect"]["width"] - width) < 20, f"{app_id} to be resized")
+    wait_for(
+        lambda: abs(session.window(app_id)["rect"]["width"] - width) < 20, f"{app_id} to be resized"
+    )
 
 
 @pytest.fixture
@@ -31,8 +33,20 @@ def solid(session, home):
 
     def open_window(app_id, color, width=600, height=400):
         session.swaymsg("focus output HEADLESS-1")
-        cmd = ["foot", "-c", "/dev/null", "--app-id", app_id, "-o", f"colors.background={color}", "sleep", "600"]
-        opened.append(subprocess.Popen(cmd, env={**session.env, "HOME": str(home)}, stderr=subprocess.DEVNULL))
+        cmd = [
+            "foot",
+            "-c",
+            "/dev/null",
+            "--app-id",
+            app_id,
+            "-o",
+            f"colors.background={color}",
+            "sleep",
+            "600",
+        ]
+        opened.append(
+            subprocess.Popen(cmd, env={**session.env, "HOME": str(home)}, stderr=subprocess.DEVNULL)
+        )
         wait_for(lambda: session.window(app_id), f"the {app_id} window")
         place = f"[app_id={app_id}] floating enable, resize set {width} {height}, move position 300 200, focus"
 
@@ -62,7 +76,17 @@ def frames(video, into):
     """Every frame of `video`, decoded."""
     into.mkdir()
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", str(video), "-fps_mode", "passthrough", str(into / "%03d.png")], check=True
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-i",
+            str(video),
+            "-fps_mode",
+            "passthrough",
+            str(into / "%03d.png"),
+        ],
+        check=True,
     )
     return [Image.open(p).convert("RGB") for p in sorted(into.glob("*.png"))]
 
@@ -108,7 +132,10 @@ def test_a_picked_window_is_recorded_by_itself(session, daemon, input, home, sol
 
     def during():
         solid("cover", BLUE)  # right on top of it
-        wait_for(lambda: session.screenshot(home / "covered.png").pixel(x + w / 2, y + h / 2)[2] > 180, "the cover")
+        wait_for(
+            lambda: session.screenshot(home / "covered.png").pixel(x + w / 2, y + h / 2)[2] > 180,
+            "the cover",
+        )
         workspace("9")
         wait_for(lambda: not session.window("cover")["visible"], "the other workspace")
         input.move(1000, 900)
@@ -119,7 +146,9 @@ def test_a_picked_window_is_recorded_by_itself(session, daemon, input, home, sol
     width, height = video[0].size
     assert about((width, height), (w, h))  # the window's size, not the screen's
     for i, frame in enumerate(video):
-        assert is_red(frame.getpixel((width * 3 // 4, height * 3 // 4))), f"frame {i} isn't the window"
+        assert is_red(frame.getpixel((width * 3 // 4, height * 3 // 4))), (
+            f"frame {i} isn't the window"
+        )
     daemon.assert_healthy()
 
 

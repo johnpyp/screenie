@@ -83,12 +83,18 @@ class Session:
         return cls(env)
 
     def swaymsg(self, *args: str) -> object:
-        out = subprocess.run(["swaymsg", "-r", *args], env=self.env, capture_output=True, text=True, check=True)
+        out = subprocess.run(
+            ["swaymsg", "-r", *args], env=self.env, capture_output=True, text=True, check=True
+        )
         return json.loads(out.stdout) if out.stdout.strip() else None
 
     def outputs(self) -> dict[str, Output]:
         return {
-            o["name"]: Output(o["name"], Rect(**{k: o["rect"][k] for k in ("x", "y", "width", "height")}), o["scale"])
+            o["name"]: Output(
+                o["name"],
+                Rect(**{k: o["rect"][k] for k in ("x", "y", "width", "height")}),
+                o["scale"],
+            )
             for o in self.swaymsg("-t", "get_outputs")
         }
 
@@ -106,7 +112,9 @@ class Session:
         return found
 
     def window(self, name: str) -> dict | None:
-        return next((w for w in self.windows() if w.get("name") == name or w.get("app_id") == name), None)
+        return next(
+            (w for w in self.windows() if w.get("name") == name or w.get("app_id") == name), None
+        )
 
     def close_windows(self) -> None:
         """Close every window, e.g. dialogs a failed test left open, and wait until they're gone."""
@@ -177,15 +185,25 @@ class Daemon:
     def start(self) -> None:
         log = self.log_path.open("a")
         self.process = subprocess.Popen(
-            [str(SCREENIE), "daemon"], env=self.env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+            [str(SCREENIE), "daemon"],
+            env=self.env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
-        wait_for(lambda: self.status_json().get("pid") == self.process.pid, "the daemon to answer", timeout=10)
+        wait_for(
+            lambda: self.status_json().get("pid") == self.process.pid,
+            "the daemon to answer",
+            timeout=10,
+        )
 
     def stop(self) -> None:
         if not self.process:
             return
         if self.process.poll() is None:
-            subprocess.run([str(SCREENIE), "quit"], env=self.env, capture_output=True, timeout=5, check=False)
+            subprocess.run(
+                [str(SCREENIE), "quit"], env=self.env, capture_output=True, timeout=5, check=False
+            )
             try:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
@@ -204,13 +222,22 @@ class Daemon:
     def cli(self, *args: str, timeout: float = 15) -> subprocess.CompletedProcess:
         """Run `screenie ARGS` to completion."""
         return subprocess.run(
-            [str(SCREENIE), *args], env=self.env, capture_output=True, text=True, timeout=timeout, check=False
+            [str(SCREENIE), *args],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
         )
 
     def spawn(self, *args: str) -> subprocess.Popen:
         """Start `screenie ARGS` without waiting (e.g. `shot --edit`, which lasts the edit)."""
         return subprocess.Popen(
-            [str(SCREENIE), *args], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            [str(SCREENIE), *args],
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
 
     def status_json(self) -> dict:
@@ -221,7 +248,9 @@ class Daemon:
         return self.status_json().get("state", "")
 
     def wait_status(self, state: str, timeout: float = 5.0) -> None:
-        wait_for(lambda: self.status() == state, f"status {state!r} (last: {self.status()!r})", timeout)
+        wait_for(
+            lambda: self.status() == state, f"status {state!r} (last: {self.status()!r})", timeout
+        )
 
     def log(self) -> str:
         return ANSI.sub("", self.log_path.read_text()) if self.log_path.exists() else ""
@@ -269,7 +298,12 @@ class Input:
 
     def __init__(self, session: Session):
         self.process = subprocess.Popen(
-            [str(WLINPUT), "-"], env=session.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1
+            [str(WLINPUT), "-"],
+            env=session.env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            bufsize=1,
         )
         assert self.process.stdout.readline().strip() == "ready", "wlinput didn't start"
 
@@ -319,7 +353,9 @@ class KeyLog:
         self.path = path
         self.out = path.open("w")
         cmd = "stdbuf -oL wev -f wl_keyboard:key -f wl_keyboard:enter -f wl_keyboard:leave"
-        self.process = subprocess.Popen(shlex.split(cmd), env=session.env, stdout=self.out, stderr=subprocess.STDOUT)
+        self.process = subprocess.Popen(
+            shlex.split(cmd), env=session.env, stdout=self.out, stderr=subprocess.STDOUT
+        )
         wait_for(lambda: session.window("wev"), "the wev window")
 
     def lines(self) -> list[str]:
