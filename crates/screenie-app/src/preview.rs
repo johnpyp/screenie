@@ -1,6 +1,10 @@
 //! The floating preview stack: a card per fresh capture in the corner of the screen, with
 //! quick actions on hover. Cards slide away on their own unless the pointer is on them.
 //!
+//! Hovering shows only what's left to do: Copy and Save buttons until the capture is
+//! copied or saved, then a quiet "Copied" / "Saved" instead (and Show in folder, and
+//! Delete, once there's a file).
+//!
 //! All cards share one transparent layer surface (a column along the right edge) whose
 //! input region is limited to the cards, so the rest of the column never eats clicks.
 
@@ -49,26 +53,44 @@ pub(crate) struct PreviewItem {
     pixel_size: (u32, u32),
     bytes: u64,
     path: Option<PathBuf>,
+    /// The clipboard generation it was copied at, if it was: it's on the clipboard
+    /// until we copy something else.
+    copied: Option<u64>,
     deadline: Option<Instant>,
     hovered: bool,
 }
 
 impl PreviewItem {
-    pub async fn screenshot(capture: Capture, png: Arc<Vec<u8>>, path: Option<PathBuf>, cx: &mut AsyncApp) -> Self {
+    /// `copied`: it was just put on the clipboard.
+    pub async fn screenshot(
+        capture: Capture,
+        png: Arc<Vec<u8>>,
+        path: Option<PathBuf>,
+        copied: bool,
+        cx: &mut AsyncApp,
+    ) -> Self {
         let bytes = png.len() as u64;
         let image = capture.image.clone();
-        Self::new(Media::Screenshot { capture, png }, image, bytes, path, cx).await
+        Self::new(Media::Screenshot { capture, png }, image, bytes, path, copied, cx).await
     }
 
-    pub async fn recording(finished: screenie_record::Finished, cx: &mut AsyncApp) -> Self {
+    pub async fn recording(finished: screenie_record::Finished, copied: bool, cx: &mut AsyncApp) -> Self {
         let (w, h) = finished.size;
         let frame = finished.last_frame.unwrap_or_else(|| Image::new(w, h, screenie_core::PixelFormat::Bgra));
         let media = Media::Recording { duration: finished.duration };
-        Self::new(media, frame, finished.bytes, Some(finished.path), cx).await
+        Self::new(media, frame, finished.bytes, Some(finished.path), copied, cx).await
     }
 
     /// The thumbnail is scaled on a background thread.
-    async fn new(media: Media, image: Image, bytes: u64, path: Option<PathBuf>, cx: &mut AsyncApp) -> Self {
+    async fn new(
+        media: Media,
+        image: Image,
+        bytes: u64,
+        path: Option<PathBuf>,
+        copied: bool,
+        cx: &mut AsyncApp,
+    ) -> Self {
+        let copied = copied.then(clipboard::generation);
         let (iw, ih) = (image.width().max(1) as f32, image.height().max(1) as f32);
         let fit = (CARD_MAX / iw).min(CARD_MAX / ih).min(1.0);
         let card = ((iw * fit).clamp(CARD_MIN.0, CARD_MAX), (ih * fit).clamp(CARD_MIN.1, CARD_MAX));
@@ -90,9 +112,14 @@ impl PreviewItem {
             thumb,
             card,
             path,
+            copied,
             deadline: None,
             hovered: false,
         }
+    }
+
+    fn is_copied(&self) -> bool {
+        self.copied == Some(clipboard::generation())
     }
 
     fn caption(&self) -> String {
@@ -253,29 +280,40 @@ impl PreviewStack {
     fn copy(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(item) = self.item(id) else { return };
         let (media, path) = (item.media.clone(), item.path.clone());
-        cx.background_executor()
-            .spawn(async move {
-                let result = match (media, path) {
-                    (Media::Screenshot { png, .. }, path) => {
-                        clipboard::copy(clipboard::Content::Image { png: png.to_vec(), file: path.as_deref() })
-                    }
-                    (Media::Recording { .. }, Some(path)) => clipboard::copy(clipboard::Content::File(&path)),
-                    (Media::Recording { .. }, None) => Ok(()),
-                };
-                if let Err(e) = result {
-                    tracing::warn!("{e}");
+        let copying = cx.background_executor().spawn(async move {
+            let result = match (media, path) {
+                (Media::Screenshot { png, .. }, path) => {
+                    clipboard::copy(clipboard::Content::Image { png: png.to_vec(), file: path.as_deref() })
                 }
-            })
-            .detach();
-        self.remove(id, cx);
+                (Media::Recording { .. }, Some(path)) => clipboard::copy(clipboard::Content::File(&path)),
+                (Media::Recording { .. }, None) => Ok(()),
+            };
+            result.map(|()| clipboard::generation())
+        });
+        cx.spawn(async move |this, cx| match copying.await {
+            Ok(generation) => {
+                let _ = this.update(cx, |stack, cx| {
+                    if let Some(item) = stack.item(id) {
+                        item.copied = Some(generation);
+                    }
+                    cx.notify();
+                });
+            }
+            Err(e) => tracing::warn!("{e}"),
+        })
+        .detach();
     }
 
-    /// Save an unsaved capture, or reveal a saved one in the file manager.
-    fn save_or_reveal(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(item) = self.item(id) else { return };
-        if let Some(path) = item.path.clone() {
+    fn reveal(&mut self, id: u64, cx: &mut Context<Self>) {
+        if let Some(path) = self.item(id).and_then(|i| i.path.clone()) {
             cx.reveal_path(&path);
             self.remove(id, cx);
+        }
+    }
+
+    fn save(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(item) = self.item(id) else { return };
+        if item.path.is_some() {
             return;
         }
         let Media::Screenshot { png, capture } = item.media.clone() else { return };
@@ -349,43 +387,36 @@ impl PreviewStack {
         let saved = item.path.is_some();
         let from_left = self.corner.is_left();
 
-        let corner = |icon: Icon, tip: &'static str, action: fn(&mut Self, u64, &mut Context<Self>), cx: &mut Context<Self>| {
+        let button = |icon: Icon, tip: &'static str, action: fn(&mut Self, u64, &mut Context<Self>), cx: &mut Context<Self>| {
             div()
                 .id(tip)
-                .size(px(26.))
                 .flex()
                 .items_center()
                 .justify_center()
                 .rounded_full()
-                .bg(rgba(0x000000a6))
-                .hover(|s| s.bg(rgba(0x000000d9)))
                 .cursor_pointer()
-                .child(icon.element().size_3p5().text_color(gpui::white()))
+                .child(icon.element().text_color(gpui::white()))
+                .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
                     action(this, id, cx)
                 }))
         };
-        let pill_button = |label: &'static str, action: fn(&mut Self, u64, &mut Context<Self>), cx: &mut Context<Self>| {
-            div()
-                .id(label)
-                .px(px(14.))
-                .h(px(28.))
-                .flex()
-                .items_center()
-                .rounded(px(8.))
+        // Small round buttons in the corners, and larger ones in the middle for what's
+        // left to do with the capture.
+        let corner = |icon, tip, action, cx: &mut Context<Self>| {
+            button(icon, tip, action, cx).size(px(30.)).bg(rgba(0x000000a6)).hover(|s| s.bg(rgba(0x000000d9)))
+        };
+        let action = |icon, tip, action, cx: &mut Context<Self>| {
+            button(icon, tip, action, cx)
+                .size(px(42.))
                 .bg(rgba(0xffffff2e))
                 .hover(|s| s.bg(rgba(0xffffff4d)))
-                .cursor_pointer()
-                .text_color(gpui::white())
-                .text_size(px(13.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(label)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    action(this, id, cx)
-                }))
+                .active(|s| s.opacity(0.85))
         };
+        let screenshot = matches!(item.media, Media::Screenshot { .. });
+        let copied = item.is_copied();
+        let done: Vec<&str> = [(copied, "Copied"), (saved, "Saved")].into_iter().filter(|d| d.0).map(|d| d.1).collect();
 
         // Videos are marked so they aren't mistaken for screenshots.
         let badge = match (&item.media, hovered) {
@@ -411,23 +442,45 @@ impl PreviewStack {
         };
 
         let overlay = hovered.then(|| {
+            let actions = div()
+                .flex()
+                .flex_row()
+                .gap_3()
+                .when(!copied, |d| d.child(action(Icon::Copy, "Copy", Self::copy, cx)))
+                .when(!saved && screenshot, |d| d.child(action(Icon::Download, "Save", Self::save, cx)))
+                .when(saved, |d| d.child(action(Icon::FolderOpen, "Show in folder", Self::reveal, cx)));
+            let status = (!done.is_empty()).then(|| {
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(rgba(0xffffffcc))
+                    .child(Icon::Check.element().size_3p5().text_color(rgba(0xffffffcc)))
+                    .child(done.join(" · "))
+            });
             div()
                 .absolute()
                 .inset_0()
                 .rounded(px(11.))
                 .bg(rgba(0x00000099))
                 .flex()
+                .flex_col()
                 .items_center()
                 .justify_center()
                 .gap_2()
-                .child(pill_button("Copy", Self::copy, cx))
-                .child(pill_button(if saved { "Show" } else { "Save" }, Self::save_or_reveal, cx))
+                .child(actions)
+                .children(status)
                 .child(div().absolute().top(px(6.)).left(px(6.)).child(corner(Icon::Close, "Dismiss", Self::remove, cx)))
-                .child(div().absolute().bottom(px(6.)).left(px(6.)).child(corner(Icon::Trash, "Delete", Self::delete, cx)))
-                .children(
-                    matches!(item.media, Media::Screenshot { .. })
-                        .then(|| div().absolute().top(px(6.)).right(px(6.)).child(corner(Icon::Pen, "Annotate", Self::edit, cx))),
-                )
+                // Nothing to delete until there's a file.
+                .when(saved, |d| {
+                    d.child(div().absolute().bottom(px(6.)).left(px(6.)).child(corner(Icon::Trash, "Delete", Self::delete, cx)))
+                })
+                .when(screenshot, |d| {
+                    d.child(div().absolute().top(px(6.)).right(px(6.)).child(corner(Icon::Pen, "Annotate", Self::edit, cx)))
+                })
                 .child(
                     div()
                         .absolute()

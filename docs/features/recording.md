@@ -31,8 +31,8 @@ recording, for status bars (see the README for the formats).
 3. The pill goes below the region, else above, else beside it, else on another output.
    A recording of the only output's whole area has no pill. The countdown then says to
    stop with the record shortcut or `screenie stop`.
-4. Stopping shows a preview card: the last frame, a duration badge, **Copy** (the file),
-   **Show**, and delete. Clicking the card opens the video. `recording.after_capture`
+4. Stopping shows a preview card: the last frame and a duration badge. On hover it
+   offers **Copy** (the file) until it's copied, **Show in folder**, and delete. Clicking the card opens the video. `recording.after_capture`
    works like the screenshot one (default: no copy, preview on).
 
 Nothing screenie draws ever lands inside the region, so it never appears in the video.

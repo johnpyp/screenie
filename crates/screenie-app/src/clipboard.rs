@@ -5,6 +5,7 @@
 //! wlr), which works without keyboard focus.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use wl_clipboard_rs::copy::{MimeSource, MimeType, Options, Source};
 
@@ -34,8 +35,18 @@ fn file_sources(path: &Path) -> Vec<MimeSource> {
     ]
 }
 
+/// Counts our copies, so something copied earlier can tell it's no longer on the
+/// clipboard once we've copied something else. (Copies by other apps go unnoticed.)
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// The current copy's generation (see [`copy`]).
+pub(crate) fn generation() -> u64 {
+    GENERATION.load(Ordering::Relaxed)
+}
+
 /// Set the clipboard. Blocking only briefly: serving happens on a background thread.
 pub(crate) fn copy(content: Content<'_>) -> anyhow::Result<()> {
+    GENERATION.fetch_add(1, Ordering::Relaxed);
     let sources = match content {
         Content::Image { png, file } => {
             let mut sources = vec![MimeSource {

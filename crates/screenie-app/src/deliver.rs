@@ -96,7 +96,7 @@ pub(crate) async fn screenshot(capture: Capture, actions: Actions, config: Confi
     let work_image = capture.image.clone();
     let work_actions = actions.clone();
     let subject = capture.subject.clone();
-    let (path, temporary, png) = cx
+    let (path, temporary, png, copied) = cx
         .background_executor()
         .spawn(async move {
             let png = encode_png(&work_image)?;
@@ -115,13 +115,12 @@ pub(crate) async fn screenshot(capture: Capture, actions: Actions, config: Confi
             } else {
                 None
             };
-            if work_actions.copy
-                && let Err(e) = clipboard::copy(clipboard::Content::Image { png: png.clone(), file: saved.as_deref() })
-            {
-                tracing::warn!("{e}");
-            }
+            let copied = work_actions.copy
+                && clipboard::copy(clipboard::Content::Image { png: png.clone(), file: saved.as_deref() })
+                    .inspect_err(|e| tracing::warn!("{e}"))
+                    .is_ok();
             let temporary = temp.is_some();
-            anyhow::Ok((saved.or(temp), temporary, png))
+            anyhow::Ok((saved.or(temp), temporary, png, copied))
         })
         .await?;
     tracing::info!(elapsed = ?started.elapsed(), path = ?path, "screenshot delivered");
@@ -131,7 +130,7 @@ pub(crate) async fn screenshot(capture: Capture, actions: Actions, config: Confi
     if actions.preview {
         let saved = if temporary { None } else { path.clone() };
         let output = capture.output.clone();
-        let item = PreviewItem::screenshot(capture, Arc::new(png), saved, cx).await;
+        let item = PreviewItem::screenshot(capture, Arc::new(png), saved, copied, cx).await;
         cx.update(|cx| preview::show(item, output, cx));
     }
     Ok(Delivered { path, temporary })
@@ -146,18 +145,15 @@ pub(crate) async fn recording(
 ) {
     let path = finished.path.clone();
     cx.update(|cx| Daemon::update(cx, |d, _| d.note_capture(CaptureKind::Recording, Some(path))));
-    if actions.copy {
+    let copied = actions.copy && {
         let path = finished.path.clone();
         cx.background_executor()
-            .spawn(async move {
-                if let Err(e) = clipboard::copy(clipboard::Content::File(&path)) {
-                    tracing::warn!("{e}");
-                }
-            })
-            .detach();
-    }
+            .spawn(async move { clipboard::copy(clipboard::Content::File(&path)).inspect_err(|e| tracing::warn!("{e}")) })
+            .await
+            .is_ok()
+    };
     if actions.preview {
-        let item = PreviewItem::recording(finished, cx).await;
+        let item = PreviewItem::recording(finished, copied, cx).await;
         cx.update(|cx| preview::show(item, output_name, cx));
     }
 }

@@ -46,13 +46,15 @@ It stays for `preview.timeout` seconds (default 10; 0 = until dismissed). Hoveri
 timer, and leaving gives it a short fresh lease. Up to five cards stack.
 
 Clicking a card opens the capture in its default app (from a temporary file if it
-wasn't saved). On hover:
+wasn't saved). Hovering shows only what's left to do:
 
-- **Copy**: copy again and dismiss.
-- **Save / Show**: save an unsaved capture, or reveal the saved file in the file manager.
+- **Copy** and **Save** icon buttons, until the capture is copied or saved. Then each
+  is replaced by a quiet **✓ Copied** / **✓ Saved** line. "Copied" lasts until screenie
+  copies something else. Copies made by other apps go unnoticed.
+- **Show in folder**, once there's a file.
 - **Pencil**: annotate in the editor (screenshots).
 - **×**: dismiss.
-- **Trash**: delete the saved file and dismiss.
+- **Trash**: delete the file and dismiss. Only shown when there is a file.
 - A caption shows the pixel size and file size.
 
 All cards share one layer surface along the right edge. Its input region is limited to

@@ -175,7 +175,8 @@ fn handle(
                 match result {
                     Ok(png) if preview => {
                         let output = edited.output.take();
-                        let item = PreviewItem::screenshot(edited, Arc::new(png), path, cx).await;
+                        // On the clipboard if Done copied it, or it was copied as-is before.
+                        let item = PreviewItem::screenshot(edited, Arc::new(png), path, copy || copied, cx).await;
                         cx.update(|cx| preview::show(item, output, cx));
                     }
                     Ok(_) => {}
