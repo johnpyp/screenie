@@ -12,7 +12,7 @@ for GNOME/KDE, and GIF export, are planned.
 | `screenie record screen` | The focused output, no selector. |
 | `screenie record last` | The previous capture region. |
 | `screenie record --region "X,Y WxH"` | That region, no selector. |
-| `screenie stop` | Stop and save. Cancels a countdown. |
+| `screenie stop` | Stop and save. Cancels a countdown (or a recording still starting). |
 | `screenie pause` | Pause or resume. |
 | `screenie cancel` | Stop and delete. |
 
@@ -27,7 +27,9 @@ recording, for status bars (see the README for the formats).
 ## UX
 
 1. After picking, a countdown (`recording.countdown`, default 3; 0 disables it) shows in
-   the middle of the region.
+   the middle of the region. Then the pill says "Starting…" until frames are being
+   recorded (a moment: the encoders were probed while you picked), and only then shows
+   the timer, pause and stop.
 2. While recording, a red ring sits just **outside** the region. A pill shows the
    elapsed time with pause, stop and discard buttons. Both are click-through except
    the pill, which also has the keyboard while the pointer is on it. The recorded app
@@ -123,9 +125,11 @@ Settings:
   compositor renders with comes first (known from the capture protocol, else from
   linux-dmabuf's feedback, so frames in memory go there too, not to an iGPU that
   happens to be listed first), then other hardware, then software, and `recording.encoder`
-  (`auto`/`hardware`/`software`) filters the list. Each is probed once by encoding test
-  frames through the same conversion a recording uses: VA-API elements exist whenever
-  the plugin does, driver or not. Encoders whose size limits (read from their pad
+  (`auto`/`hardware`/`software`) filters the list. They're probed in that order until
+  one works, by encoding test frames through the same conversion a recording uses
+  (VA-API elements exist whenever the plugin does, driver or not). Each verdict is
+  cached for the daemon's life, and the probing happens while the selector is open, so
+  it never delays the start. Encoders whose size limits (read from their pad
   templates; VA-API takes 128 to 4096 pixels a side) don't fit the video are skipped,
   so a tiny region or a native ultrawide falls back to x264. Constant quality (CQP /
   CRF) comes from `recording.quality`, with no B-frames, keyframes every 2 s, and the

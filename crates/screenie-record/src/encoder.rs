@@ -20,8 +20,9 @@
 //! for GL such frames come through memory, cropped by the capture.
 //!
 //! An installed element is no proof: VA-API encoders exist whenever the plugin is
-//! installed, even without a capable driver. So each candidate encodes a few test frames
-//! once, and the verdict is cached for the life of the process. Encoders also have size
+//! installed, even without a capable driver. So candidates encode a few test frames,
+//! best first until one works, and each verdict is cached for the life of the process.
+//! [`Encoder::warm_up`] gets that done before a recording needs it. Encoders also have size
 //! limits (VA-API: 128 to 4096 pixels a side), read from their pad templates, so a tiny
 //! region or a native ultrawide goes to one that takes it.
 //!
@@ -81,13 +82,13 @@ const PROBE: (u32, u32) = (320, 180);
 const GPU_FORMATS: [[u8; 4]; 4] = [*b"XR24", *b"AR24", *b"XB24", *b"AB24"];
 
 impl Encoder {
-    /// Working encoders allowed by `preference` that take `size` frames, best first for
-    /// frames on `gpu`.
-    pub fn candidates(
+    /// The best working encoder allowed by `preference` that takes `size` frames, for
+    /// frames on `gpu`. Only encoders up to that one are probed.
+    pub fn choose(
         preference: EncoderPreference,
         size: (u32, u32),
         gpu: Option<&GpuDevice>,
-    ) -> Vec<Encoder> {
+    ) -> Option<Encoder> {
         let forced = std::env::var("SCREENIE_ENCODER")
             .ok()
             .filter(|s| !s.is_empty());
@@ -103,9 +104,22 @@ impl Encoder {
             })
             .collect();
         all.sort_by_key(|e| e.tier(gpu));
-        all.into_iter()
-            .filter(|e| e.fits(size) && e.works())
-            .collect()
+        all.into_iter().find(|e| e.fits(size) && e.works())
+    }
+
+    /// Choose the encoder a recording of the screen on `gpu` (the compositor's) would
+    /// get, so the probes (up to a few seconds, the first time) are done before it
+    /// starts. Blocking; run it off the UI thread, e.g. while the user picks what to
+    /// record.
+    pub fn warm_up(preference: EncoderPreference, gpu: Option<&GpuDevice>) {
+        if gst::init().is_err() {
+            return;
+        }
+        if let Some(encoder) = Encoder::choose(preference, (1920, 1080), gpu)
+            && let Some(importer) = encoder.importer()
+        {
+            importable(&importer);
+        }
     }
 
     /// Every encoder found, with whether it works here, for diagnostics.
@@ -230,14 +244,19 @@ impl Encoder {
 
     fn works(&self) -> bool {
         static VERDICTS: OnceLock<Mutex<HashMap<(String, Chain), bool>>> = OnceLock::new();
-        let verdicts = VERDICTS.get_or_init(Default::default);
+        // Held while probing: a recording starting during a warm-up waits for its probe
+        // rather than running it again.
+        let mut verdicts = VERDICTS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let key = (self.factory.clone(), self.chain);
-        if let Some(&ok) = verdicts.lock().unwrap().get(&key) {
+        if let Some(&ok) = verdicts.get(&key) {
             return ok;
         }
         let ok = self.test_encode();
         tracing::debug!(encoder = self.name(), ok, "probed encoder");
-        verdicts.lock().unwrap().insert(key, ok);
+        verdicts.insert(key, ok);
         ok
     }
 

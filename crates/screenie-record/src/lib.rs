@@ -190,10 +190,7 @@ impl Recording {
         let fps = cap.unwrap_or(60);
         let offer = source.gpu_offer();
         let gpu = source.gpu();
-        let encoder = Encoder::candidates(spec.encoder, size, gpu.as_ref())
-            .into_iter()
-            .next()
-            .ok_or(Error::NoEncoder)?;
+        let encoder = Encoder::choose(spec.encoder, size, gpu.as_ref()).ok_or(Error::NoEncoder)?;
         if let Some(dir) = spec.path.parent() {
             std::fs::create_dir_all(dir)?;
         }

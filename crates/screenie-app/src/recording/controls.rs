@@ -54,6 +54,8 @@ pub(crate) enum Chrome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Phase {
     Countdown(u32),
+    /// The countdown is over and capture is starting: nothing is recorded yet.
+    Starting,
     Recording,
 }
 
@@ -320,7 +322,8 @@ impl Controls {
 
     fn pill(&self, at: Point, cx: &mut Context<Self>) -> impl IntoElement {
         let (elapsed, paused) = pill_status(cx).unwrap_or_default();
-        let counting = matches!(self.phase, Phase::Countdown(_));
+        // Not recording yet: the buttons pause and stop nothing, and discarding cancels.
+        let counting = self.phase != Phase::Recording;
         let size = pill_size(f64::from(screenie_ui_kit::ui_scale(cx)));
 
         // Static on purpose: an animation would repaint (and so re-encode) constantly.
@@ -334,6 +337,7 @@ impl Controls {
             });
         let label = match self.phase {
             Phase::Countdown(n) => format!("Starting in {n}"),
+            Phase::Starting => "Starting…".to_string(),
             Phase::Recording => format_elapsed(elapsed),
         };
 
@@ -414,7 +418,7 @@ impl Render for Controls {
         } = self.layout;
         let counting = match self.phase {
             Phase::Countdown(n) => Some(n),
-            Phase::Recording => None,
+            Phase::Starting | Phase::Recording => None,
         };
         let root = div()
             .size_full()
@@ -490,6 +494,8 @@ mod tests {
         for (rect, chrome) in [(region, Chrome::Region), (a.logical, Chrome::Window)] {
             let layout = Layout::new(rect, chrome, &a, true, 1.0);
             assert!(layout.shows(Phase::Countdown(3)));
+            // Gone before capture starts.
+            assert!(!layout.shows(Phase::Starting), "{chrome:?}");
             assert!(!layout.shows(Phase::Recording), "{chrome:?}");
             assert!(layout.stop_hint);
         }

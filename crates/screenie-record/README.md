@@ -10,10 +10,11 @@ recording.set_paused(true)?;
 let finished = recording.stop()?; // path, duration, size, bytes, last frame
 ```
 
-- `Encoder::candidates(preference, size, gpu)` lists the working H.264 encoders that take
-  the video's size, best first: hardware on the GPU holding the frames, other hardware
-  (VA-API, NVENC, gstreamer-vaapi, V4L2), then software (x264, OpenH264). Each is
-  test-encoded once. An encoder's `Chain` is how frames reach it (VA-API's converter,
+- `Encoder::choose(preference, size, gpu)` picks the best working H.264 encoder that
+  takes the video's size: hardware on the GPU holding the frames, other hardware
+  (VA-API, NVENC, gstreamer-vaapi, V4L2), then software (x264, OpenH264). Candidates
+  are test-encoded in that order until one works, each once per process;
+  `Encoder::warm_up(preference, gpu)` does that ahead of a recording. An encoder's `Chain` is how frames reach it (VA-API's converter,
   GL, or the CPU); `Encoder::gpu_format(offer)` says whether it can take the source's
   GPU buffers: on its GPU, in a format its chain imports, and, for a region of a
   buffer (`GpuOffer::cropped`), only if the chain crops (`Chain::crops`: VA-API's does,

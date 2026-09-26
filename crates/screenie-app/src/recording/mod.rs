@@ -15,7 +15,7 @@ use gpui::{App, AsyncApp, WindowHandle};
 use screenie_config::{Config, Subject, expand_template, unique_path};
 use screenie_core::{OutputInfo, Rect};
 use screenie_ipc::{RecordRequest, RecordingStatus, Response, Target};
-use screenie_record::{AudioSources, RecordSpec, Recording};
+use screenie_record::{AudioSources, Encoder, RecordSpec, Recording};
 use screenie_selector::{Backdrop, Purpose, RecordOptions, Selection, SelectorConfig};
 use screenie_ui_kit::conceal::{self, Concealed, Scope};
 
@@ -76,7 +76,8 @@ pub(crate) async fn record(req: RecordRequest, cx: &mut AsyncApp) -> Response {
     }
 }
 
-/// Stop and save. During a countdown this cancels instead.
+/// Stop and save. During a countdown, or while the recording is starting (nothing is
+/// recorded yet), this cancels instead.
 pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
     // Saving from the moment the recording is taken, so watchers never see a gap.
     let set_saving = |saving: bool, cx: &mut AsyncApp| {
@@ -97,11 +98,16 @@ pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
         set_saving(true, cx);
     }
     let Some(active) = take_active(cx) else {
-        set_saving(false, cx);
+        // Another stop may be saving: its flag isn't ours to clear.
+        if running {
+            set_saving(false, cx);
+        }
         return Response::error("nothing is being recorded");
     };
     let Some(recording) = active.recording else {
-        set_saving(false, cx);
+        if running {
+            set_saving(false, cx);
+        }
         return Response::Cancelled;
     };
     // The video ends now, and its card shows (with a spinner) while the file is finished
@@ -219,6 +225,14 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         (d.config.clone(), d.capture.clone(), d.last_region())
     });
     let background = cx.background_executor().clone();
+    // Probe the encoders while the user picks, so the recording starts as the countdown
+    // ends. Only the first recording of a daemon's life has any to do.
+    {
+        let (capture, preference) = (capture.clone(), config.recording.encoder);
+        background
+            .spawn(async move { Encoder::warm_up(preference, capture.gpu().as_ref()) })
+            .detach();
+    }
     let compositor = capture.compositor().clone();
     let outputs = {
         let capture = capture.clone();
@@ -362,7 +376,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     let first_phase = if countdown > 0 {
         Phase::Countdown(countdown)
     } else {
-        Phase::Recording
+        Phase::Starting
     };
     let chrome = if window_source.is_some() {
         Chrome::Window
@@ -400,7 +414,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
             return Ok(None);
         }
     }
-    controls::set_phase(handles, Phase::Recording, cx);
+    controls::set_phase(handles, Phase::Starting, cx);
     // Let the compositor present a frame without the countdown before capturing.
     background.timer(Duration::from_millis(120)).await;
 
@@ -466,6 +480,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         background.spawn(async move { recording.cancel() }).await;
         return Ok(None);
     }
+    controls::set_phase(handles, Phase::Recording, cx);
     cx.spawn(async move |cx| monitor(cancelled, cx).await)
         .detach();
     Ok(Some(path))

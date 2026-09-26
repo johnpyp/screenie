@@ -214,6 +214,12 @@ impl CaptureContext {
     pub fn outputs(&self) -> Result<Vec<OutputInfo>> {
         Ok(Capturer::connect()?.outputs())
     }
+
+    /// The GPU the compositor renders with, where it says: the one a recording's
+    /// frames will be on.
+    pub fn gpu(&self) -> Option<GpuDevice> {
+        Capturer::connect().ok()?.gpu()
+    }
 }
 
 /// The protocols `support` offers, in the order `auto` tries them: ext first, or wlr

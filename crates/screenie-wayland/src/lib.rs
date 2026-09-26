@@ -229,6 +229,11 @@ impl Capturer {
             .collect()
     }
 
+    /// The GPU the compositor renders with, where it says (linux-dmabuf v4+).
+    pub fn gpu(&self) -> Option<GpuDevice> {
+        self.state.feedback.main_device.map(GpuDevice::from_dev)
+    }
+
     fn output_index(&self, name: &str) -> Result<usize> {
         self.state
             .outputs
