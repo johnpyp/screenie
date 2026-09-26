@@ -68,6 +68,9 @@ real digging.
   at full frame rate; chrome redraws once a second.
 - **Finishing a faststart MP4 can take minutes** on a long recording and slow disk.
   Wait while the file grows, and never delete data on a failed finish.
+- **wlroots window captures have no cursor.** A toplevel source is a scene-node source,
+  which ignores `paint_cursors` and offers no cursor session (only output sources do), so
+  a window recording on sway never shows the pointer, whatever the game does with it.
 
 ## Daemon, files and clipboard
 
