@@ -9,13 +9,20 @@
 //! wlinput up [left|right|middle]   release a button
 //! wlinput click X Y                move, press, release
 //! wlinput drag X1 Y1 X2 Y2 [STEPS] press at 1, glide to 2, release
-//! wlinput key NAME...              tap keys (escape enter space tab left right up down, letters, digits)
+//! wlinput key NAME...              tap keys (escape enter space tab left right up down,
+//!                                  letters, digits, and - = [ ] ; ' , . / as themselves)
 //! wlinput hold NAME / release NAME hold or release one key (shift, ctrl, alt, super)
+//! wlinput type TEXT                type text (US layout; Shift where needed)
 //! wlinput scroll N                 N wheel clicks (negative: up)
 //! wlinput sleep MS
-//! wlinput wait                   print "waiting", then block until a line on stdin
 //! ```
 //! Several commands can be chained: `wlinput move 10 10 , sleep 100 , click 50 50`.
+//!
+//! `wlinput -` keeps one connection open for a test harness: it prints `ready`, then
+//! runs each line of stdin as a command chain and answers `ok` once the compositor has
+//! the events, or `error: …`. One virtual keyboard for the whole test matters: a
+//! keyboard added while an overlay has the keyboard makes sway re-enter the focused
+//! window.
 //!
 //! The virtual pointer goes away when wlinput exits, and the compositor then sends the
 //! surface under it a pointer leave. To test hover, keep it alive while you look:
@@ -79,8 +86,38 @@ fn keycode(name: &str) -> Option<u32> {
         "ctrl" | "control" => 29,
         "alt" => 56,
         "super" => 125,
+        "-" | "minus" => 12,
+        "=" | "equal" => 13,
+        "[" | "bracketleft" => 26,
+        "]" | "bracketright" => 27,
+        ";" | "semicolon" => 39,
+        "'" | "apostrophe" => 40,
+        "`" | "grave" => 41,
+        "\\" | "backslash" => 43,
+        "comma" => 51,
+        "." | "period" => 52,
+        "/" | "slash" => 53,
         _ => return None,
     })
+}
+
+/// The key and whether it needs Shift, for typing `c` on a US layout.
+fn char_key(c: char) -> Option<(u32, bool)> {
+    const SHIFTED: [(char, char); 21] = [
+        ('!', '1'), ('@', '2'), ('#', '3'), ('$', '4'), ('%', '5'), ('^', '6'), ('&', '7'), ('*', '8'), ('(', '9'),
+        (')', '0'), ('_', '-'), ('+', '='), ('{', '['), ('}', ']'), (':', ';'), ('"', '\''), ('~', '`'), ('|', '\\'),
+        ('<', ','), ('>', '.'), ('?', '/'),
+    ];
+    if c == ' ' {
+        return Some((57, false));
+    }
+    if c == ',' {
+        return Some((51, false));
+    }
+    if let Some((_, base)) = SHIFTED.iter().find(|(s, _)| *s == c) {
+        return keycode(&base.to_string()).map(|k| (k, true));
+    }
+    keycode(&c.to_string()).map(|k| (k, c.is_ascii_uppercase()))
 }
 
 fn button(name: Option<&str>) -> u32 {
@@ -218,68 +255,110 @@ fn main() {
         mods: 0,
     };
 
-    let num = |s: Option<&String>| -> f64 { s.and_then(|v| v.parse().ok()).expect("expected a number") };
-    for group in args.split(|a| a == ",") {
-        let Some(cmd) = group.first() else { continue };
-        let rest = &group[1..];
-        match cmd.as_str() {
-            "move" => input.move_to(num(rest.first()), num(rest.get(1))),
-            "down" => input.button(button(rest.first().map(String::as_str)), true),
-            "up" => input.button(button(rest.first().map(String::as_str)), false),
-            "click" => {
-                input.move_to(num(rest.first()), num(rest.get(1)));
-                std::thread::sleep(Duration::from_millis(30));
-                input.button(BTN_LEFT, true);
-                std::thread::sleep(Duration::from_millis(30));
-                input.button(BTN_LEFT, false);
+    if args == ["-"] {
+        // Harness mode: one command chain per line, acknowledged once delivered.
+        use std::io::{BufRead, Write};
+        println!("ready");
+        let _ = std::io::stdout().flush();
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+            let result = run_chain(&mut input, &args);
+            let _ = queue.roundtrip(&mut State);
+            match result {
+                Ok(()) => println!("ok"),
+                Err(e) => println!("error: {e}"),
             }
-            "drag" => {
-                let (ax, ay, bx, by) = (num(rest.first()), num(rest.get(1)), num(rest.get(2)), num(rest.get(3)));
-                let steps = rest.get(4).and_then(|s| s.parse().ok()).unwrap_or(12u32);
-                input.move_to(ax, ay);
-                std::thread::sleep(Duration::from_millis(40));
-                input.button(BTN_LEFT, true);
-                for i in 1..=steps {
-                    let t = i as f64 / steps as f64;
-                    std::thread::sleep(Duration::from_millis(16));
-                    input.move_to(ax + (bx - ax) * t, ay + (by - ay) * t);
-                }
-                std::thread::sleep(Duration::from_millis(40));
-                input.button(BTN_LEFT, false);
-            }
-            "key" => {
-                for name in rest {
-                    let code = keycode(name).unwrap_or_else(|| panic!("unknown key {name}"));
-                    input.key(code, true);
-                    std::thread::sleep(Duration::from_millis(20));
-                    input.key(code, false);
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-            }
-            "hold" | "release" => {
-                let name = rest.first().expect("key name");
-                let code = keycode(name).unwrap_or_else(|| panic!("unknown key {name}"));
-                input.key(code, cmd == "hold");
-            }
-            "scroll" => {
-                let clicks = num(rest.first()) as i32;
-                for _ in 0..clicks.abs() {
-                    input.scroll(clicks.signum());
-                    std::thread::sleep(Duration::from_millis(30));
-                }
-            }
-            "sleep" => std::thread::sleep(Duration::from_millis(num(rest.first()) as u64)),
-            "wait" => {
-                // Everything so far has reached the compositor; say so, then block until
-                // a line arrives on stdin. Lets a script sync on real events, not sleeps.
-                let _ = queue.roundtrip(&mut State);
-                println!("waiting");
-                let _ = std::io::Write::flush(&mut std::io::stdout());
-                let _ = std::io::stdin().read_line(&mut String::new());
-            }
-            other => panic!("unknown command {other}"),
+            let _ = std::io::stdout().flush();
         }
+    } else if let Err(e) = run_chain(&mut input, &args) {
+        eprintln!("wlinput: {e}");
+        std::process::exit(2);
     }
     let _ = queue.roundtrip(&mut State);
     let _ = input.pos;
+}
+
+/// Run a chain of commands separated by `,`.
+fn run_chain(input: &mut Input, args: &[String]) -> Result<(), String> {
+    for group in args.split(|a| a == ",") {
+        if let Some(cmd) = group.first() {
+            run(input, cmd, &group[1..])?;
+        }
+    }
+    Ok(())
+}
+
+fn run(input: &mut Input, cmd: &str, rest: &[String]) -> Result<(), String> {
+    let num = |i: usize| -> Result<f64, String> {
+        rest.get(i).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{cmd}: expected a number"))
+    };
+    let key = |name: &str| keycode(name).ok_or_else(|| format!("unknown key {name}"));
+    let pause = |ms| std::thread::sleep(Duration::from_millis(ms));
+    match cmd {
+        "move" => input.move_to(num(0)?, num(1)?),
+        "down" => input.button(button(rest.first().map(String::as_str)), true),
+        "up" => input.button(button(rest.first().map(String::as_str)), false),
+        "click" => {
+            input.move_to(num(0)?, num(1)?);
+            pause(30);
+            input.button(BTN_LEFT, true);
+            pause(30);
+            input.button(BTN_LEFT, false);
+        }
+        "drag" => {
+            let (ax, ay, bx, by) = (num(0)?, num(1)?, num(2)?, num(3)?);
+            let steps = rest.get(4).and_then(|s| s.parse().ok()).unwrap_or(12u32);
+            input.move_to(ax, ay);
+            pause(40);
+            input.button(BTN_LEFT, true);
+            for i in 1..=steps {
+                let t = i as f64 / steps as f64;
+                pause(16);
+                input.move_to(ax + (bx - ax) * t, ay + (by - ay) * t);
+            }
+            pause(40);
+            input.button(BTN_LEFT, false);
+        }
+        "key" => {
+            for name in rest {
+                let code = key(name)?;
+                input.key(code, true);
+                pause(20);
+                input.key(code, false);
+                pause(20);
+            }
+        }
+        "hold" | "release" => {
+            let name = rest.first().ok_or("expected a key name")?;
+            input.key(key(name)?, cmd == "hold");
+        }
+        "type" => {
+            let text = rest.join(" ");
+            let shift = keycode("shift").expect("shift");
+            for c in text.chars() {
+                let (code, shifted) = char_key(c).ok_or_else(|| format!("can't type {c:?}"))?;
+                if shifted {
+                    input.key(shift, true);
+                }
+                input.key(code, true);
+                pause(15);
+                input.key(code, false);
+                if shifted {
+                    input.key(shift, false);
+                }
+                pause(15);
+            }
+        }
+        "scroll" => {
+            let clicks = num(0)? as i32;
+            for _ in 0..clicks.abs() {
+                input.scroll(clicks.signum());
+                pause(30);
+            }
+        }
+        "sleep" => pause(num(0)? as u64),
+        other => return Err(format!("unknown command {other}")),
+    }
+    Ok(())
 }

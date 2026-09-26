@@ -5,3 +5,7 @@ uv = "latest"
 [tasks.refs]
 description = "Clone/update reference repos from references/manifest.toml"
 run = "uv run --script tools/fetch_references.py"
+
+[tasks."test:e2e"]
+description = "End-to-end tests in the headless sway session (args go to pytest)"
+run = "uv run --project tests/e2e pytest tests/e2e"

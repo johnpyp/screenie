@@ -3,3 +3,8 @@
 
 references/*
 !references/manifest.toml
+
+# Python (tests/e2e)
+.venv/
+__pycache__/
+.pytest_cache/

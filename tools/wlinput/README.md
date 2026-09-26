@@ -10,3 +10,7 @@ wlinput drag 100 100 800 600 15
 
 Commands are separated by ` , `. Exiting releases held buttons, so add a trailing
 `sleep` when you want a screenshot mid-gesture.
+
+`wlinput -` keeps one pointer and keyboard for a whole session (the e2e harness uses
+it): it prints `ready`, then runs each stdin line as a command chain and answers `ok`
+(or `error: …`) once the compositor has it. `type TEXT` types ASCII text.
