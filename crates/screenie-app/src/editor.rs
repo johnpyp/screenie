@@ -95,6 +95,25 @@ impl Edit {
     }
 }
 
+/// What an editor opened straight from a capture takes over (see
+/// `screenie_selector::SelectorConfig::hand_off`).
+#[derive(Default)]
+pub(crate) struct Handover {
+    /// The frozen screen the capture was taken from.
+    pub screen: Option<Image>,
+    /// The selector, still showing it: closed once the editor covers it.
+    pub selector: Option<screenie_selector::Handoff>,
+}
+
+impl Handover {
+    /// Take the selector off the screen, if it's still there.
+    pub fn close(&self, cx: &mut App) {
+        if let Some(selector) = &self.selector {
+            selector.close(cx);
+        }
+    }
+}
+
 /// Open a capture for editing. `path` is where it's saved, if it is: Save and Done
 /// write back there. `actions` decide what Done does (copy, save, hand the image over);
 /// an already-saved capture is always saved back. Done ends the capture's journey: no
@@ -103,9 +122,13 @@ pub(crate) fn open(
     capture: Capture,
     path: Option<PathBuf>,
     actions: Actions,
+    handover: Handover,
     cx: &mut App,
 ) -> anyhow::Result<Editing> {
-    ensure_free(cx)?;
+    if let Err(e) = ensure_free(cx) {
+        handover.close(cx);
+        return Err(e);
+    }
     let d = Daemon::get(cx);
     let config = &d.config.editor;
     let palette: Vec<Color> = config
@@ -154,6 +177,10 @@ pub(crate) fn open(
         exit_on_copy: config.exit_on_copy,
         exit_on_save: config.exit_on_save,
         confirm_discard: config.confirm_discard,
+        backdrop: handover.screen.clone(),
+        on_shown: handover.selector.clone().map(|selector| {
+            Box::new(move |cx: &mut App| selector.close(cx)) as screenie_editor::OnShown
+        }),
     };
     let image = capture.image.clone();
     let (ended, waiting) = async_channel::bounded(1);
@@ -168,7 +195,10 @@ pub(crate) fn open(
         ended,
     }));
     let handler = move |out: Output, cx: &mut App| handle(out, &edit, cx);
-    screenie_editor::open(&image, options, handler, cx).context("opening the editor")?;
+    if let Err(e) = screenie_editor::open(&image, options, handler, cx) {
+        handover.close(cx);
+        return Err(e).context("opening the editor");
+    }
     Daemon::update(cx, |d, _| {
         d.editors += 1;
         d.broadcast();
@@ -218,7 +248,7 @@ pub(crate) async fn open_file(path: PathBuf, cx: &mut AsyncApp) -> anyhow::Resul
             placement: None,
             taken,
         };
-        open(capture, Some(path), actions, cx).map(drop)
+        open(capture, Some(path), actions, Handover::default(), cx).map(drop)
     })
 }
 

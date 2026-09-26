@@ -15,6 +15,7 @@ use screenie_ipc::{ActionOverrides, CaptureKind};
 
 use crate::clipboard;
 use crate::daemon::Daemon;
+use crate::editor::Handover;
 use crate::preview::{self, PreviewItem};
 
 /// The after-capture actions in effect for one capture.
@@ -197,11 +198,13 @@ pub(crate) fn encode_png(image: &Image) -> anyhow::Result<Vec<u8>> {
 }
 
 /// Run the after-capture actions for a screenshot. When editing, nothing is saved or
-/// copied yet: the editor does that when it's done (see [`Delivery::finished`]).
+/// copied yet: the editor does that when it's done (see [`Delivery::finished`]). The
+/// editor takes over from the selector in `handover`; otherwise it closes here.
 pub(crate) async fn screenshot(
     capture: Capture,
     mut actions: Actions,
     config: Config,
+    handover: Handover,
     cx: &mut AsyncApp,
 ) -> anyhow::Result<Delivery> {
     if actions.edit {
@@ -212,10 +215,12 @@ pub(crate) async fn screenshot(
             actions.preview = true;
         } else {
             let want_file = actions.want_file;
-            let editing = cx.update(|cx| crate::editor::open(capture, None, actions, cx))?;
+            let editing =
+                cx.update(|cx| crate::editor::open(capture, None, actions, handover, cx))?;
             return Ok(Delivery::Editing { editing, want_file });
         }
     }
+    cx.update(|cx| handover.close(cx));
     let started = std::time::Instant::now();
     let work_capture = capture.clone();
     let work_actions = actions.clone();

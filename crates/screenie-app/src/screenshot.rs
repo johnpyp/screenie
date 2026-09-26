@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::{Context as _, anyhow, bail};
 use gpui::AsyncApp;
 use screenie_capture::{CaptureContext, SnapshotOptions};
-use screenie_config::Subject;
+use screenie_config::{EditorMode, Subject};
 use screenie_core::{Rect, Snapshot, WindowInfo};
 use screenie_ipc::{Response, ScreenshotRequest, SelectMode, Target};
 use screenie_selector::{Backdrop, Mode, Purpose, Remote, Selection, SelectorConfig};
@@ -23,6 +23,11 @@ use screenie_ui_kit::conceal::{self, Scope};
 
 use crate::daemon::Daemon;
 use crate::deliver::{self, Actions, Capture};
+use crate::editor::Handover;
+
+/// The longest a selector stays up for the editor to take over (see
+/// [`SelectorConfig::hand_off`]).
+const HANDOFF_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// A screenshot selector on screen.
 pub(crate) struct Selecting {
@@ -142,6 +147,8 @@ async fn run(
 
     // The window being captured, if any, names the file.
     let mut window: Option<WindowInfo> = None;
+    // A selector left up for the editor to take over from.
+    let mut lingering: Option<screenie_selector::Handoff> = None;
     let region: Rect = match &req.target {
         Target::Select { mode } => {
             // Steerable from the moment it's decided on.
@@ -167,6 +174,8 @@ async fn run(
                 initial: None,
                 focused_output: focused,
                 record: Default::default(),
+                // The overlay editor takes over from the frozen screen.
+                hand_off: actions.edit && config.editor.mode == EditorMode::Overlay,
             };
             let backdrop = Backdrop::Frozen(snapshot.clone());
             let choice = screenie_selector::select_steered(cx, backdrop, selector, steering).await;
@@ -181,6 +190,15 @@ async fn run(
             let Some(choice) = choice else {
                 return Ok(None);
             };
+            if let Some(handoff) = choice.handoff.clone() {
+                lingering = Some(handoff.clone());
+                // Whatever happens next, the selector doesn't outstay it.
+                cx.spawn(async move |cx| {
+                    cx.background_executor().timer(HANDOFF_TIMEOUT).await;
+                    cx.update(|cx| handoff.close(cx));
+                })
+                .detach();
+            }
             match choice.selection {
                 Selection::Region(r) => r,
                 Selection::Window(w) => {
@@ -227,10 +245,17 @@ async fn run(
         }
     };
 
-    let region = region
-        .intersection(&snapshot.layout_bounds())
-        .ok_or_else(|| anyhow!("the region is off screen"))?;
+    let close_selector = |cx: &mut AsyncApp| {
+        if let Some(lingering) = &lingering {
+            cx.update(|cx| lingering.close(cx));
+        }
+    };
+    let Some(region) = region.intersection(&snapshot.layout_bounds()) else {
+        close_selector(cx);
+        bail!("the region is off screen");
+    };
     if region.width < 1.0 || region.height < 1.0 {
+        close_selector(cx);
         bail!("the region is empty");
     }
     let output_name = output_for(&snapshot, region);
@@ -254,6 +279,16 @@ async fn run(
         .spawn(async move { render_snapshot.render_region(region) })
         .await;
     let taken = snapshot.taken_at.into();
+    // An edit goes on over the screen as it was frozen.
+    let screen = actions
+        .edit
+        .then(|| {
+            output_name
+                .as_deref()
+                .and_then(|n| snapshot.output_named(n))
+        })
+        .flatten()
+        .map(|o| o.image.clone());
     drop(snapshot);
     cx.update(|cx| Daemon::update(cx, |d, _| d.remember_region(region)));
 
@@ -273,7 +308,11 @@ async fn run(
     actions.output = actions
         .output
         .map(|output| deliver::output_path(&output, &config, &capture));
-    deliver::screenshot(capture, actions, config, cx)
+    let handover = Handover {
+        screen,
+        selector: lingering,
+    };
+    deliver::screenshot(capture, actions, config, handover, cx)
         .await
         .map(Some)
 }

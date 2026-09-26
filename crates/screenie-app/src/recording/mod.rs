@@ -278,6 +278,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
                 initial: None,
                 focused_output: focused,
                 record: audio,
+                hand_off: false,
             };
             let backdrop = Backdrop::Live {
                 outputs: outputs.clone(),

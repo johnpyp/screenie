@@ -16,7 +16,10 @@ drawing) and CleanShot X.
 
 - **`overlay`** (default), like Flameshot. A layer-shell surface covers the capture's
   screen and dims it. The capture sits exactly where it was taken, so annotating feels
-  like a continuation of selecting (`--edit`). Cropping keeps it in place too.
+  like a continuation of selecting (`--edit`). Cropping keeps it in place too. Straight
+  after a capture, the screen behind stays as it was frozen: the selector stays up
+  until the editor has drawn over it, so the live screen never flashes in between, and
+  nothing moves behind the capture while you annotate.
   Otherwise it's centred at its on-screen size: when picked up later from a preview
   card, for `screenie edit FILE`, or if it isn't wholly on one screen. A centred
   capture over 95% of the screen's width or height is shrunk to within 80% of both, so
@@ -52,7 +55,8 @@ steps aside while the chooser is up, then comes back exactly as it was.
 
 - **As an overlay**, the bars hang off the capture, centred on it. They go below it if
   there's room, otherwise above, otherwise just inside its bottom edge (a full-screen
-  capture), and are kept on screen. The main bar sits nearest the capture. Their
+  capture), and are kept on screen. The room counts a toast's row ("Copied to
+  clipboard") beyond the bars, so a toast never falls off the screen or moves them. The main bar sits nearest the capture. Their
   strip, gaps included, takes the pointer: a near miss on a button never deselects or
   draws on the capture underneath.
 - **In a window**, the tool bar runs along the top, with undo/redo on the left and the

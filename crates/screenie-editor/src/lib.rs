@@ -14,10 +14,11 @@ mod view;
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
-    App, AppContext as _, Bounds, Context, Size, Task, WindowBackgroundAppearance, WindowBounds,
-    WindowDecorations, WindowHandle, WindowOptions, px, size,
+    App, AppContext as _, Bounds, Context, RenderImage, Size, Task, WindowBackgroundAppearance,
+    WindowBounds, WindowDecorations, WindowHandle, WindowOptions, px, size,
 };
 use screenie_annotate::{Color, Document, Style};
 use screenie_core::{Image, OutputInfo, Rect};
@@ -64,7 +65,17 @@ pub struct EditorOptions {
     pub exit_on_save: bool,
     /// Ask before closing with annotations neither copied nor saved.
     pub confirm_discard: bool,
+    /// The screen as it was frozen for the capture (overlay mode): shown under the
+    /// dimming instead of the live screen, so the edit goes on over the moment it was
+    /// taken, and the selector it follows hands over without the live screen flashing
+    /// in between.
+    pub backdrop: Option<Image>,
+    /// Called once the editor's first frame is on screen.
+    pub on_shown: Option<OnShown>,
 }
+
+/// See [`EditorOptions::on_shown`].
+pub type OnShown = Box<dyn FnOnce(&mut App)>;
 
 /// What the owner does with the image on Done (see [`Output::Done`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -91,6 +102,7 @@ pub(crate) struct Setup {
     pub exit_on_copy: bool,
     pub exit_on_save: bool,
     pub confirm_discard: bool,
+    pub backdrop: Option<Arc<RenderImage>>,
     pub on_output: OutputHandler,
 }
 
@@ -166,9 +178,22 @@ pub fn open(
         exit_on_copy: options.exit_on_copy,
         exit_on_save: options.exit_on_save,
         confirm_discard: options.confirm_discard,
+        backdrop: options
+            .backdrop
+            .filter(|_| options.mode == Mode::Overlay)
+            .map(|image| screenie_ui_kit::render_image(&image)),
         on_output: Rc::new(on_output),
     });
-    open_session(session, options.path, setup, cx)
+    let handle = open_session(session, options.path, setup, cx)?;
+    if let Some(on_shown) = options.on_shown {
+        // The next frame after the first comes once the compositor has shown the first.
+        handle.update(cx, |_, window, _| {
+            window.on_next_frame(move |window, _| {
+                window.on_next_frame(move |_, cx| on_shown(cx));
+            });
+        })?;
+    }
+    Ok(handle)
 }
 
 /// Open a window editing `session`.

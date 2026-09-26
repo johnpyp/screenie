@@ -13,6 +13,10 @@
 //! While it's open, a [`Remote`] steers it from outside: the capture shortcut pressed
 //! again cancels it or switches its mode.
 //!
+//! A capture that goes on to the overlay editor ([`SelectorConfig::hand_off`]) keeps the
+//! frozen screen up until the editor covers it, so the live screen never flashes in
+//! between: the caller closes it with [`Handoff::close`].
+//!
 //! The interaction logic lives in [`model`] and is UI-toolkit-free.
 
 pub mod model;
@@ -20,7 +24,7 @@ mod view;
 
 use std::sync::Arc;
 
-use gpui::{AnyWindowHandle, AppContext, AsyncApp, px, size};
+use gpui::{AnyWindowHandle, App, AppContext, AsyncApp, px, size};
 use screenie_core::{OutputInfo, Snapshot, WindowInfo};
 use screenie_ui_kit::KeyboardGrab;
 use screenie_ui_kit::layer::{LayerSpec, fallback_options, layer_options, wait_for_displays};
@@ -61,6 +65,10 @@ pub struct SelectorConfig {
     /// Output to show the toolbar on before the pointer moves.
     pub focused_output: Option<String>,
     pub record: RecordOptions,
+    /// A capture goes on to something that will cover the screen (the overlay editor):
+    /// once captured, keep showing the frozen screen, dimmed around the capture, until
+    /// the [`Choice`]'s [`Handoff`] is closed.
+    pub hand_off: bool,
 }
 
 impl Default for SelectorConfig {
@@ -76,6 +84,7 @@ impl Default for SelectorConfig {
             initial: None,
             focused_output: None,
             record: RecordOptions::default(),
+            hand_off: false,
         }
     }
 }
@@ -85,6 +94,26 @@ impl Default for SelectorConfig {
 pub struct Choice {
     pub selection: Selection,
     pub record: RecordOptions,
+    /// With [`SelectorConfig::hand_off`], the selector still on screen.
+    pub handoff: Option<Handoff>,
+}
+
+/// A selector that stayed on screen after a capture (see [`SelectorConfig::hand_off`]).
+/// It takes no more input; close it once whatever follows covers the screen.
+#[derive(Debug, Clone)]
+pub struct Handoff(Vec<AnyWindowHandle>);
+
+impl Handoff {
+    /// Take the selector off the screen. Closing it again does nothing.
+    pub fn close(&self, cx: &mut App) {
+        close(&self.0, cx);
+    }
+}
+
+fn close(handles: &[AnyWindowHandle], cx: &mut App) {
+    for handle in handles {
+        let _ = handle.update(cx, |_, window, _| window.remove_window());
+    }
 }
 
 /// Steers an open selector from outside, e.g. when the capture shortcut is pressed
@@ -152,6 +181,7 @@ pub async fn select_steered(
     };
     wait_for_displays(cx, outputs.len()).await;
 
+    let hand_off = config.hand_off;
     let mut model = model::Model::new(outputs.clone(), windows, config.purpose, config.mode)
         .with_capture_on_release(config.capture_on_release)
         .with_ui_scale(f64::from(cx.update(|cx| screenie_ui_kit::ui_scale(cx))))
@@ -173,6 +203,7 @@ pub async fn select_steered(
         active_output,
         snapshot: snapshot.clone(),
         done: Some(tx),
+        settled: None,
         config,
     });
 
@@ -240,10 +271,11 @@ pub async fn select_steered(
             }
         }
     });
-    let choice = rx.recv().await.ok().flatten();
+    let mut choice = rx.recv().await.ok().flatten();
     drop(steer);
-    for handle in handles {
-        let _ = handle.update(cx, |_, window, _| window.remove_window());
+    match &mut choice {
+        Some(choice) if hand_off => choice.handoff = Some(Handoff(handles)),
+        _ => cx.update(|cx| close(&handles, cx)),
     }
     choice
 }

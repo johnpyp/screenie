@@ -26,6 +26,8 @@ pub(crate) struct Session {
     pub active_output: Option<String>,
     pub snapshot: Option<Arc<Snapshot>>,
     pub done: Option<async_channel::Sender<Option<Choice>>>,
+    /// What was captured, while handing off (see `SelectorConfig::hand_off`).
+    pub settled: Option<Rect>,
     /// The choice goes out only once the keys that made it are let go, so they don't leak
     /// into the app beneath when the selector closes (see `KeyboardGrab`).
     pub grab: Entity<KeyboardGrab>,
@@ -45,9 +47,13 @@ impl Session {
     /// looks gone straight away.
     pub fn finish(&mut self, selection: Option<Selection>, cx: &mut Context<Self>) {
         let Some(done) = self.done.take() else { return };
+        if self.config.hand_off {
+            self.settled = selection.as_ref().map(Selection::rect);
+        }
         let choice = selection.map(|selection| Choice {
             selection,
             record: self.record,
+            handoff: None,
         });
         self.grab.update(cx, |grab, cx| {
             grab.when_released(
@@ -260,6 +266,43 @@ impl OutputView {
             let outcome = s.model.set_modifiers(mods);
             s.apply(outcome, cx);
         });
+    }
+
+    /// The frozen screen dimmed around the `capture`, without chrome: what's left while
+    /// handing off to the editor.
+    fn settled(&self, capture: Rect, cx: &mut Context<Self>) -> AnyElement {
+        let origin = self.output.logical.origin();
+        let frozen = self.frozen.as_ref().map(|(img, _)| img.clone());
+        let dim = color::scrim(self.session.read(cx).config.dim as f32);
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                if let Some(img) = &frozen {
+                    let _ = window.paint_image(
+                        bounds,
+                        bounds,
+                        Default::default(),
+                        img.clone(),
+                        0,
+                        false,
+                    );
+                }
+                let view = Rect::new(
+                    0.0,
+                    0.0,
+                    f64::from(bounds.size.width),
+                    f64::from(bounds.size.height),
+                );
+                match capture.translate(-origin.x, -origin.y).intersection(&view) {
+                    Some(hole) => {
+                        surround(view, hole).for_each(|r| window.paint_quad(fill(gbounds(r), dim)))
+                    }
+                    None => window.paint_quad(fill(bounds, dim)),
+                }
+            },
+        )
+        .size_full()
+        .into_any_element()
     }
 
     /// Backdrop, dimming, and selection chrome, plus the pointer handling that has to see
@@ -902,7 +945,12 @@ impl Render for OutputView {
                 .on_modifiers_changed(cx.listener(Self::on_modifiers)),
         );
         if grab.read(cx).leaving() {
-            return root;
+            // Captured for the editor: the frozen screen stays until the editor covers it.
+            let settled = self.session.read(cx).settled;
+            return match settled {
+                Some(capture) => root.child(self.settled(capture, cx)),
+                None => root,
+            };
         }
         let scene = self.scene(cx);
         let this = cx.entity();

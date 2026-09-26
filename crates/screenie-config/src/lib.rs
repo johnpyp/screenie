@@ -162,8 +162,8 @@ mod tests {
             .collect();
         assert!(examples.len() > 1, "README has its yaml examples");
         for example in examples {
-            let config = parse(example)
-                .unwrap_or_else(|e| panic!("README example parses: {e}\n{example}"));
+            let config =
+                parse(example).unwrap_or_else(|e| panic!("README example parses: {e}\n{example}"));
             let _ = config.screenshot_dir();
             let example: Value = serde_saphyr::from_str(example).unwrap();
             check(&example, &schema, "");

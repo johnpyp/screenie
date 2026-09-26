@@ -45,6 +45,13 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 
 ## Fixed
 
+- `shot --edit` flashed the live screen between the selector and the editor: the
+  selector blanked itself on capture, and the editor came a moment later. The selector
+  now stays up until the editor has drawn over it, and the editor keeps the frozen
+  screen behind the capture.
+- The overlay editor's "Copied to clipboard" toast could land off the bottom of the
+  screen: the bars stayed below a capture near the bottom when only they fit there. The
+  room below now counts a toast's row too.
 - Cards and the recording pill took the keyboard while the pointer was on them, which
   split key presses: in a Proton game, a Tab held onto a card stayed down, and Shift
   then opened Steam's overlay. A card appearing under a game's parked cursor also took

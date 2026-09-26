@@ -844,7 +844,7 @@ impl PreviewStack {
             want_file: false,
             ..actions
         };
-        if let Err(e) = crate::editor::open(capture, path, actions, cx) {
+        if let Err(e) = crate::editor::open(capture, path, actions, Default::default(), cx) {
             tracing::warn!("{e:#}");
         }
     }

@@ -76,6 +76,11 @@ const SCREEN_MARGIN: f32 = 8.0;
 /// moves the capture or the main bar.
 const BAR_HEIGHT: f32 = 40.0;
 const BARS_HEIGHT: f32 = BAR_HEIGHT * 2.0 + BAR_GAP - 2.0;
+/// A toast's row, beyond the bars (a one-line HUD pill, and the gap before it).
+const TOAST_ROW: f32 = 24.0 + BAR_GAP - 2.0;
+/// Room the overlay keeps for the bars and a toast, so neither ends up off screen and
+/// a toast never moves the bars.
+const CHROME_HEIGHT: f32 = BARS_HEIGHT + TOAST_ROW;
 /// How much the overlay dims the screen around the capture: in place, and centred
 /// (darker, so a capture of the screen doesn't blend into the screen behind it).
 const OVERLAY_DIM: f32 = 0.5;
@@ -654,7 +659,7 @@ impl Editor {
         };
         let zoom = fit / doc.scale();
         let (w, h) = (w * fit, h * fit);
-        let bars = (BARS_HEIGHT + BAR_GAP) * self.k;
+        let bars = (CHROME_HEIGHT + BAR_GAP) * self.k;
         let top = if h + bars + SCREEN_MARGIN * self.k * 2.0 <= screen_h {
             (screen_h - h - bars) / 2.0
         } else {
@@ -1253,18 +1258,23 @@ impl Render for Editor {
         } else {
             self.window_bars(cx)
         };
+        let background = match (
+            self.overlay(),
+            self.placement(window.viewport_size()).is_some(),
+        ) {
+            (true, true) => color::scrim(OVERLAY_DIM),
+            (true, false) => color::scrim(CENTRED_DIM),
+            (false, _) => workspace(),
+        };
+        // The frozen screen, if there is one, goes under the dimming.
+        let root = match self.setup.backdrop.clone() {
+            Some(backdrop) => root
+                .child(gpui::img(backdrop).absolute().inset_0().size_full())
+                .child(div().absolute().inset_0().bg(background)),
+            None => root.bg(background),
+        };
         let root = root
             .relative()
-            .bg(
-                match (
-                    self.overlay(),
-                    self.placement(window.viewport_size()).is_some(),
-                ) {
-                    (true, true) => color::scrim(OVERLAY_DIM),
-                    (true, false) => color::scrim(CENTRED_DIM),
-                    (false, _) => workspace(),
-                },
-            )
             .font_family(screenie_ui_kit::FONT)
             .on_scroll_wheel(cx.listener(|e, event: &ScrollWheelEvent, _, cx| {
                 if event.modifiers.control && !e.confirm_close {
@@ -1338,7 +1348,7 @@ impl Editor {
         let (top, bottom) = (f32::from(shown.top()), f32::from(shown.bottom()));
         let measured = self.bar_width.get();
         let k = self.k;
-        let (need, gap, margin) = (BARS_HEIGHT * k, BAR_GAP * k, SCREEN_MARGIN * k);
+        let (need, gap, margin) = (CHROME_HEIGHT * k, BAR_GAP * k, SCREEN_MARGIN * k);
 
         #[derive(PartialEq)]
         enum Side {
