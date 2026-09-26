@@ -247,7 +247,9 @@ per-feature docs are in [`docs/features/`](docs/features), and known problems ar
 | `screenie-core` | Geometry, images, snapshots, frame sources |
 
 You don't need a display to develop. `tools/` has a headless sway session with two
-mixed-DPI outputs, a virtual pointer and keyboard, and an image diff:
+mixed-DPI outputs, a virtual pointer and keyboard, an image diff, and `keyleak.sh`,
+which checks that closing overlays with the keyboard doesn't leak keys into the app
+beneath:
 
 ```sh
 tools/session.sh start && source $XDG_RUNTIME_DIR/screenie-session.env
@@ -255,6 +257,7 @@ cargo run -p screenie -- shot
 cargo run -p wlinput -- drag 100 100 800 600 15
 tools/session.sh shot .cache/session.png
 python3 tools/imgdiff.py a.png b.png
+tools/keyleak.sh            # with a daemon running in the session
 ```
 
 Reference projects (Screendrop, gpui-component…) are

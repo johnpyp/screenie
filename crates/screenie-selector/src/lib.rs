@@ -20,6 +20,7 @@ use std::sync::Arc;
 use gpui::{AnyWindowHandle, AppContext, AsyncApp, px, size};
 use screenie_core::{OutputInfo, Snapshot, WindowInfo};
 use screenie_ui_kit::layer::{LayerSpec, fallback_options, layer_options, wait_for_displays};
+use screenie_ui_kit::KeyboardGrab;
 
 pub use model::{Mode, Purpose, Selection};
 use view::{OutputView, Session, frozen_parts};
@@ -104,8 +105,10 @@ pub async fn select(cx: &mut AsyncApp, backdrop: Backdrop, config: SelectorConfi
     }
     let (tx, rx) = async_channel::bounded(1);
     let active_output = config.focused_output.clone().or_else(|| outputs.first().map(|o| o.name.clone()));
+    let grab = cx.update(KeyboardGrab::new);
     let session = cx.new(|_| Session {
         model,
+        grab,
         magnifier: config.magnifier && snapshot.is_some(),
         record: config.record,
         active_output,

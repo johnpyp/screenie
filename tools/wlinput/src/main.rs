@@ -13,6 +13,7 @@
 //! wlinput hold NAME / release NAME hold or release one key (shift, ctrl, alt, super)
 //! wlinput scroll N                 N wheel clicks (negative: up)
 //! wlinput sleep MS
+//! wlinput wait                   print "waiting", then block until a line on stdin
 //! ```
 //! Several commands can be chained: `wlinput move 10 10 , sleep 100 , click 50 50`.
 //!
@@ -268,6 +269,14 @@ fn main() {
                 }
             }
             "sleep" => std::thread::sleep(Duration::from_millis(num(rest.first()) as u64)),
+            "wait" => {
+                // Everything so far has reached the compositor; say so, then block until
+                // a line arrives on stdin. Lets a script sync on real events, not sleeps.
+                let _ = queue.roundtrip(&mut State);
+                println!("waiting");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+                let _ = std::io::stdin().read_line(&mut String::new());
+            }
             other => panic!("unknown command {other}"),
         }
     }

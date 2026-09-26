@@ -9,13 +9,13 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, BorderStyle, Bounds, BoxShadow, Context, CursorStyle, DispatchPhase, FocusHandle, FontWeight,
+    AnyElement, App, BorderStyle, Bounds, BoxShadow, Context, CursorStyle, DispatchPhase, Entity, FocusHandle, FontWeight,
     Hitbox, HitboxBehavior, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
     ScrollDelta, ScrollWheelEvent, SharedString, Size, Window, canvas, div, fill, point, px, quad, rgba, size,
 };
 use screenie_annotate::{Color, Handle, Kind, Redaction, Shape, Style};
 use screenie_core::{Image, Point, Rect};
-use screenie_ui_kit::Icon;
+use screenie_ui_kit::{Icon, KeyboardGrab};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
 
 use crate::raster::Raster;
@@ -110,6 +110,8 @@ pub struct Editor {
     /// Asking whether to save before closing.
     confirm_close: bool,
     closed: bool,
+    /// The window goes only once the keys that closed it are let go (see `KeyboardGrab`).
+    grab: Entity<KeyboardGrab>,
 }
 
 impl Editor {
@@ -122,6 +124,8 @@ impl Editor {
     ) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        let grab = KeyboardGrab::new(cx);
+        cx.observe(&grab, |_, _, cx| cx.notify()).detach();
         let this = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| this.update(cx, |e, cx| e.should_close(cx)).unwrap_or(true));
         if setup.mode == Mode::Overlay
@@ -142,6 +146,7 @@ impl Editor {
             toast: None,
             confirm_close: false,
             closed: false,
+            grab,
         }
     }
 
@@ -219,7 +224,7 @@ impl Editor {
             // answered, then come back just as things were.
             let (session, path, setup) = (self.session.clone(), self.path.clone(), self.setup.clone());
             self.closed = true;
-            window.remove_window();
+            self.remove(window, cx);
             cx.default_global::<Overlays>().parked += 1;
             let app: &mut App = cx;
             app.spawn(async move |cx| {
@@ -305,7 +310,16 @@ impl Editor {
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.finish(cx);
-        window.remove_window();
+        self.remove(window, cx);
+    }
+
+    /// Take the window away once no keys are held, so they don't leak into the app
+    /// beneath. An overlay vanishes straight away all the same.
+    fn remove(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let handle = window.window_handle();
+        self.grab.update(cx, |grab, cx| {
+            grab.when_released(move |cx| handle.update(cx, |_, window, _| window.remove_window()).unwrap_or(()), cx);
+        });
     }
 
     fn finish(&mut self, cx: &mut Context<Self>) {
@@ -868,10 +882,15 @@ impl Render for Editor {
         .absolute()
         .inset_0();
 
+        let root = KeyboardGrab::track(
+            &self.grab,
+            div().id("editor").size_full().track_focus(&self.focus).on_key_down(cx.listener(Self::on_key_down)),
+        );
+        if self.grab.read(cx).leaving() && self.overlay() {
+            return root;
+        }
         let bars = if self.overlay() { self.overlay_bars(window, cx) } else { self.window_bars(cx) };
-        div()
-            .id("editor")
-            .size_full()
+        root
             .relative()
             .bg(match (self.overlay(), self.placement(window.viewport_size()).is_some()) {
                 (true, true) => color::scrim(OVERLAY_DIM),
@@ -879,8 +898,6 @@ impl Render for Editor {
                 (false, _) => workspace(),
             })
             .font_family(screenie_ui_kit::FONT)
-            .track_focus(&self.focus)
-            .on_key_down(cx.listener(Self::on_key_down))
             .on_scroll_wheel(cx.listener(|e, event: &ScrollWheelEvent, _, cx| {
                 if event.modifiers.control {
                     e.scroll_size(event.delta, cx);

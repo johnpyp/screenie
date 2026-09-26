@@ -11,7 +11,7 @@ use gpui::{
 };
 use screenie_core::{Image, OutputInfo, Point, Rect, Snapshot};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
-use screenie_ui_kit::Icon;
+use screenie_ui_kit::{Icon, KeyboardGrab};
 
 use crate::model::{Handle, Key, Mode, Model, Modifiers, Outcome, Purpose, Selection};
 use crate::{Choice, RecordOptions, SelectorConfig};
@@ -25,6 +25,9 @@ pub(crate) struct Session {
     pub active_output: Option<String>,
     pub snapshot: Option<Arc<Snapshot>>,
     pub done: Option<async_channel::Sender<Option<Choice>>>,
+    /// The choice goes out only once the keys that made it are let go, so they don't leak
+    /// into the app beneath when the selector closes (see `KeyboardGrab`).
+    pub grab: Entity<KeyboardGrab>,
 }
 
 impl Session {
@@ -32,16 +35,25 @@ impl Session {
         match outcome {
             Outcome::Nothing => {}
             Outcome::Redraw => cx.notify(),
-            Outcome::Confirm(selection) => self.finish(Some(selection)),
-            Outcome::Cancel => self.finish(None),
+            Outcome::Confirm(selection) => self.finish(Some(selection), cx),
+            Outcome::Cancel => self.finish(None, cx),
         }
     }
 
-    pub fn finish(&mut self, selection: Option<Selection>) {
-        if let Some(done) = self.done.take() {
-            let choice = selection.map(|selection| Choice { selection, record: self.record });
-            let _ = done.try_send(choice);
-        }
+    /// End with `selection` (none: cancelled), once no keys are held. The selector
+    /// looks gone straight away.
+    pub fn finish(&mut self, selection: Option<Selection>, cx: &mut Context<Self>) {
+        let Some(done) = self.done.take() else { return };
+        let choice = selection.map(|selection| Choice { selection, record: self.record });
+        self.grab.update(cx, |grab, cx| {
+            grab.when_released(
+                move |_| {
+                    let _ = done.try_send(choice);
+                },
+                cx,
+            );
+        });
+        cx.notify();
     }
 
     /// Physical size of a logical rect as it would be captured.
@@ -59,12 +71,12 @@ impl Session {
         ((r.width * scale).round() as u32, (r.height * scale).round() as u32)
     }
 
-    fn confirm_on(&mut self, output: &str) {
+    fn confirm_on(&mut self, output: &str, cx: &mut Context<Self>) {
         let selection = self.model.editing().cloned().or_else(|| {
             self.model.outputs().iter().find(|o| o.name == output).cloned().map(Selection::Output)
         });
         if selection.is_some() {
-            self.finish(selection);
+            self.finish(selection, cx);
         }
     }
 }
@@ -573,13 +585,13 @@ impl OutputView {
                 Purpose::Recording => HudButton::new("confirm").icon(Icon::Video).label("Record").style(ButtonStyle::Record),
             };
             bar = bar.child(div().ml_1().child(action.on_click(move |_, _, cx| {
-                session.update(cx, |s, _| s.confirm_on(&name));
+                session.update(cx, |s, cx| s.confirm_on(&name, cx));
             })));
         }
 
         let session = self.session.clone();
         bar = bar.child(HudButton::new("cancel").icon(Icon::Close).tooltip("Cancel  Esc").on_click(move |_, _, cx| {
-            session.update(cx, |s, _| s.finish(None));
+            session.update(cx, |s, cx| s.finish(None, cx));
         }));
 
         // Keep clear of a selection near the bottom edge.
@@ -595,6 +607,22 @@ impl OutputView {
 impl Render for OutputView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         tracing::trace!(output = self.output.name, "render");
+        let grab = self.session.read(cx).grab.clone();
+        let root = KeyboardGrab::track(
+            &grab,
+            div()
+                .id("selector")
+                .size_full()
+                .relative()
+                .font_family(screenie_ui_kit::FONT)
+                .track_focus(&self.focus)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .on_key_up(cx.listener(Self::on_key_up))
+                .on_modifiers_changed(cx.listener(Self::on_modifiers)),
+        );
+        if grab.read(cx).leaving() {
+            return root;
+        }
         let scene = self.scene(cx);
         let s = self.session.read(cx);
         let annotations = self.annotations(s);
@@ -602,16 +630,7 @@ impl Render for OutputView {
         let show_toolbar = s.config.toolbar && !busy && s.active_output.as_deref() == Some(self.output.name.as_str());
         let toolbar = show_toolbar.then(|| self.toolbar(s));
 
-        div()
-            .id("selector")
-            .size_full()
-            .relative()
-            .font_family(screenie_ui_kit::FONT)
-            .track_focus(&self.focus)
-            .on_key_down(cx.listener(Self::on_key_down))
-            .on_key_up(cx.listener(Self::on_key_up))
-            .on_modifiers_changed(cx.listener(Self::on_modifiers))
-            .child(scene)
+        root.child(scene)
             .children(annotations)
             .children(toolbar)
     }
