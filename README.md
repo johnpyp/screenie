@@ -1,21 +1,16 @@
-# screenie
+<p align="center">
+  <img src="docs/media/hero.webp" alt="screenie: screenshots and screen recordings for Wayland. The annotation editor over a capture of code, marked up with a box, an arrow, a note and numbered steps; below it, a window picked in the selector, a recording's timer pill and ring, and a preview card's actions">
+</p>
 
 Screenshots and screen recordings for Wayland, meant to feel like CleanShot X rather
 than a pile of scripts. Press a key and the desktop freezes under a pixel-exact overlay.
-Drag, click a window, or press Enter, and the capture is copied, saved and shown in a
-little preview card. Recording uses the same selector, one button, and a tiny timer pill.
+Drag, click a window, or press Enter, and the capture lands in a little preview card,
+ready to copy, save or annotate. Recording uses the same selector, one button, and a
+tiny timer pill.
 
 Everything is built in: selector, capture, clipboard, encoder and UI. You don't pipe
 `slurp` into `grim` into `wl-copy`. screenie is written in Rust with a GPU-rendered
 [GPUI](https://www.gpui.rs/) interface.
-
-<p align="center">
-  <img src="docs/media/hero.webp" alt="screenie on a sway desktop: the annotation editor over a capture of code, marked up with a box, an arrow, a note and numbered steps; below it, a window picked in the selector, a recording's timer pill and ring, and a preview card's actions">
-</p>
-
-<!-- The tour: tools/demo renders .cache/demo/screenie-demo-web.mp4. GitHub plays only an
-uploaded video, so drag it into this file in GitHub's editor and keep the URL it inserts,
-on its own line, here. -->
 
 | | |
 | :-: | :-: |
