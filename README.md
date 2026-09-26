@@ -13,14 +13,25 @@ screenie record   # record one
 
 ## Features
 
-- Screenshots of an area, a window or a whole screen
-- Screen recording with system audio and microphone
-- Hardware video encoding with VA-API and NVENC
-- Preview cards to copy, save or annotate each capture
-- Annotation editor with arrows, shapes, text, numbered steps, pixelate, blur, spotlight and crop
-- Pixel-exact captures on fractional and mixed scaling
+- Screenshots
+  - Area selection, with a magnifier
+  - Window picking
+  - Full screen, or every screen at once
+  - Pixel-exact on fractional and mixed scaling
+- Screen recording
+  - Area, window or full screen
+  - System audio & microphone
+  - Hardware encoding on AMD, Intel and NVIDIA GPUs
+  - Pause and resume
+- Annotation editor
+  - Arrows, lines, rectangles and ellipses
+  - Pen and highlighter
+  - Text and numbered steps
+  - Pixelate, blur and spotlight
+  - Crop
+- Preview cards to copy, save or annotate captures
 - Status bar integration with waybar and swaybar
-- Support for Sway, Hyprland, niri, river, Wayfire and COSMIC
+- Works on Sway, Hyprland, niri, river, Wayfire and COSMIC
 
 | | |
 | :-: | :-: |
