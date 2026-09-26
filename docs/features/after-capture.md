@@ -79,6 +79,8 @@ wasn't saved). Hovering shows only what's left to do:
 - **Pencil** (E): annotate in the editor (screenshots).
 - **×** (Esc): dismiss.
 - **Trash** (Delete): delete the file and dismiss. Only shown when there is a file.
+
+Each key acts once per press: holding it doesn't repeat on the next card.
 - Along the top, between × and the pencil, the pixel size and file size.
 
 The hover layout is in rows (corner buttons and caption, the main buttons, then Delete),

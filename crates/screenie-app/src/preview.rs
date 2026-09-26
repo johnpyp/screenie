@@ -724,6 +724,11 @@ impl PreviewStack {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        // Every card action is once per press. A held Delete would otherwise go on to the
+        // card that slides up under the pointer, and delete its file too.
+        if event.is_held {
+            return;
+        }
         let Some(action) = CardAction::for_key(&event.keystroke) else {
             return;
         };
