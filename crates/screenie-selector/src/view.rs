@@ -32,7 +32,7 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    fn apply(&mut self, outcome: Outcome, cx: &mut Context<Self>) {
+    pub fn apply(&mut self, outcome: Outcome, cx: &mut Context<Self>) {
         match outcome {
             Outcome::Nothing => {}
             Outcome::Redraw => cx.notify(),
@@ -886,7 +886,7 @@ impl OutputView {
 }
 
 impl Render for OutputView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         tracing::trace!(output = self.output.name, "render");
         let grab = self.session.read(cx).grab.clone();
         let root = KeyboardGrab::track(
@@ -917,7 +917,8 @@ impl Render for OutputView {
         let annotations = self.annotations(s, k);
         let toolbar = show_toolbar.then(|| self.toolbar(s, k, this));
 
-        root.child(scene).children(annotations).children(toolbar)
+        let root = root.child(scene).children(annotations).children(toolbar);
+        screenie_ui_kit::conceal::root(root, window, cx)
     }
 }
 

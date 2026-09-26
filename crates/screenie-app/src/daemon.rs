@@ -19,6 +19,8 @@ pub(crate) struct Daemon {
     pub last_region: Option<Rect>,
     /// A selector (or other capture UI) is on screen.
     pub capturing: bool,
+    /// The screenshot selector on screen, to hand a second request to.
+    pub selector: Option<crate::screenshot::Selecting>,
     pub recording: Option<crate::recording::Active>,
     /// A stopped recording is being finalized.
     pub saving: bool,
@@ -43,6 +45,7 @@ impl Daemon {
             capture,
             last_region: None,
             capturing: false,
+            selector: None,
             recording: None,
             saving: false,
             editors: 0,

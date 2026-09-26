@@ -34,6 +34,22 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 
 ## Fixed
 
+- Screenie showed up in its own screenshots: the last shot's card, the recording ring
+  and pill, an overlay editor, a selector. They're concealed while the screen is
+  frozen, and cards on a recorded screen while it's recorded.
+- A second capture shortcut while the selector was up failed (`shot area` twice), or
+  photographed the selector (`shot screen`). It now closes the selector, switches its
+  mode, or captures what it froze.
+- `query status --watch` stuck on "selecting" after every interactive shot: status
+  changes nobody broadcast. Every daemon state change is broadcast now.
+- `capturing`/"selecting" lasted through the PNG encode, and the 4K encode (up to
+  0.6 s) delayed the card and the clipboard. It ends when the selector closes, and PNGs
+  are encoded with fast compression.
+- `shot screen` captured the first output on compositors without IPC (COSMIC, river,
+  Wayfire, labwc). The focused output now comes from a layer-shell probe there.
+- File names carried the time of saving, not of capture. Parallel captures in the same
+  second could overwrite each other. `-o DIR` failed and left a `.part` file behind.
+- niri: a column scrolled partly off its monitor reached onto the next one.
 - Clicking the selector's Window button captured immediately: the release reached the
   canvas as a click. Releases now only count after a press on the canvas.
 - Clearer selector hint ("…or press Enter to capture the whole screen").

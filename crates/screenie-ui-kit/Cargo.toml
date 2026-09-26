@@ -10,6 +10,8 @@ screenie-core.workspace = true
 gpui.workspace = true
 gpui-kit.workspace = true
 anyhow.workspace = true
+async-channel.workspace = true
+futures-lite.workspace = true
 tracing.workspace = true
 rust-embed = { version = "8", features = ["debug-embed"] }
 image = { version = "0.25", default-features = false }

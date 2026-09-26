@@ -82,6 +82,9 @@ gives the keyboard back once no key is held, so nothing pressed on the card is r
 into the app. Cards that appear under a resting pointer aren't entered until it moves,
 so typing elsewhere carries on.
 
+Cards are never in a capture: they're hidden for the moment a screenshot is taken, and
+while their screen is recorded (see [recording](recording.md)).
+
 All cards share one transparent layer surface over the output's free area. It has no
 fixed size, so the compositor fits it between bars. Only the cards take input; the rest
 is click-through. The recording pill works the same way (see `screenie_ui_kit::Hover`).

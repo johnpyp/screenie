@@ -18,6 +18,18 @@ Status: **done** for screenshots on wlroots-family compositors. Portal backend: 
 `--delay N` waits first. `--cursor` includes the pointer. Exit codes are 0 for
 captured, 1 for cancelled, and 2 for errors.
 
+Pressing a shortcut again while its selector is up does what you'd expect rather than
+failing:
+
+- The same one (`shot` again) closes the selector, like `record` stops a recording.
+- Another selection mode (`shot window` over an area selector) switches it to that
+  mode.
+- A capture without a selector (`shot screen`, `shot all`, `shot last`, `--region`) is
+  taken from the frozen desktop the selector shows, and the selector closes.
+
+A screenshot while a recording's selector is up is taken of the live screen, with the
+selector hidden for it (see below).
+
 ## Freezing
 
 `screenie-capture` takes a `Snapshot`: one image per output, captured concurrently, plus
@@ -25,6 +37,13 @@ the window list from compositor IPC. It is taken **before** any UI appears. The 
 then paints the frozen pixels, so the result is exactly what was on screen when the key
 was pressed. Menus, tooltips and fullscreen apps are left undisturbed, because the
 overlay is a layer surface and not a window.
+
+**Screenie is never in its own screenshots.** Capture copies every surface on an output,
+screenie's too: the card from the last shot, the recording ring and pill, an overlay
+editor, a recording's selector. Just before freezing, those that are on screen are made
+fully transparent (and take no input), and the capture waits until the compositor has
+shown the frame without them: one or two frames, and nothing at all when none is up.
+They stay mapped, so nothing animates away and back (`screenie_ui_kit::conceal`).
 
 Backends (`advanced.capture_backend`):
 

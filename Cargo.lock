@@ -6526,6 +6526,8 @@ name = "screenie-ui-kit"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel",
+ "futures-lite",
  "gpui-kit",
  "gpui-pre",
  "image",

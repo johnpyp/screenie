@@ -170,9 +170,14 @@ pub(crate) fn open_session(
         .map(|o| size(px(o.logical.width as f32), px(o.logical.height as f32)));
     let build = {
         let setup = setup.clone();
-        move |session: Session, path| {
+        // An overlay is kept out of captures taken while it's open, as its `spec`.
+        move |session: Session, path, overlay: Option<&LayerSpec>| {
             let setup = setup.clone();
+            let overlay = overlay.cloned();
             move |window: &mut gpui::Window, cx: &mut App| {
+                if let Some(spec) = &overlay {
+                    screenie_ui_kit::conceal::track(window, spec, cx);
+                }
                 cx.new(|cx| Editor::new(session, path, setup, window, cx))
             }
         }
@@ -192,14 +197,17 @@ pub(crate) fn open_session(
             };
             match cx.open_window(
                 layer_options(cx, &spec),
-                build(session.clone(), path.clone()),
+                build(session.clone(), path.clone(), Some(&spec)),
             ) {
                 Ok(handle) => handle,
                 Err(e) => {
                     tracing::debug!(
                         "layer-shell editor failed ({e}); falling back to a fullscreen window"
                     );
-                    cx.open_window(fallback_options(cx, &spec), build(session, path))?
+                    cx.open_window(
+                        fallback_options(cx, &spec),
+                        build(session, path, Some(&spec)),
+                    )?
                 }
             }
         }
@@ -225,7 +233,7 @@ pub(crate) fn open_session(
                 show: true,
                 ..Default::default()
             };
-            cx.open_window(options, build(session, path))?
+            cx.open_window(options, build(session, path, None))?
         }
     };
     handle.update(cx, |_, window, _| window.activate_window())?;

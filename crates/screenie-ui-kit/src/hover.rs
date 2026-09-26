@@ -183,6 +183,10 @@ impl<K: Clone + PartialEq + 'static> Hover<K> {
     /// pointer, and re-check the hover for areas that moved under it.
     fn painted(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.areas = std::mem::take(&mut self.painting);
+        // A concealed surface is invisible, so it takes no input either.
+        if crate::conceal::hidden(window, cx) {
+            self.areas.clear();
+        }
         if self.shown {
             self.apply_region(window);
         } else {

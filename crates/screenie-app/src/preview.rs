@@ -39,6 +39,8 @@ const CARD_MIN: (f32, f32) = (204.0, 116.0);
 const EDGE_MARGIN: f32 = 18.0;
 const GAP: f32 = 12.0;
 const MAX_CARDS: usize = 5;
+/// The stack's layer namespace, which also names it for [`conceal`](screenie_ui_kit::conceal).
+pub(crate) const NAMESPACE: &str = "screenie-preview";
 
 /// What can be done with a card: from its buttons, or from its keys while the pointer is
 /// on it.
@@ -174,6 +176,8 @@ pub(crate) struct PreviewItem {
     copied: Option<u64>,
     deadline: Option<Instant>,
     hovered: bool,
+    /// It's been on screen (rather than concealed from the moment it came).
+    seen: bool,
 }
 
 impl PreviewItem {
@@ -287,6 +291,7 @@ impl PreviewItem {
             copied,
             deadline: None,
             hovered: false,
+            seen: false,
         }
     }
 
@@ -362,13 +367,14 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
     let spec = LayerSpec {
         output: output.clone(),
         ..LayerSpec::floating(
-            "screenie-preview",
+            NAMESPACE,
             Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
             size(px(0.), px(0.)),
         )
     };
     let position = placement.position;
     let opened = cx.open_window(layer_options(cx, &spec), |window, cx| {
+        screenie_ui_kit::conceal::track(window, &spec, cx);
         let stack = cx.new(|cx| PreviewStack::new(position, output, window, cx));
         stack.update(cx, |s, cx| {
             s.push(item, cx);
@@ -408,6 +414,8 @@ pub(crate) struct PreviewStack {
     items: Vec<PreviewItem>,
     /// Input: each card is an area, keyed by its id.
     hover: Entity<Hover<u64>>,
+    /// When the cards' time was last counted.
+    ticked: Instant,
 }
 
 impl PreviewStack {
@@ -431,7 +439,7 @@ impl PreviewStack {
                     .timer(Duration::from_millis(200))
                     .await;
                 let alive = this.update_in(cx, |stack, window, cx| {
-                    stack.expire(cx);
+                    stack.expire(window, cx);
                     // Not while it has the keyboard: a held key would go to the app beneath.
                     if stack.items.is_empty() && !stack.hover.read(cx).has_keyboard() {
                         window.remove_window();
@@ -452,6 +460,7 @@ impl PreviewStack {
             output,
             items: Vec::new(),
             hover,
+            ticked: Instant::now(),
         }
     }
 
@@ -471,8 +480,21 @@ impl PreviewStack {
         cx.notify();
     }
 
-    fn expire(&mut self, cx: &mut Context<Self>) {
+    fn expire(&mut self, window: &Window, cx: &mut Context<Self>) {
         let now = Instant::now();
+        // While their screen is recorded, cards are concealed. One that came meanwhile (a
+        // screenshot) waits to be seen; one already seen runs out as usual, so a hidden
+        // surface doesn't stay over a fullscreen game for the whole recording.
+        if screenie_ui_kit::conceal::hidden(window, cx) {
+            let hidden_for = now - self.ticked;
+            let waiting = self.items.iter_mut().filter(|i| !i.seen);
+            for deadline in waiting.filter_map(|i| i.deadline.as_mut()) {
+                *deadline += hidden_for;
+            }
+        } else {
+            self.items.iter_mut().for_each(|i| i.seen = true);
+        }
+        self.ticked = now;
         let before = self.items.len();
         self.items
             .retain(|i| i.hovered || i.is_saving() || i.deadline.is_none_or(|d| d > now));
@@ -915,7 +937,7 @@ fn format_bytes(n: u64) -> String {
 }
 
 impl Render for PreviewStack {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The newest card sits nearest the edge (at the bottom, for the side middles).
         let vertical = self.position.vertical();
         let mut cards: Vec<_> = self
@@ -944,6 +966,7 @@ impl Render for PreviewStack {
             Align::End => stack.items_end(),
         };
         let stack = stack.gap(ui(GAP)).p(ui(EDGE_MARGIN)).children(cards);
+        let stack = screenie_ui_kit::conceal::root(stack, window, cx);
         Hover::root(&self.hover, stack, cx)
     }
 }

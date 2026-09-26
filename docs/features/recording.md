@@ -48,6 +48,10 @@ recording, for status bars (see the README for the formats).
    screenshot one (default: no copy, preview on).
 
 Nothing screenie draws ever lands inside the region, so it never appears in the video.
+Preview cards on the recorded screen are hidden once capture starts (a window recorded
+by itself can't show them). Cards already seen run out as usual; one that comes while
+recording (a screenshot) waits, hidden, until the recording stops. Cards on other
+screens show as usual.
 The chrome redraws only when the timer's second changes, because every redraw is damage
 the encoder would otherwise see.
 

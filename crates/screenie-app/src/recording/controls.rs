@@ -173,6 +173,7 @@ pub(crate) fn open(
     .passive();
     cx.update(|cx| {
         cx.open_window(layer_options(cx, &spec), |window, cx| {
+            screenie_ui_kit::conceal::track(window, &spec, cx);
             screenie_ui_kit::track_ui_scale(window, cx);
             let hover = Hover::new(window, cx);
             cx.new(|cx| {
@@ -403,7 +404,7 @@ impl Controls {
 }
 
 impl Render for Controls {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let k = f64::from(screenie_ui_kit::ui_scale(cx));
         let Layout {
             region,
@@ -422,6 +423,7 @@ impl Render for Controls {
             .when(border, |el| el.child(self.border(region)))
             .when_some(counting, |el, n| el.child(self.countdown(n, region, k)))
             .when_some(pill, |el, at| el.child(self.pill(at, cx)));
+        let root = screenie_ui_kit::conceal::root(root, window, cx);
         Hover::root(&self.hover, root, cx)
     }
 }

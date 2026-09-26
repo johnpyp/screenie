@@ -10,6 +10,9 @@
 //! * **1 / 2 / 3**, **Tab**, or **Space** (while idle) switch between area, window and
 //!   screen modes; **M** toggles the magnifier; arrows nudge an edited selection.
 //!
+//! While it's open, a [`Remote`] steers it from outside: the capture shortcut pressed
+//! again cancels it or switches its mode.
+//!
 //! The interaction logic lives in [`model`] and is UI-toolkit-free.
 
 pub mod model;
@@ -84,11 +87,53 @@ pub struct Choice {
     pub record: RecordOptions,
 }
 
+/// Steers an open selector from outside, e.g. when the capture shortcut is pressed
+/// again while it's up. Does nothing once it's closed.
+#[derive(Clone)]
+pub struct Remote(async_channel::Sender<Command>);
+
+/// What a [`Remote`] sends, for [`select_steered`] to follow.
+pub struct Steering(async_channel::Receiver<Command>);
+
+enum Command {
+    Cancel,
+    Mode(Mode),
+}
+
+impl Remote {
+    /// A remote, and the steering to open a selector with.
+    pub fn new() -> (Remote, Steering) {
+        let (tx, rx) = async_channel::unbounded();
+        (Remote(tx), Steering(rx))
+    }
+
+    /// Close the selector as if the user cancelled.
+    pub fn cancel(&self) {
+        let _ = self.0.try_send(Command::Cancel);
+    }
+
+    /// Switch to `mode`, as its key would.
+    pub fn set_mode(&self, mode: Mode) {
+        let _ = self.0.try_send(Command::Mode(mode));
+    }
+}
+
 /// Show the selector and wait for the user. `None` if they cancelled.
 pub async fn select(
     cx: &mut AsyncApp,
     backdrop: Backdrop,
     config: SelectorConfig,
+) -> Option<Choice> {
+    let (_, steering) = Remote::new();
+    select_steered(cx, backdrop, config, steering).await
+}
+
+/// [`select`], following the [`Remote`] that `steering` came with.
+pub async fn select_steered(
+    cx: &mut AsyncApp,
+    backdrop: Backdrop,
+    config: SelectorConfig,
+    steering: Steering,
 ) -> Option<Choice> {
     let (outputs, windows, snapshot) = match backdrop {
         Backdrop::Frozen(snapshot) => {
@@ -147,7 +192,11 @@ pub async fn select(
         let session = session.clone();
         let opened = cx.update(|cx| {
             let build = |output: OutputInfo, frozen, session| {
+                // Kept out of captures taken while it's open (a screenshot while a
+                // recording's area is picked).
+                let spec = spec.clone();
                 move |window: &mut gpui::Window, cx: &mut gpui::App| {
+                    screenie_ui_kit::conceal::track(window, &spec, cx);
                     cx.new(|cx| OutputView::new(session, output, frozen, window, cx))
                 }
             };
@@ -177,7 +226,22 @@ pub async fn select(
         return None;
     }
 
+    let steer = cx.spawn({
+        let session = session.clone();
+        async move |cx| {
+            while let Ok(command) = steering.0.recv().await {
+                session.update(cx, |s, cx| match command {
+                    Command::Cancel => s.finish(None, cx),
+                    Command::Mode(mode) => {
+                        let outcome = s.model.set_mode(mode);
+                        s.apply(outcome, cx);
+                    }
+                });
+            }
+        }
+    });
     let choice = rx.recv().await.ok().flatten();
+    drop(steer);
     for handle in handles {
         let _ = handle.update(cx, |_, window, _| window.remove_window());
     }

@@ -1,6 +1,16 @@
 //! The screenshot flow: freeze, pick, render, deliver.
+//!
+//! The screen is frozen with screenie's own surfaces concealed (see
+//! `screenie_ui_kit::conceal`), so a card from the last shot, the recording chrome, an
+//! overlay editor or a selector never ends up in the image.
+//!
+//! A screenshot requested while a screenshot selector is up goes to it: the same
+//! shortcut again closes it (like `record` stops a recording), another selection mode
+//! switches it to that mode, and a capture without a selector (`shot screen`) is taken
+//! from the moment the selector froze, which then closes.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context as _, anyhow, bail};
 use gpui::AsyncApp;
@@ -8,25 +18,29 @@ use screenie_capture::{CaptureContext, SnapshotOptions};
 use screenie_config::Subject;
 use screenie_core::{Rect, Snapshot, WindowInfo};
 use screenie_ipc::{Response, ScreenshotRequest, SelectMode, Target};
-use screenie_selector::{Backdrop, Mode, Purpose, Selection, SelectorConfig};
+use screenie_selector::{Backdrop, Mode, Purpose, Remote, Selection, SelectorConfig};
+use screenie_ui_kit::conceal::{self, Scope};
 
 use crate::daemon::Daemon;
 use crate::deliver::{self, Actions, Capture};
 
+/// A screenshot selector on screen.
+pub(crate) struct Selecting {
+    id: u64,
+    /// The mode it was last asked for.
+    mode: SelectMode,
+    remote: Remote,
+    /// The desktop it froze.
+    snapshot: Arc<Snapshot>,
+}
+
 pub(crate) async fn take(req: ScreenshotRequest, cx: &mut AsyncApp) -> Response {
-    let interactive = matches!(req.target, Target::Select { .. });
-    if interactive {
-        let busy =
-            cx.update(|cx| Daemon::update(cx, |d, _| std::mem::replace(&mut d.capturing, true)));
-        if busy {
-            return Response::error("a capture is already in progress");
-        }
+    if let Target::Select { mode } = req.target
+        && let Some(response) = cx.update(|cx| Daemon::update(cx, |d, _| steer(d, mode)))
+    {
+        return response;
     }
-    let result = run(req, cx).await;
-    if interactive {
-        cx.update(|cx| Daemon::update(cx, |d, _| d.capturing = false));
-    }
-    match result {
+    match run(req, cx).await {
         Ok(Some(delivered)) => Response::Captured {
             path: delivered.path,
             temporary: delivered.temporary,
@@ -36,6 +50,20 @@ pub(crate) async fn take(req: ScreenshotRequest, cx: &mut AsyncApp) -> Response 
             tracing::error!("screenshot failed: {e:#}");
             Response::error(format!("{e:#}"))
         }
+    }
+}
+
+/// A selection shortcut pressed while a screenshot selector is up: the same one closes it,
+/// another switches it to its mode. `None` if there's no selector.
+fn steer(d: &mut Daemon, mode: SelectMode) -> Option<Response> {
+    let open = d.selector.as_mut()?;
+    if open.mode == mode {
+        open.remote.cancel();
+        Some(Response::Cancelled)
+    } else {
+        open.mode = mode;
+        open.remote.set_mode(selector_mode(mode));
+        Some(Response::Ok)
     }
 }
 
@@ -68,23 +96,60 @@ async fn run(
     }
 
     let interactive = matches!(req.target, Target::Select { .. });
+    if interactive {
+        // From here until the selector closes (not through the delay before, nor the
+        // delivery after).
+        let busy =
+            cx.update(|cx| Daemon::update(cx, |d, _| std::mem::replace(&mut d.capturing, true)));
+        if busy {
+            bail!("a capture is already in progress");
+        }
+    }
     let options = SnapshotOptions {
         cursor: req.cursor.unwrap_or(config.screenshot.show_cursor),
         backend: config.advanced.capture_backend,
         windows: interactive || req.target == Target::ActiveWindow,
     };
-    let snapshot_capture = capture.clone();
-    let snapshot = cx
-        .background_executor()
-        .spawn(async move { snapshot_capture.snapshot(options) })
-        .await
-        .context("capturing the screen")?;
-    let snapshot = Arc::new(snapshot);
+    // What a selector on screen froze is what the user sees: take it from there.
+    let frozen = (!interactive)
+        .then(|| {
+            cx.update(|cx| {
+                Daemon::update(cx, |d, _| {
+                    let open = d.selector.take()?;
+                    open.remote.cancel();
+                    Some(open.snapshot)
+                })
+            })
+        })
+        .flatten();
+    let snapshot = match frozen {
+        Some(snapshot) => snapshot,
+        None => match freeze(&capture, options, cx).await {
+            Ok(snapshot) => Arc::new(snapshot),
+            Err(e) => {
+                if interactive {
+                    cx.update(|cx| Daemon::update(cx, |d, _| d.capturing = false));
+                }
+                return Err(e);
+            }
+        },
+    };
 
     // The window being captured, if any, names the file.
     let mut window: Option<WindowInfo> = None;
     let region: Rect = match &req.target {
         Target::Select { mode } => {
+            // Steerable from the moment it's decided on.
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let id = NEXT.fetch_add(1, Ordering::Relaxed);
+            let (remote, steering) = Remote::new();
+            let open = Selecting {
+                id,
+                mode: *mode,
+                remote,
+                snapshot: snapshot.clone(),
+            };
+            cx.update(|cx| Daemon::update(cx, |d, _| d.selector = Some(open)));
             let focused = focused_output(&capture, cx).await;
             let selector = SelectorConfig {
                 purpose: Purpose::Screenshot,
@@ -98,9 +163,17 @@ async fn run(
                 focused_output: focused,
                 record: Default::default(),
             };
-            let Some(choice) =
-                screenie_selector::select(cx, Backdrop::Frozen(snapshot.clone()), selector).await
-            else {
+            let backdrop = Backdrop::Frozen(snapshot.clone());
+            let choice = screenie_selector::select_steered(cx, backdrop, selector, steering).await;
+            cx.update(|cx| {
+                Daemon::update(cx, |d, _| {
+                    d.capturing = false;
+                    if d.selector.as_ref().is_some_and(|s| s.id == id) {
+                        d.selector = None;
+                    }
+                })
+            });
+            let Some(choice) = choice else {
                 return Ok(None);
             };
             match choice.selection {
@@ -198,6 +271,23 @@ async fn run(
     deliver::screenshot(capture, actions, config, cx)
         .await
         .map(Some)
+}
+
+/// Capture every output, with screenie's own surfaces out of the way.
+async fn freeze(
+    capture: &Arc<CaptureContext>,
+    options: SnapshotOptions,
+    cx: &mut AsyncApp,
+) -> anyhow::Result<Snapshot> {
+    let concealed = conceal::conceal(Scope::everything(), cx).await;
+    let capture = capture.clone();
+    let snapshot = cx
+        .background_executor()
+        .spawn(async move { capture.snapshot(options) })
+        .await
+        .context("capturing the screen");
+    drop(concealed);
+    snapshot
 }
 
 /// The output the user is on (see [`CaptureContext::focused_output`]).

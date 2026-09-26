@@ -1,8 +1,9 @@
 //! Shared GPUI building blocks for screenie's surfaces: bundled assets (icons, Inter),
 //! the HUD look and its tooltips, layer-shell window options, overlay input (hover and
-//! the keyboard), and image conversion.
+//! the keyboard), keeping surfaces out of captures, and image conversion.
 
 pub mod assets;
+pub mod conceal;
 mod hover;
 pub mod hud;
 mod image;

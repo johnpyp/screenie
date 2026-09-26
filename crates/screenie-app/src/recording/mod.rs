@@ -17,6 +17,7 @@ use screenie_core::{OutputInfo, Rect};
 use screenie_ipc::{RecordRequest, RecordingStatus, Response, Target};
 use screenie_record::{AudioSources, RecordSpec, Recording};
 use screenie_selector::{Backdrop, Purpose, RecordOptions, Selection, SelectorConfig};
+use screenie_ui_kit::conceal::{self, Concealed, Scope};
 
 use crate::daemon::Daemon;
 use crate::deliver::{self, Actions};
@@ -32,6 +33,8 @@ pub(crate) struct Active {
     cancelled: Arc<AtomicBool>,
     controls: Option<WindowHandle<Controls>>,
     actions: Actions,
+    /// Preview cards kept out of a recorded screen until its capture stops.
+    previews: Option<Concealed>,
 }
 
 impl Active {
@@ -112,6 +115,8 @@ pub(crate) async fn stop(cx: &mut AsyncApp) -> Response {
             recording
         })
         .await;
+    // Nothing more is captured: the cards hidden from it come back.
+    drop(active.previews);
     let card = if active.actions.preview {
         let (frame, size, duration) = (
             recording.latest_frame(),
@@ -377,6 +382,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
                 cancelled: cancelled.clone(),
                 controls: handles,
                 actions,
+                previews: None,
             });
             d.broadcast();
         })
@@ -407,6 +413,15 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
             microphone: audio.microphone,
         },
     };
+    // Cards on the recorded screen (from the last clip, or a screenshot taken meanwhile)
+    // would be in the video: they wait, hidden, until it stops. A window recorded by
+    // itself can't show them.
+    let previews = if window_source.is_none() {
+        let cards = Scope::only(preview::NAMESPACE).on(&home.name);
+        Some(conceal::conceal(cards, cx).await)
+    } else {
+        None
+    };
     let output = home.name.clone();
     let started = background
         .spawn(async move {
@@ -435,6 +450,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
                     && !cancelled.load(Ordering::Relaxed) =>
             {
                 active.recording = Some(recording);
+                active.previews = previews;
                 d.broadcast();
                 None
             }

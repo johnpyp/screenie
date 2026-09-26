@@ -17,6 +17,12 @@ Screenie's GPUI look and feel, shared by every window.
   window options, and `fallback_options` gives a plain window where layer-shell is
   missing. `wait_for_displays` covers GPUI's late output discovery.
 - **`keys`** and **`hover`**: input for overlays; see below.
+- **`conceal`**: keeping screenie out of its own captures. Surfaces that must never be
+  captured `track` themselves when they open and finish their root with `root`, which
+  makes them fully transparent while concealed (`Hover` drops their input region
+  too). `conceal(scope, cx)` conceals what a `Scope` covers (everything, or one layer
+  namespace on one output) and resolves once the compositor has shown the frame
+  without them. The returned guard shows them again when dropped.
 - **`scale`**: the interface scale (`ui_scale`). Interface sizes are written as `ui(n)`
   (rems: n pixels at scale 1), and screen geometry stays in `px`. `ui_px` gives the same
   length in pixels for layout math and painting. `set_ui_scale` applies a scale to

@@ -1142,7 +1142,8 @@ impl Render for Editor {
         } else {
             self.window_bars(cx)
         };
-        root.relative()
+        let root = root
+            .relative()
             .bg(
                 match (
                     self.overlay(),
@@ -1161,7 +1162,8 @@ impl Render for Editor {
             }))
             .child(canvas)
             .children(bars)
-            .when(self.confirm_close, |d| d.child(self.close_prompt(cx)))
+            .when(self.confirm_close, |d| d.child(self.close_prompt(cx)));
+        screenie_ui_kit::conceal::root(root, window, cx)
     }
 }
 
