@@ -27,7 +27,8 @@ def test_editor_shows_the_capture_in_place(session, daemon, input, home, output,
     for p in outside:
         assert after.brightness(*p) < before.brightness(*p) * 0.7, f"not dimmed around the capture: {p}"
     input.keys("escape")
-    assert shot.wait(timeout=5) == 0
+    # Closed without keeping anything.
+    assert shot.wait(timeout=5) == 1
 
 
 def test_follows_config_changes_live(daemon):
