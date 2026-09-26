@@ -60,6 +60,14 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 2
 
+# Release builds are what we run day to day, so they rebuild fast: no LTO, incremental,
+# default codegen units (a one-line change relinks in ~4 s instead of ~15 s with thin LTO).
 [profile.release]
+incremental = true
+
+# For packaging: slower to build, slightly smaller and faster.
+[profile.dist]
+inherits = "release"
+incremental = false
 lto = "thin"
-codegen-units = 4
+codegen-units = 1

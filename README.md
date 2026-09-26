@@ -210,6 +210,9 @@ cargo build --release
 install -Dm755 target/release/screenie ~/.local/bin/screenie
 ```
 
+`--release` is tuned for quick rebuilds while developing. For a packaged build, use
+`cargo build --profile dist` (thin LTO, one codegen unit), which lands in `target/dist/`.
+
 To upgrade, replace the binary. The next `screenie` command notices that the daemon
 is running a different build and restarts it, unless it's in use (recording, selecting,
 editing), in which case it waits for a later command. `screenie daemon` does the same
