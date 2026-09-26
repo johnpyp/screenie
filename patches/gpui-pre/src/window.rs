@@ -944,7 +944,9 @@ impl TooltipId {
             .tooltip_bounds
             .as_ref()
             .is_some_and(|tooltip_bounds| {
-                tooltip_bounds.id == *self
+                // screenie patch: not once the pointer has left the window.
+                !window.mouse_outside
+                    && tooltip_bounds.id == *self
                     && tooltip_bounds.bounds.contains(&window.mouse_position())
             })
     }
@@ -1199,6 +1201,9 @@ pub struct Window {
     focus_lost_path: SmallVec<[FocusId; 8]>,
     default_prevented: bool,
     mouse_position: Point<Pixels>,
+    // screenie patch: the pointer has left the window (`MouseExited`), so nothing in it is
+    // hovered. `mouse_position` keeps where it was last seen.
+    pub(crate) mouse_outside: bool,
     mouse_hit_test: HitTest,
     modifiers: Modifiers,
     capslock: Capslock,
@@ -2055,6 +2060,7 @@ impl Window {
             focus_lost_path: SmallVec::new(),
             default_prevented: true,
             mouse_position,
+            mouse_outside: false,
             mouse_hit_test: HitTest::default(),
             modifiers,
             capslock,
@@ -3583,7 +3589,7 @@ impl Window {
             tooltip_element = self.prepaint_tooltip(cx);
         }
 
-        self.mouse_hit_test = self.next_frame.hit_test(self.mouse_position);
+        self.mouse_hit_test = self.mouse_hit_test_in(&self.next_frame);
 
         // Now actually paint the elements.
         self.invalidator.set_phase(DrawPhase::Paint);
@@ -5440,6 +5446,21 @@ impl Window {
             self.refresh();
         }
 
+        // screenie patch: forget the hover when the pointer leaves. Hit-testing the last
+        // position instead kept whatever was under it hovered (and its tooltip coming up).
+        match &event {
+            PlatformInput::MouseExited(_) => {
+                self.mouse_outside = true;
+                self.refresh();
+            }
+            PlatformInput::MouseMove(_)
+            | PlatformInput::MouseDown(_)
+            | PlatformInput::MouseUp(_)
+            | PlatformInput::ScrollWheel(_)
+            | PlatformInput::Pinch(_) => self.mouse_outside = false,
+            _ => {}
+        }
+
         // Handlers may set this to false by calling `stop_propagation`.
         cx.propagate_event = true;
         // Handlers may set this to true by calling `prevent_default`.
@@ -5759,8 +5780,14 @@ impl Window {
         });
     }
 
+    /// What's under the pointer in `frame`: nothing once it's left the window.
+    // screenie patch
+    fn mouse_hit_test_in(&self, frame: &Frame) -> HitTest {
+        if self.mouse_outside { HitTest::default() } else { frame.hit_test(self.mouse_position) }
+    }
+
     fn dispatch_mouse_event(&mut self, event: &dyn Any, cx: &mut App) {
-        let hit_test = self.rendered_frame.hit_test(self.mouse_position());
+        let hit_test = self.mouse_hit_test_in(&self.rendered_frame);
         if hit_test != self.mouse_hit_test {
             self.mouse_hit_test = hit_test;
             self.reset_cursor_style(cx);

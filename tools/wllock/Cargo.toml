@@ -1,0 +1,11 @@
+[package]
+name = "wllock"
+description = "Test tool: a fullscreen window that locks the pointer, like a game"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+wayland-client.workspace = true
+wayland-protocols.workspace = true
+rustix.workspace = true

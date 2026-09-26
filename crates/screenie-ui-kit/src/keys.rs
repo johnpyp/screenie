@@ -9,15 +9,14 @@
 //! surface's root with [`KeyboardGrab::track`], and close through
 //! [`KeyboardGrab::when_released`].
 //!
-//! [`HoverKeyboard`] is the same care for a surface that takes the keyboard only while
-//! the pointer is on it (the preview cards), and gives it back when it leaves.
+//! [`crate::Hover`] takes the same care for a surface that has the keyboard only while
+//! the pointer is on it.
 
 use std::time::Duration;
 
-use gpui::layer_shell::KeyboardInteractivity;
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Context, Entity, InteractiveElement, KeyDownEvent, KeyUpEvent, Modifiers,
-    ModifiersChangedEvent, Window,
+    App, AppContext as _, Context, Entity, InteractiveElement, KeyDownEvent, KeyUpEvent, Modifiers,
+    ModifiersChangedEvent,
 };
 use smallvec::SmallVec;
 
@@ -25,7 +24,7 @@ use smallvec::SmallVec;
 /// missing: focus taken away mid-press, or a key whose name changed with Shift.
 pub const RELEASE_TIMEOUT: Duration = Duration::from_millis(1000);
 
-type Then = Box<dyn FnOnce(&mut App)>;
+pub(crate) type Then = Box<dyn FnOnce(&mut App)>;
 
 /// Tracks the keys held on one or more surfaces (a selector spans every output) and runs
 /// the closing action once they're all released.
@@ -97,109 +96,16 @@ impl KeyboardGrab {
     }
 }
 
-/// Keyboard focus for a layer surface that doesn't otherwise take it, while the pointer
-/// is on it. A card floating over a game or a terminal shouldn't steal their typing, but
-/// with the pointer on it, keys are meant for it: Esc dismissing it rather than
-/// unpausing the game beneath (which on sway also takes the pointer lock, trapping the
-/// pointer on the card).
-///
-/// Attach with [`HoverKeyboard::track`] and report the pointer with
-/// [`HoverKeyboard::want`]. Focus is given back only once no key is held (or after
-/// [`RELEASE_TIMEOUT`]), so a key pressed here isn't released into the app beneath.
-pub struct HoverKeyboard {
-    window: AnyWindowHandle,
-    held: HeldKeys,
-    wanted: bool,
-    /// Whether the surface has asked for the keyboard.
-    taken: bool,
-    /// Bumped each time the keyboard stops being wanted, so a stale timeout does nothing.
-    epoch: u64,
-}
-
-impl HoverKeyboard {
-    /// For the layer surface `window`, which should open with no keyboard interactivity.
-    pub fn new(window: &Window, cx: &mut App) -> Entity<Self> {
-        let window = window.window_handle();
-        cx.new(|_| Self { window, held: HeldKeys::default(), wanted: false, taken: false, epoch: 0 })
-    }
-
-    /// Track the keys held on the surface rooted at `root` (capture phase).
-    pub fn track<E: InteractiveElement>(this: &Entity<Self>, root: E) -> E {
-        let (down, up, mods) = (this.clone(), this.clone(), this.clone());
-        root.capture_key_down(move |event, _, cx| down.update(cx, |k, _| k.held.press(event)))
-            .capture_key_up(move |event, _, cx| {
-                up.update(cx, |k, cx| {
-                    k.held.release(event);
-                    k.settle(cx);
-                })
-            })
-            .on_modifiers_changed(move |event, _, cx| {
-                mods.update(cx, |k, cx| {
-                    k.held.set_modifiers(event);
-                    k.settle(cx);
-                })
-            })
-    }
-
-    /// Whether the keyboard is wanted: the pointer is (`true`) or isn't on the surface's
-    /// interactive part.
-    pub fn want(&mut self, wanted: bool, cx: &mut Context<Self>) {
-        if self.wanted == wanted {
-            return;
-        }
-        self.wanted = wanted;
-        if !wanted {
-            self.epoch += 1;
-            let epoch = self.epoch;
-            cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(RELEASE_TIMEOUT).await;
-                let _ = this.update(cx, |k, cx| {
-                    if k.epoch == epoch {
-                        k.held = HeldKeys::default();
-                        k.settle(cx);
-                    }
-                });
-            })
-            .detach();
-        }
-        self.settle(cx);
-    }
-
-    /// Whether the surface has (or has asked for) the keyboard. A surface shouldn't close
-    /// while it does, or its held keys go to the app beneath.
-    pub fn has_keyboard(&self) -> bool {
-        self.taken
-    }
-
-    fn settle(&mut self, cx: &mut Context<Self>) {
-        let take = self.wanted || (self.taken && self.held.any());
-        if take == self.taken {
-            return;
-        }
-        self.taken = take;
-        if !take {
-            self.held = HeldKeys::default();
-        }
-        let interactivity = if take { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
-        tracing::debug!(taken = take, "hover keyboard");
-        // Not from inside the window's own event dispatch.
-        let window = self.window;
-        cx.defer(move |cx| {
-            let _ = window.update(cx, |_, window, _| window.set_keyboard_interactivity(interactivity));
-        });
-    }
-}
-
 /// Run a closing action once the current event is done with.
-fn run(then: Option<Then>, cx: &mut App) {
+pub(crate) fn run(then: Option<Then>, cx: &mut App) {
     if let Some(then) = then {
         cx.defer(then);
     }
 }
 
-/// [`KeyboardGrab`]'s state, free of GPUI: what's held, and the action waiting on it.
-struct Release<T> {
-    held: HeldKeys,
+/// A closing surface's state, free of GPUI: what's held, and the action waiting on it.
+pub(crate) struct Release<T> {
+    pub(crate) held: HeldKeys,
     then: Option<T>,
     leaving: bool,
 }
@@ -211,37 +117,37 @@ impl<T> Default for Release<T> {
 }
 
 impl<T> Release<T> {
-    fn leave(&mut self, then: T) {
+    pub(crate) fn leave(&mut self, then: T) {
         if !self.leaving {
             self.leaving = true;
             self.then = Some(then);
         }
     }
 
-    fn leaving(&self) -> bool {
+    pub(crate) fn leaving(&self) -> bool {
         self.leaving
     }
 
     /// The action, if it's waiting and nothing is held any more.
-    fn ready(&mut self) -> Option<T> {
+    pub(crate) fn ready(&mut self) -> Option<T> {
         if self.held.any() { None } else { self.take() }
     }
 
     /// The action regardless of keys (the timeout); at most once.
-    fn take(&mut self) -> Option<T> {
+    pub(crate) fn take(&mut self) -> Option<T> {
         self.then.take()
     }
 }
 
 /// The keys (modifiers included) held down on a surface.
 #[derive(Debug, Default)]
-struct HeldKeys {
+pub(crate) struct HeldKeys {
     keys: SmallVec<[String; 4]>,
     modifiers: Modifiers,
 }
 
 impl HeldKeys {
-    fn press(&mut self, event: &KeyDownEvent) {
+    pub(crate) fn press(&mut self, event: &KeyDownEvent) {
         let key = &event.keystroke.key;
         if !self.keys.contains(key) {
             self.keys.push(key.clone());
@@ -249,16 +155,16 @@ impl HeldKeys {
         self.modifiers = event.keystroke.modifiers;
     }
 
-    fn release(&mut self, event: &KeyUpEvent) {
+    pub(crate) fn release(&mut self, event: &KeyUpEvent) {
         self.keys.retain(|k| *k != event.keystroke.key);
         self.modifiers = event.keystroke.modifiers;
     }
 
-    fn set_modifiers(&mut self, event: &ModifiersChangedEvent) {
+    pub(crate) fn set_modifiers(&mut self, event: &ModifiersChangedEvent) {
         self.modifiers = event.modifiers;
     }
 
-    fn any(&self) -> bool {
+    pub(crate) fn any(&self) -> bool {
         !self.keys.is_empty() || self.modifiers.modified()
     }
 }

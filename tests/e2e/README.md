@@ -27,6 +27,8 @@ installs the Python side.
   focus tests.
 - **`keylog`**: a `wev` window logging the key events it gets, for catching keys that
   leak past screenie's overlays.
+- **`game`**: `wllock`, a fullscreen window that locks the pointer when told to, like a
+  game (`lock`, `unlock`), logging its focus, lock and relative motion events.
 - **`session`**: outputs, windows (`swaymsg`), and `screenshot()` at one pixel per
   logical pixel.
 
@@ -38,7 +40,7 @@ Settings that come from the desktop (GTK text scaling via the settings portal) a
 changed on a private D-Bus (`private_bus` in `test_ui_scale.py`) with dconf writing
 into the test's directory, never on your real session bus.
 
-A failed test leaves `screen.png`, `daemon.log` and `wev.log` in
+A failed test leaves `screen.png`, `daemon.log`, `wev.log` and `game.log` in
 `.cache/e2e/<test id>/`.
 
 Tests run one at a time: they share one compositor and one seat.

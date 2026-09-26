@@ -63,15 +63,15 @@ wasn't saved). Hovering shows only what's left to do:
 - A caption above that pill shows the pixel size and file size.
 
 The cards never take the keyboard from the app you're in, except while the pointer is
-on one: moving onto a card gives it the keyboard, so those keys reach it (Esc dismisses
-the card rather than, say, unpausing the game beneath; on sway that game would also
-take the pointer lock, trapping the pointer on the card). Moving off gives the keyboard
-back once no key is held, so nothing pressed on the card is released into the app. A
-card appearing under a still pointer doesn't take it, so typing elsewhere carries on.
+on one: then those keys reach the card (Esc dismisses it rather than, say, unpausing the
+game beneath, whose pointer lock would also trap the pointer on the card). Moving off
+gives the keyboard back once no key is held, so nothing pressed on the card is released
+into the app. Cards that appear under a resting pointer aren't entered until it moves,
+so typing elsewhere carries on.
 
 All cards share one transparent layer surface over the output's free area. It has no
-fixed size, so the compositor fits it between bars. Its input region is limited to the
-cards, so the rest is click-through.
+fixed size, so the compositor fits it between bars. Only the cards take input; the rest
+is click-through. The recording pill works the same way (see `screenie_ui_kit::Hover`).
 
 Planned: a **Pin** button, and **drag the card into another app**, which GPUI can't do
 yet (see ISSUES).

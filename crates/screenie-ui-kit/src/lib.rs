@@ -1,9 +1,10 @@
 //! Shared GPUI building blocks for screenie's surfaces: bundled assets (icons, Inter),
-//! the HUD look and its tooltips, layer-shell window options, releasing the keyboard cleanly, and image
-//! conversion.
+//! the HUD look and its tooltips, layer-shell window options, overlay input (hover and
+//! the keyboard), and image conversion.
 
 pub mod assets;
 pub mod hud;
+mod hover;
 mod image;
 mod keys;
 pub mod layer;
@@ -12,7 +13,8 @@ mod tip;
 
 pub use assets::{Assets, FONT, Icon};
 pub use image::render_image;
-pub use keys::{HoverKeyboard, KeyboardGrab, RELEASE_TIMEOUT};
+pub use hover::Hover;
+pub use keys::{KeyboardGrab, RELEASE_TIMEOUT};
 pub use scale::{UI_SCALE_RANGE, set_ui_scale, track as track_ui_scale, ui, ui_px, ui_scale};
 pub use tip::Tip;
 pub use layer::{LayerSpec, display_for_output, fallback_options, layer_options, wait_for_displays};

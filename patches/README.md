@@ -32,8 +32,18 @@ without a parent instead.
 `set_keyboard_interactivity`, to change a layer surface's keyboard interactivity after
 it's mapped, like the existing `set_exclusive_zone` and `set_input_region`.
 
-The preview cards take the keyboard only while the pointer is on them
-(`screenie_ui_kit::HoverKeyboard`). Layer-shell allows that
+Overlays take the keyboard only while the pointer is on them
+(`screenie_ui_kit::Hover`). Layer-shell allows that
 (`zwlr_layer_surface_v1.set_keyboard_interactivity` any time), but GPUI only set it at
 creation. The examples aren't vendored (their `[[example]]` entries are removed from
 `Cargo.toml`). Upstream: Zed's `gpui`.
+
+`src/window.rs` (`Window::dispatch_event`, `mouse_hit_test_in`, `TooltipId::is_hovered`)
+and `src/elements/div.rs` (the tooltip's prepaint hover check): forget the hover when the
+pointer leaves the window.
+
+`MouseExited` kept the last `mouse_position`, and the hit test was re-derived from it on
+every frame, so whatever was under the pointer as it left stayed hovered (a button's
+highlight, a tooltip still coming up) until it came back. A layer surface is left from
+its edge often: the pointer goes from a button straight onto the app beneath. Upstream:
+Zed's `gpui`.

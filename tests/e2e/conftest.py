@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from harness import ROOT, SCREENIE, Daemon, Input, KeyLog, Session
+from harness import ROOT, SCREENIE, Daemon, Game, Input, KeyLog, Session
 
 ARTIFACTS = ROOT / ".cache/e2e"
 
@@ -20,9 +20,7 @@ ARTIFACTS = ROOT / ".cache/e2e"
 @pytest.fixture(scope="session")
 def session() -> Session:
     subprocess.run(["cargo", "build", "--release", "-q", "-p", "screenie"], cwd=ROOT, check=True)
-    subprocess.run(
-        ["cargo", "build", "--release", "-q", "--manifest-path", "tools/wlinput/Cargo.toml"], cwd=ROOT, check=True
-    )
+    subprocess.run(["cargo", "build", "--release", "-q", "-p", "wlinput", "-p", "wllock"], cwd=ROOT, check=True)
     started = subprocess.run([str(ROOT / "tools/session.sh"), "start"], capture_output=True, text=True, check=True)
     session = Session.load()
     # A daemon left over from development would own the socket.
@@ -75,6 +73,13 @@ def keylog(session: Session, home: Path) -> KeyLog:
     log.close()
 
 
+@pytest.fixture
+def game(session: Session) -> Game:
+    game = Game(session)
+    yield game
+    game.close()
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "config(yaml): the daemon's config.yaml for this test")
 
@@ -102,4 +107,6 @@ def keep_artifacts(item: pytest.Item) -> None:
         (dest / "daemon.log").write_text(daemon.log())
     if keylog := fixtures.get("keylog"):
         shutil.copy(keylog.path, dest / "wev.log")
+    if game := fixtures.get("game"):
+        (dest / "game.log").write_text("\n".join(game.lines) + "\n")
     item.add_report_section("call", "artifacts", str(dest))

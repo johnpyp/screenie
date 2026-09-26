@@ -3201,7 +3201,9 @@ impl Interactivity {
                     let pending_mouse_down = pending_mouse_down.clone();
                     let source_bounds = hitbox.bounds;
                     move |window: &Window| {
+                        // screenie patch: not once the pointer has left the window.
                         !window.last_input_was_keyboard()
+                            && !window.mouse_outside
                             && pending_mouse_down.borrow().is_none()
                             && source_bounds.contains(&window.mouse_position())
                     }

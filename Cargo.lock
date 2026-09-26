@@ -9112,6 +9112,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wllock"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+ "wayland-client",
+ "wayland-protocols",
+]
+
+[[package]]
 name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -8,15 +8,11 @@
 //! copied or saved. What's done shows as a "✓ Copied & Saved" pill in the corner, hovered
 //! or not. Show in folder and Delete appear once there's a file.
 //!
-//! The cards never take the keyboard, except while the pointer is on one: then its keys
-//! (Esc dismisses, Ctrl+C copies…) go to the card rather than the app beneath.
-//!
-//! All cards share one transparent layer surface (a column along the right edge) whose
-//! input region is limited to the cards, so the rest of the column never eats clicks.
+//! All cards share one transparent layer surface along the edge. Only the cards take
+//! input (see [`Hover`]), and the keyboard only while the pointer is on one: then its
+//! keys (Esc dismisses, Ctrl+C copies…) go to the card rather than the app beneath.
 
-use std::cell::RefCell;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -24,13 +20,13 @@ use gpui::layer_shell::Anchor;
 use gpui::prelude::*;
 use gpui::BorrowAppContext;
 use gpui::{
-    Animation, AnimationExt, App, AsyncApp, Bounds, Context, Entity, FocusHandle, FontWeight, Global, KeyDownEvent,
-    Keystroke, ObjectFit, Pixels, RenderImage, Window, WindowHandle, canvas, div, img, px, rgba, size,
+    Animation, AnimationExt, App, AsyncApp, Context, Entity, FontWeight, Global, KeyDownEvent, Keystroke, ObjectFit,
+    RenderImage, Window, WindowHandle, div, img, px, rgba, size,
 };
 use screenie_config::{Align, ScreenPosition};
 use screenie_core::Image;
 use screenie_ui_kit::hud::{self, color};
-use screenie_ui_kit::{HoverKeyboard, Icon, LayerSpec, Tip, layer_options, ui};
+use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, layer_options, ui};
 
 use crate::clipboard;
 use crate::deliver::Capture;
@@ -336,31 +332,24 @@ fn with_stack(cx: &mut App, f: impl FnOnce(&mut PreviewStack, &mut Context<Previ
     let _ = handle.update(cx, |stack, _, cx| f(stack, cx));
 }
 
-/// A card's id and where it was painted.
-type CardBounds = (u64, Bounds<Pixels>);
-
 pub(crate) struct PreviewStack {
     position: ScreenPosition,
     /// The output the stack is on, where editors open too.
     output: Option<String>,
     items: Vec<PreviewItem>,
-    /// Card bounds from the last paint, for the input region and hover.
-    card_bounds: Rc<RefCell<Vec<CardBounds>>>,
-    /// Where the pointer is on the surface, if it is (see `render` for why we track it).
-    pointer: Option<gpui::Point<Pixels>>,
-    /// The keyboard, while the pointer is on a card.
-    keyboard: Entity<HoverKeyboard>,
-    focus: FocusHandle,
+    /// Input: each card is an area, keyed by its id.
+    hover: Entity<Hover<u64>>,
 }
 
 impl PreviewStack {
     fn new(position: ScreenPosition, output: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         screenie_ui_kit::track_ui_scale(window, cx);
-        // Nothing is interactive until the first card is laid out.
-        window.set_input_region(Some(&[]));
-        let keyboard = HoverKeyboard::new(window, cx);
-        let focus = cx.focus_handle();
-        window.focus(&focus, cx);
+        let hover = Hover::new(window, cx);
+        cx.observe(&hover, |stack, hover, cx| {
+            let card = hover.read(cx).hovered().copied();
+            stack.pointer_on(card, cx);
+        })
+        .detach();
         screenie_editor::observe_overlays(cx, |_, cx| cx.notify()).detach();
         cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -368,7 +357,7 @@ impl PreviewStack {
                 let alive = this.update_in(cx, |stack, window, cx| {
                     stack.expire(cx);
                     // Not while it has the keyboard: a held key would go to the app beneath.
-                    if stack.items.is_empty() && !stack.keyboard.read(cx).has_keyboard() {
+                    if stack.items.is_empty() && !stack.hover.read(cx).has_keyboard() {
                         window.remove_window();
                         cx.update_global::<Previews, _>(|p, _| p.window = None);
                         false
@@ -382,7 +371,7 @@ impl PreviewStack {
             }
         })
         .detach();
-        Self { position, output, items: Vec::new(), card_bounds: Rc::default(), pointer: None, keyboard, focus }
+        Self { position, output, items: Vec::new(), hover }
     }
 
     fn timeout(cx: &App) -> Option<Duration> {
@@ -412,7 +401,6 @@ impl PreviewStack {
 
     fn remove(&mut self, id: u64, cx: &mut Context<Self>) {
         self.items.retain(|i| i.id != id);
-        self.sync_keyboard(false, cx);
         cx.notify();
     }
 
@@ -430,34 +418,6 @@ impl PreviewStack {
 
     fn item(&mut self, id: u64) -> Option<&mut PreviewItem> {
         self.items.iter_mut().find(|i| i.id == id)
-    }
-
-    /// The card under `pointer`, as last painted.
-    fn card_at(&self, pointer: Option<gpui::Point<Pixels>>) -> Option<u64> {
-        let p = pointer?;
-        self.card_bounds.borrow().iter().find(|(_, b)| b.contains(&p)).map(|(id, _)| *id)
-    }
-
-    fn hovered_card(&self) -> Option<u64> {
-        self.items.iter().find(|i| i.hovered).map(|i| i.id)
-    }
-
-    /// Where the pointer is on the surface (`None`: off it). `moved`: it got there by
-    /// moving, rather than a card appearing under a still pointer.
-    fn pointer_at(&mut self, pointer: Option<gpui::Point<Pixels>>, moved: bool, cx: &mut Context<Self>) {
-        self.pointer = pointer;
-        self.pointer_on(self.card_at(pointer), cx);
-        self.sync_keyboard(moved, cx);
-    }
-
-    /// Take the keyboard when the pointer moves onto a card, and give it back when it's on
-    /// none. Not for a card that appears under a still pointer (you may be typing
-    /// elsewhere), but kept when the next card slides under it (dismissing a run of cards).
-    fn sync_keyboard(&mut self, moved: bool, cx: &mut Context<Self>) {
-        let on_card = self.hovered_card().is_some();
-        if moved || !on_card {
-            self.keyboard.update(cx, |k, cx| k.want(on_card, cx));
-        }
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -604,7 +564,6 @@ impl PreviewStack {
         let k = screenie_ui_kit::ui_scale(cx);
         let (w, h) = (item.card.0 * k, item.card.1 * k);
         let hovered = item.hovered;
-        let bounds_sink = self.card_bounds.clone();
         let saved = item.path.is_some();
         // Cards slide in from the edge they sit at (the side one, for corners).
         let slide = match (self.position.horizontal(), self.position.vertical()) {
@@ -782,11 +741,7 @@ impl PreviewStack {
             .children(pending)
             .children(overlay)
             .children(corner_info)
-            .child(
-                canvas(move |bounds, _, _| bounds_sink.borrow_mut().push((id, bounds)), |_, _, _, _| {})
-                    .absolute()
-                    .inset_0(),
-            )
+            .child(Hover::area(&self.hover, id))
             .with_animation(
                 ("card-in", id),
                 Animation::new(Duration::from_millis(260)).with_easing(gpui::ease_out_quint()),
@@ -810,24 +765,19 @@ fn format_bytes(n: u64) -> String {
 
 impl Render for PreviewStack {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.card_bounds.borrow_mut().clear();
         // The newest card sits nearest the edge (at the bottom, for the side middles).
         let vertical = self.position.vertical();
         let mut cards: Vec<_> = self.items.iter().map(|item| self.card(item, cx).into_any_element()).collect();
         if vertical == Align::Start {
             cards.reverse();
         }
-        let bounds = self.card_bounds.clone();
-        let this = cx.entity();
         let stack = div()
             .id("preview")
             .size_full()
             .font_family(screenie_ui_kit::FONT)
             .flex()
             .flex_col()
-            .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down));
-        let stack = HoverKeyboard::track(&self.keyboard, stack);
         let stack = match vertical {
             Align::Start => stack.justify_start(),
             Align::Middle => stack.justify_center(),
@@ -838,46 +788,7 @@ impl Render for PreviewStack {
             Align::Middle => stack.items_center(),
             Align::End => stack.items_end(),
         };
-        stack
-            .gap(ui(GAP))
-            .p(ui(EDGE_MARGIN))
-            .children(cards)
-            // Painted last: restrict input to where the cards actually are, and track
-            // which card the pointer is on.
-            .child(
-                canvas(|_, _, _| {}, move |_, _, window, cx| {
-                    let cards = bounds.borrow().clone();
-                    window.set_input_region(Some(&cards.iter().map(|(_, b)| *b).collect::<Vec<_>>()));
-                    // BUG(gpui-pre 0.3.6): GPUI's hover goes stale when the pointer leaves the
-                    // window. MouseExited keeps the old `mouse_position`, and the hit test is
-                    // re-derived from it after the next frame (window.rs:3576), so `on_hover`
-                    // reports the card hovered again: the overlay flashes and the card never
-                    // times out. And since `on_hover` only reports changes, filtering its
-                    // events can't fix that. So hover is tracked here from the raw events
-                    // instead (Capture phase, before any card sees them). Proper fix: clear
-                    // the position / hit test on MouseExited upstream.
-                    let moved = this.clone();
-                    window.on_mouse_event(move |e: &gpui::MouseMoveEvent, phase, _, cx| {
-                        if phase == gpui::DispatchPhase::Capture {
-                            moved.update(cx, |stack, cx| stack.pointer_at(Some(e.position), true, cx));
-                        }
-                    });
-                    let left = this.clone();
-                    window.on_mouse_event(move |_: &gpui::MouseExitEvent, phase, _, cx| {
-                        if phase == gpui::DispatchPhase::Capture {
-                            left.update(cx, |stack, cx| stack.pointer_at(None, true, cx));
-                        }
-                    });
-                    // Cards move under a still pointer too (one dismissed, one added): re-check
-                    // after each frame, like GPUI does, but only while the pointer is here.
-                    let stack = this.read(cx);
-                    if stack.card_at(stack.pointer) != stack.hovered_card() {
-                        let this = this.clone();
-                        cx.defer(move |cx| this.update(cx, |stack, cx| stack.pointer_at(stack.pointer, false, cx)));
-                    }
-                })
-                .absolute()
-                .size_0(),
-            )
+        let stack = stack.gap(ui(GAP)).p(ui(EDGE_MARGIN)).children(cards);
+        Hover::root(&self.hover, stack, cx)
     }
 }

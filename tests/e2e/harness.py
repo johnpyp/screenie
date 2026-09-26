@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import shlex
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,6 +26,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 SCREENIE = ROOT / "target/release/screenie"
 WLINPUT = ROOT / "target/release/wlinput"
+WLLOCK = ROOT / "target/release/wllock"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 T = TypeVar("T")
@@ -346,3 +349,61 @@ class KeyLog:
         self.process.send_signal(signal.SIGTERM)
         self.process.wait(timeout=5)
         self.out.close()
+
+
+class Game:
+    """`wllock`, a stand-in for a fullscreen game: a fullscreen window that locks the
+    pointer when told to. Its focus, lock and relative motion events are logged, a line
+    each (`pointer enter`, `keyboard leave`, `locked`, `motion 3 -1`…)."""
+
+    def __init__(self, session: Session):
+        self.lines: list[str] = []
+        self.replies: queue.Queue[str] = queue.Queue()
+        self.process = subprocess.Popen(
+            [str(WLLOCK)], env=session.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1
+        )
+        threading.Thread(target=self._read, daemon=True).start()
+        self.wait("ready", 0)
+        wait_for(lambda: session.window("wllock"), "the game window")
+
+    def _read(self) -> None:
+        for line in self.process.stdout:
+            line = line.strip()
+            if line == "ok" or line.startswith("error"):
+                self.replies.put(line)
+            else:
+                self.lines.append(line)
+
+    def _do(self, command: str) -> None:
+        self.process.stdin.write(command + "\n")
+        self.process.stdin.flush()
+        reply = self.replies.get(timeout=5)
+        if reply != "ok":
+            raise RuntimeError(f"wllock {command!r}: {reply}")
+
+    def lock(self) -> None:
+        """Ask for a (persistent) pointer lock; it's active whenever the game has the keyboard."""
+        self._do("lock")
+
+    def unlock(self) -> None:
+        self._do("unlock")
+
+    def mark(self) -> int:
+        return len(self.lines)
+
+    def seen(self, event: str, after: int) -> int | None:
+        """The mark just past the first `event` line (a line or its first words) past `after`."""
+        for i, line in enumerate(self.lines[after:], start=after):
+            if line == event or line.startswith(event + " "):
+                return i + 1
+        return None
+
+    def wait(self, event: str, after: int, timeout: float = 5.0) -> int:
+        return wait_for(lambda: self.seen(event, after), f"the game to get {event!r}", timeout)
+
+    def since(self, mark: int) -> list[str]:
+        return self.lines[mark:]
+
+    def close(self) -> None:
+        self.process.terminate()
+        self.process.wait(timeout=5)

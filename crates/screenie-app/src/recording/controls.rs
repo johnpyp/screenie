@@ -9,19 +9,20 @@
 //!
 //! A window recorded by itself sees none of this, and can move away from where it was:
 //! it gets no border, and the pill may go over it.
+//!
+//! Only the pill takes input, and the keyboard only while the pointer is on it (see
+//! [`Hover`]): the recorded app keeps its typing, and a fullscreen game's pointer lock
+//! can't trap the pointer on the pill.
 
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    Animation, AnimationExt, App, AsyncApp, Bounds, Context, FontWeight, Pixels, Window, WindowHandle, canvas,
-    div, px, rgba, size,
+    Animation, AnimationExt, App, AsyncApp, Context, Entity, FontWeight, Window, WindowHandle, div, px, rgba, size,
 };
 use screenie_core::{OutputInfo, Point, Rect, Size};
 use screenie_ui_kit::hud::{self, HudButton, color};
-use screenie_ui_kit::{Icon, LayerSpec, Tip, layer_options, ui};
+use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, layer_options, ui};
 
 use crate::daemon::Daemon;
 
@@ -90,17 +91,24 @@ fn pill_size(k: f64) -> Size {
     Size { width: PILL.width * k, height: PILL.height * k }
 }
 
-/// One surface's worth of chrome.
-pub(crate) struct Controls {
-    /// The region in this surface's coordinates, when it's on this output.
+/// What one output shows.
+#[derive(Debug, Clone, Copy, Default)]
+struct Layout {
+    /// The region in this output's coordinates, when it's on this output.
     region: Option<Rect>,
     /// Draw the border (not when the region is the whole output).
     border: bool,
     pill: Option<Point>,
     /// Shown during the countdown when nothing else tells the user how to stop.
     stop_hint: bool,
+}
+
+/// One output's surface of chrome.
+pub(crate) struct Controls {
+    layout: Layout,
     phase: Phase,
-    pill_bounds: Rc<RefCell<Vec<Bounds<Pixels>>>>,
+    /// Input, on the pill (the only area).
+    hover: Entity<Hover<()>>,
 }
 
 /// Open the chrome for `region` on every output that needs some.
@@ -115,33 +123,21 @@ pub(crate) fn open(
     let k = cx.update(|cx| f64::from(screenie_ui_kit::ui_scale(cx)));
     let pill = place_pill(region, chrome, home, outputs, k);
     let whole_output = home.logical.inset(1.0).intersection(&region) == Some(home.logical.inset(1.0));
-    let mut surfaces: Vec<(&OutputInfo, Controls)> = vec![(
+    let mut surfaces: Vec<(&OutputInfo, Layout)> = vec![(
         home,
-        Controls {
+        Layout {
             region: Some(region.translate(-home.logical.x, -home.logical.y)),
             border: chrome == Chrome::Region && !whole_output,
             pill: None,
             stop_hint: pill.is_none(),
-            phase,
-            pill_bounds: Rc::default(),
         },
     )];
     if let Some((name, at)) = pill {
         match surfaces.iter_mut().find(|(o, _)| o.name == name) {
-            Some((_, controls)) => controls.pill = Some(at),
+            Some((_, layout)) => layout.pill = Some(at),
             None => {
                 if let Some(other) = outputs.iter().find(|o| o.name == name) {
-                    surfaces.push((
-                        other,
-                        Controls {
-                            region: None,
-                            border: false,
-                            pill: Some(at),
-                            stop_hint: false,
-                            phase,
-                            pill_bounds: Rc::default(),
-                        },
-                    ));
+                    surfaces.push((other, Layout { pill: Some(at), ..Layout::default() }));
                 }
             }
         }
@@ -149,7 +145,7 @@ pub(crate) fn open(
 
     surfaces
         .into_iter()
-        .filter_map(|(output, controls)| {
+        .filter_map(|(output, layout)| {
             let spec = LayerSpec::fullscreen_overlay(
                 "screenie-recording",
                 &output.name,
@@ -159,6 +155,7 @@ pub(crate) fn open(
             cx.update(|cx| {
                 cx.open_window(layer_options(cx, &spec), |window, cx| {
                     screenie_ui_kit::track_ui_scale(window, cx);
+                    let hover = Hover::new(window, cx);
                     cx.new(|cx| {
                         // Keep the timer fresh, redrawing only when it changes: every
                         // frame we draw is damage the recording has to encode.
@@ -179,8 +176,7 @@ pub(crate) fn open(
                             }
                         })
                         .detach();
-                        window.set_input_region(Some(&[]));
-                        controls
+                        Controls { layout, phase, hover }
                     })
                 })
             })
@@ -199,9 +195,14 @@ pub(crate) fn set_phase(handles: &[WindowHandle<Controls>], phase: Phase, cx: &m
     }
 }
 
+/// Close the chrome, each surface once the keys held on it are let go.
 pub(crate) fn close(handles: &[WindowHandle<Controls>], cx: &mut App) {
-    for handle in handles {
-        let _ = handle.update(cx, |_, window, _| window.remove_window());
+    for &handle in handles {
+        let _ = handle.update(cx, |controls, _, cx| {
+            controls.hover.update(cx, |hover, cx| {
+                hover.when_released(move |cx| _ = handle.update(cx, |_, window, _| window.remove_window()), cx);
+            })
+        });
     }
 }
 
@@ -272,7 +273,7 @@ impl Controls {
                         |el, t| el.opacity(0.4 + 0.6 * t),
                     ),
             )
-            .when(self.stop_hint, |el| {
+            .when(self.layout.stop_hint, |el| {
                 el.child(hud::pill("Stop with your record shortcut or `screenie stop`"))
             })
     }
@@ -280,7 +281,6 @@ impl Controls {
     fn pill(&self, at: Point, cx: &mut Context<Self>) -> impl IntoElement {
         let (elapsed, paused) = pill_status(cx).unwrap_or_default();
         let counting = matches!(self.phase, Phase::Countdown(_));
-        let sink = self.pill_bounds.clone();
         let size = pill_size(f64::from(screenie_ui_kit::ui_scale(cx)));
 
         // Static on purpose: an animation would repaint (and so re-encode) constantly.
@@ -344,31 +344,26 @@ impl Controls {
                         cx.spawn(async move |cx| super::cancel(cx).await).detach();
                     }),
             )
-            .child(canvas(move |bounds, _, _| sink.borrow_mut().push(bounds), |_, _, _, _| {}).absolute().inset_0())
+            .child(Hover::area(&self.hover, ()))
     }
 }
 
 impl Render for Controls {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.pill_bounds.borrow_mut().clear();
-        let bounds = self.pill_bounds.clone();
         let k = f64::from(screenie_ui_kit::ui_scale(cx));
-        div()
+        let Layout { region, border, pill, .. } = self.layout;
+        let counting = match self.phase {
+            Phase::Countdown(n) => Some(n),
+            Phase::Recording => None,
+        };
+        let root = div()
             .size_full()
             .relative()
             .font_family(screenie_ui_kit::FONT)
-            .when_some(self.region.filter(|_| self.border), |el, r| el.child(self.border(r)))
-            .when_some(self.region.zip(match self.phase {
-                Phase::Countdown(n) => Some(n),
-                Phase::Recording => None,
-            }), |el, (r, n)| el.child(self.countdown(n, r, k)))
-            .when_some(self.pill, |el, at| el.child(self.pill(at, cx)))
-            // Painted last: only the pill takes input.
-            .child(
-                canvas(|_, _, _| {}, move |_, _, window, _| window.set_input_region(Some(&bounds.borrow())))
-                    .absolute()
-                    .size_0(),
-            )
+            .when_some(region.filter(|_| border), |el, r| el.child(self.border(r)))
+            .when_some(region.zip(counting), |el, (r, n)| el.child(self.countdown(n, r, k)))
+            .when_some(pill, |el, at| el.child(self.pill(at, cx)));
+        Hover::root(&self.hover, root, cx)
     }
 }
 
