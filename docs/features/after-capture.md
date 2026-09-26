@@ -9,7 +9,7 @@ Recordings get the same card; see [recording](recording.md).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `copy` | true | Put the image on the clipboard. |
+| `copy` | false | Put the image on the clipboard. The card's Copy button does it on demand. |
 | `save` | false | Write a PNG into `screenshot.directory` (default `~/Pictures/Screenshots`). The card's Save button does it on demand. |
 | `preview` | true | Show the floating preview card. |
 | `edit` | false | Open the editor straight away. Nothing is copied or saved until it's done; then the other settings apply. |

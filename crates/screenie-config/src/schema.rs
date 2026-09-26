@@ -32,9 +32,9 @@ pub struct AfterCapture {
 }
 
 impl Default for AfterCapture {
-    /// For screenshots: copy, and show the card (which can save or annotate).
+    /// For screenshots: just show the card, which copies, saves or annotates on demand.
     fn default() -> Self {
-        Self { copy: true, save: false, preview: true, edit: false }
+        Self { copy: false, save: false, preview: true, edit: false }
     }
 }
 

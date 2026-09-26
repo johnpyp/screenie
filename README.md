@@ -69,7 +69,7 @@ In the selector:
 | Arrows | Nudge an editable selection (Shift ×10, Ctrl resizes) |
 | M | Toggle the magnifier |
 
-By default a screenshot is copied and shown in a preview card, whose buttons save or
+By default a screenshot is just shown in a preview card, whose buttons copy, save or
 annotate it. What happens after a capture (copy, save, preview, edit) is configurable, and can be
 overridden per call with `--copy/--no-copy`, `--save/--no-save`, `--no-preview`,
 `--edit` and `-o FILE`.
@@ -83,7 +83,7 @@ screenie edit shot.png           # annotate an existing PNG
 
 Or hover a preview card and click the pencil. With `--edit`, nothing is copied or saved
 until you're done. Enter (Done) applies the after-capture settings, which by default
-means copy, not save. Ctrl+C and Ctrl+S copy and save explicitly. Each tool has one key: **A**rrow,
+means handing the result to a preview card. Ctrl+C and Ctrl+S copy and save explicitly. Each tool has one key: **A**rrow,
 **L**ine, **R**ectangle, **O** ellipse, **P**en, **H**ighlighter, **T**ext,
 **N**umbered step, **B** pixelate/blur, **S**potlight, **C**rop, **V** select.
 Ctrl+scroll (or `[` `]`) changes the size, of the selected shape too, and **F** toggles
@@ -159,7 +159,7 @@ apply within a second, without a restart.
 [screenshot]
 directory = "~/Pictures/Screenshots"
 filename = "Screenshot_%Y-%m-%d_%H-%M-%S_{app}"  # {app}/{title}: the captured window, if any
-after_capture = { copy = true, save = false, preview = true, edit = false }
+after_capture = { copy = false, save = false, preview = true, edit = false }
 
 [recording]
 framerate = 60

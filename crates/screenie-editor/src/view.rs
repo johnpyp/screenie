@@ -275,6 +275,7 @@ impl Editor {
             (true, true) => ("Save, copy and close", "Save & copy"),
             (true, false) => ("Save and close", "Save"),
             (false, true) => ("Copy and close", "Copy"),
+            (false, false) if on_done.preview => ("Close to a preview card", "Keep"),
             (false, false) => ("Close", "Done"),
         }
     }
@@ -798,7 +799,7 @@ impl Editor {
                 div()
                     .text_size(px(13.))
                     .text_color(color::text_dim())
-                    .child("They'll be lost if you close without copying or saving them."),
+                    .child("They'll be lost if you close without keeping them."),
             )
             .child(
                 div()

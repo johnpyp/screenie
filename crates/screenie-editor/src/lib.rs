@@ -65,6 +65,8 @@ pub struct EditorOptions {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct OnDone {
     pub copy: bool,
+    /// Hand the result to a preview card (which can copy or save it later).
+    pub preview: bool,
     /// Save even if the image has no file yet. One that has (opened from a file,
     /// given `-o`, or saved in the editor) is always saved back.
     pub save: bool,
