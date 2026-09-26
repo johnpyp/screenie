@@ -211,11 +211,12 @@ impl Editor {
     fn save_as(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let dir = self.path.as_ref().and_then(|p| p.parent()).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
         let name = self.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
+        // Like copying and saving, Save As settles the editor (see `Session::export`).
+        self.session.settle();
         let chosen = cx.prompt_for_new_path(&dir, name.as_deref());
         if self.overlay() {
             // The dialog would open underneath the overlay, so step aside until it's
             // answered, then come back just as things were.
-            self.session.commit_text();
             let (session, path, setup) = (self.session.clone(), self.path.clone(), self.setup.clone());
             self.closed = true;
             window.remove_window();

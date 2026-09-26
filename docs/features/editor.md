@@ -85,8 +85,10 @@ Other keys:
 - Arrow keys nudge the selection (Shift ×10). Delete removes it, and Ctrl+D duplicates it.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo.
 - Ctrl+C copies, Ctrl+S saves and Ctrl+Shift+S is Save As. Enter is Done (below).
-- Esc backs out one level at a time: stop typing, then deselect, then close. Closing
-  with unsaved changes asks first, and so does a window's close button.
+- Esc backs out one level at a time: stop typing, then deselect, then close. Copying
+  or saving (including Save As) also commits typing and deselects, so after Ctrl+C one
+  Esc closes. Closing with unsaved changes asks first, and so does a window's close
+  button.
 
 Drawing tools stay active after a shape, and the new shape is selected so it can be
 adjusted straight away. Pressing on the selected shape moves it, and pressing anywhere

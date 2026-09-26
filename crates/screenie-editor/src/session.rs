@@ -339,9 +339,17 @@ impl Session {
     }
 
     /// The finished image. Commits any text being typed first.
+    /// The finished image. Handing it out (copy, save) also settles the editor: typing
+    /// is committed and the selection dropped, so one Esc afterwards closes.
     pub fn export(&mut self) -> screenie_core::Image {
-        self.commit_text();
+        self.settle();
         self.doc.export()
+    }
+
+    /// Commit any text being typed and deselect.
+    pub fn settle(&mut self) {
+        self.commit_text();
+        self.selected = None;
     }
 
     // Pointer.
@@ -936,6 +944,16 @@ mod tests {
         assert_eq!(s.style().size, Style::SIZES[0]);
         s.key(Key::Text("0".into()), NONE);
         assert_eq!(s.style().size, Style::SIZES[9]);
+    }
+
+    #[test]
+    fn exporting_deselects_so_one_escape_closes() {
+        let mut s = session();
+        drag(&mut s, pt(10.0, 10.0), pt(100.0, 80.0));
+        assert!(s.selected().is_some());
+        s.export();
+        assert!(s.selected().is_none());
+        assert_eq!(s.key(Key::Escape, NONE), Outcome::Close);
     }
 
     #[test]
