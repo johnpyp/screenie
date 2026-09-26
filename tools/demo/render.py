@@ -8,7 +8,9 @@ title and an outro over the recording.
 
     tools/demo/render.py [OUT.mp4]   # default .cache/demo/screenie-demo.mp4
 
-Also writes docs/media/screenie-demo.mp4, a smaller encode for the README.
+Also writes .cache/demo/screenie-demo-web.mp4, a smaller encode for the README. GitHub
+only plays a video uploaded to it (drag the file into the README editor), not one in the
+repo.
 
 Reads .cache/demo/raw.mkv and timeline.json from `tools/demo/run.py video`. The
 recording is 3840x2160, the desktop 1920x1080 logical; the video is 1920x1080 at 60 fps.
@@ -377,8 +379,7 @@ def main():
     enc.stdin.close()
     enc.wait()
     print(out)
-    web = ROOT / "docs" / "media" / "screenie-demo.mp4"
-    web.parent.mkdir(parents=True, exist_ok=True)
+    web = out.with_name(f"{out.stem}-web.mp4")
     subprocess.run(
         [
             "ffmpeg",

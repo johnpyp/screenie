@@ -8,7 +8,7 @@ the raw recording into the finished video.
 cargo build --release -p screenie -p wlinput
 tools/demo/desktop.sh start        # the desktop (4K at 2x, Catppuccin Mocha, waybar)
 tools/demo/run.py video            # record the tour: .cache/demo/raw.mkv + timeline.json
-tools/demo/render.py               # → .cache/demo/screenie-demo.mp4
+tools/demo/render.py               # → .cache/demo/screenie-demo.mp4, and -web.mp4 for GitHub
 tools/demo/desktop.sh stop && tools/demo/desktop.sh start
 tools/demo/run.py stills           # the same tour, pausing for screenshots
 tools/demo/stills.py               # → docs/media/*.webp

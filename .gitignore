@@ -1,6 +1,9 @@
 /target
 /.cache
 
+# Videos are uploaded to GitHub, not committed (tools/demo/render.py).
+*.mp4
+
 # Reference checkouts, and the local manifest (tools/fetch_references.py).
 references/*
 !references/manifest.toml

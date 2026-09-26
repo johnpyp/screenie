@@ -11,9 +11,11 @@ Everything is built in: selector, capture, clipboard, encoder and UI. You don't 
 
 <p align="center">
   <img src="docs/media/hero.webp" alt="screenie on a sway desktop: the annotation editor over a capture of code, marked up with a box, an arrow, a note and numbered steps; below it, a window picked in the selector, a recording's timer pill and ring, and a preview card's actions">
-  <br>
-  <a href="docs/media/screenie-demo.mp4"><b>▶ Watch the one-minute tour</b></a>
 </p>
+
+<!-- The tour: tools/demo renders .cache/demo/screenie-demo-web.mp4. GitHub plays only an
+uploaded video, so drag it into this file in GitHub's editor and keep the URL it inserts,
+on its own line, here. -->
 
 | | |
 | :-: | :-: |
