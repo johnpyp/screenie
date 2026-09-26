@@ -45,7 +45,8 @@ wayland-protocols = { version = "0.32", features = ["client", "staging", "unstab
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 wl-clipboard-rs = "0.9"
 url = "2"
-ashpd = "0.13"
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+futures-lite = "2"
 # UI: GPUI (Zed's GPU UI framework, via the gpui-pre snapshots) and gpui-component.
 gpui = { package = "gpui-pre", version = "=0.3.6" }
 gpui-kit = { version = "=0.6.6", default-features = false, features = ["component", "assets"] }

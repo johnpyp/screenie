@@ -7,10 +7,12 @@ pub mod hud;
 mod image;
 mod keys;
 pub mod layer;
+mod scale;
 
 pub use assets::{Assets, FONT, Icon};
 pub use image::render_image;
 pub use keys::{KeyboardGrab, RELEASE_TIMEOUT};
+pub use scale::{UI_SCALE_RANGE, set_ui_scale, track as track_ui_scale, ui, ui_px, ui_scale};
 pub use layer::{LayerSpec, display_for_output, fallback_options, layer_options, wait_for_displays};
 
 /// Application id used for windows and the desktop entry.

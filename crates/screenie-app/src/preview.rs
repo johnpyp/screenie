@@ -24,7 +24,7 @@ use gpui::{
 use screenie_config::{Align, ScreenPosition};
 use screenie_core::Image;
 use screenie_ui_kit::hud::{self, color};
-use screenie_ui_kit::{Icon, LayerSpec, layer_options};
+use screenie_ui_kit::{Icon, LayerSpec, layer_options, ui};
 
 use crate::clipboard;
 use crate::deliver::Capture;
@@ -209,6 +209,7 @@ pub(crate) struct PreviewStack {
 
 impl PreviewStack {
     fn new(position: ScreenPosition, output: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        screenie_ui_kit::track_ui_scale(window, cx);
         // Nothing is interactive until the first card is laid out.
         window.set_input_region(Some(&[]));
         screenie_editor::observe_overlays(cx, |_, cx| cx.notify()).detach();
@@ -413,16 +414,19 @@ impl PreviewStack {
 
     fn card(&self, item: &PreviewItem, cx: &mut Context<Self>) -> impl IntoElement {
         let id = item.id;
-        let (w, h) = item.card;
+        // The card's size in pixels at the interface scale (exact, so the thumbnail can
+        // fill its inside precisely); everything else in it is in `ui` lengths.
+        let k = screenie_ui_kit::ui_scale(cx);
+        let (w, h) = (item.card.0 * k, item.card.1 * k);
         let hovered = item.hovered;
         let bounds_sink = self.card_bounds.clone();
         let saved = item.path.is_some();
         // Cards slide in from the edge they sit at (the side one, for corners).
         let slide = match (self.position.horizontal(), self.position.vertical()) {
-            (Align::Start, _) => (-48.0, 0.0),
-            (Align::End, _) => (48.0, 0.0),
-            (Align::Middle, Align::Start) => (0.0, -48.0),
-            (Align::Middle, _) => (0.0, 48.0),
+            (Align::Start, _) => (-48.0 * k, 0.0),
+            (Align::End, _) => (48.0 * k, 0.0),
+            (Align::Middle, Align::Start) => (0.0, -48.0 * k),
+            (Align::Middle, _) => (0.0, 48.0 * k),
         };
 
         let button = |icon: Icon, tip: &'static str, action: fn(&mut Self, u64, &mut Context<Self>), cx: &mut Context<Self>| {
@@ -443,11 +447,11 @@ impl PreviewStack {
         // Small round buttons in the corners, and larger ones in the middle for what's
         // left to do with the capture.
         let corner = |icon, tip, action, cx: &mut Context<Self>| {
-            button(icon, tip, action, cx).size(px(30.)).bg(rgba(0x000000a6)).hover(|s| s.bg(rgba(0x000000d9)))
+            button(icon, tip, action, cx).size(ui(30.)).bg(rgba(0x000000a6)).hover(|s| s.bg(rgba(0x000000d9)))
         };
         let action = |icon, tip, action, cx: &mut Context<Self>| {
             button(icon, tip, action, cx)
-                .size(px(42.))
+                .size(ui(42.))
                 .bg(rgba(0xffffff2e))
                 .hover(|s| s.bg(rgba(0xffffff4d)))
                 .active(|s| s.opacity(0.85))
@@ -463,22 +467,22 @@ impl PreviewStack {
                 .flex_row()
                 .items_center()
                 .gap_1()
-                .px(px(6.))
-                .py(px(2.))
-                .rounded(px(6.))
+                .px(ui(6.))
+                .py(ui(2.))
+                .rounded(ui(6.))
                 .bg(rgba(0x000000b3))
                 .text_color(gpui::white())
-                .text_size(px(11.))
+                .text_size(ui(11.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(Icon::Check.element().size_3().text_color(gpui::white()))
                 .child(done.join(" & "))
         });
-        let caption = hovered.then(|| div().text_size(px(11.)).text_color(rgba(0xffffffb3)).child(item.caption()));
+        let caption = hovered.then(|| div().text_size(ui(11.)).text_color(rgba(0xffffffb3)).child(item.caption()));
         let corner_info = (status.is_some() || caption.is_some()).then(|| {
             div()
                 .absolute()
-                .bottom(px(8.))
-                .right(px(8.))
+                .bottom(ui(8.))
+                .right(ui(8.))
                 .flex()
                 .flex_col()
                 .items_end()
@@ -492,17 +496,17 @@ impl PreviewStack {
             (Media::Recording { duration }, false) => Some(
                 div()
                     .absolute()
-                    .bottom(px(8.))
-                    .left(px(8.))
+                    .bottom(ui(8.))
+                    .left(ui(8.))
                     .flex()
                     .items_center()
                     .gap_1()
-                    .px(px(6.))
-                    .py(px(2.))
-                    .rounded(px(6.))
+                    .px(ui(6.))
+                    .py(ui(2.))
+                    .rounded(ui(6.))
                     .bg(rgba(0x000000b3))
                     .text_color(gpui::white())
-                    .text_size(px(11.))
+                    .text_size(ui(11.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(Icon::Video.element().size_3().text_color(gpui::white()))
                     .child(format_duration(*duration)),
@@ -521,21 +525,21 @@ impl PreviewStack {
             div()
                 .absolute()
                 .inset_0()
-                .rounded(px(11.))
+                .rounded(ui(11.))
                 .bg(rgba(0x00000099))
                 .flex()
                 .flex_col()
                 .items_center()
                 .justify_center()
                 .child(actions)
-                .child(div().absolute().top(px(6.)).left(px(6.)).child(corner(Icon::Close, "Dismiss", Self::remove, cx)))
+                .child(div().absolute().top(ui(6.)).left(ui(6.)).child(corner(Icon::Close, "Dismiss", Self::remove, cx)))
                 // Nothing to delete until there's a file.
                 .when(saved, |d| {
-                    d.child(div().absolute().bottom(px(6.)).left(px(6.)).child(corner(Icon::Trash, "Delete", Self::delete, cx)))
+                    d.child(div().absolute().bottom(ui(6.)).left(ui(6.)).child(corner(Icon::Trash, "Delete", Self::delete, cx)))
                 })
                 // One overlay editor at a time: no pencil while it's open.
                 .when(screenshot && !screenie_editor::overlay_open(cx), |d| {
-                    d.child(div().absolute().top(px(6.)).right(px(6.)).child(corner(Icon::Pen, "Annotate", Self::edit, cx)))
+                    d.child(div().absolute().top(ui(6.)).right(ui(6.)).child(corner(Icon::Pen, "Annotate", Self::edit, cx)))
                 })
         });
 
@@ -544,7 +548,7 @@ impl PreviewStack {
             .relative()
             .w(px(w))
             .h(px(h))
-            .rounded(px(12.))
+            .rounded(ui(12.))
             .bg(color::panel_solid())
             .border_1()
             .border_color(rgba(0xffffff26))
@@ -562,7 +566,7 @@ impl PreviewStack {
                     .w(px(w - 2.))
                     .h(px(h - 2.))
                     .object_fit(ObjectFit::Contain)
-                    .rounded(px(11.)),
+                    .rounded(ui(11.)),
             )
             .children(badge)
             .children(overlay)
@@ -616,8 +620,8 @@ impl Render for PreviewStack {
             Align::End => stack.items_end(),
         };
         stack
-            .gap(px(GAP))
-            .p(px(EDGE_MARGIN))
+            .gap(ui(GAP))
+            .p(ui(EDGE_MARGIN))
             .children(cards)
             // Painted last: restrict input to where the cards actually are, and track
             // which card the pointer is on.

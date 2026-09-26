@@ -99,6 +99,7 @@ pub async fn select(cx: &mut AsyncApp, backdrop: Backdrop, config: SelectorConfi
 
     let mut model = model::Model::new(outputs.clone(), windows, config.purpose, config.mode)
         .with_capture_on_release(config.capture_on_release)
+        .with_ui_scale(f64::from(cx.update(|cx| screenie_ui_kit::ui_scale(cx))))
         .with_window_snapping(config.window_snapping);
     if let Some(initial) = config.initial.clone() {
         model = model.with_selection(initial);

@@ -9,12 +9,55 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// How big the interface is drawn: buttons, bars, text, cards (never the captures
+    /// themselves). `auto` follows the desktop's text scaling (GNOME's "Large Text", or
+    /// `org.gnome.desktop.interface text-scaling-factor`, read through the settings
+    /// portal), else 1.
+    pub ui_scale: UiScale,
     pub screenshot: ScreenshotConfig,
     pub recording: RecordingConfig,
     pub preview: PreviewConfig,
     pub selector: SelectorConfig,
     pub editor: EditorConfig,
     pub advanced: AdvancedConfig,
+}
+
+/// `ui_scale`: `auto`, or a factor such as `1.25`.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(try_from = "UiScaleRepr", into = "UiScaleRepr")]
+pub enum UiScale {
+    /// Follow the desktop's text scaling.
+    #[default]
+    Auto,
+    Fixed(f64),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum UiScaleRepr {
+    Factor(f64),
+    Word(String),
+}
+
+impl TryFrom<UiScaleRepr> for UiScale {
+    type Error = String;
+
+    fn try_from(repr: UiScaleRepr) -> Result<Self, String> {
+        match repr {
+            UiScaleRepr::Factor(f) if f.is_finite() && f > 0.0 => Ok(UiScale::Fixed(f)),
+            UiScaleRepr::Word(w) if w == "auto" => Ok(UiScale::Auto),
+            _ => Err("expected `auto` or a positive number such as 1.25".into()),
+        }
+    }
+}
+
+impl From<UiScale> for UiScaleRepr {
+    fn from(scale: UiScale) -> Self {
+        match scale {
+            UiScale::Auto => UiScaleRepr::Word("auto".into()),
+            UiScale::Fixed(f) => UiScaleRepr::Factor(f),
+        }
+    }
 }
 
 /// What happens automatically once a capture is taken.

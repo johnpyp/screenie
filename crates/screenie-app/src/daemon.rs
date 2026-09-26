@@ -165,7 +165,10 @@ pub(crate) async fn watch_config(cx: &mut AsyncApp) {
         match Config::load() {
             Ok(config) => {
                 tracing::info!("config reloaded");
-                cx.update(|cx| Daemon::update(cx, |d, _| d.config = config));
+                cx.update(|cx| {
+                    Daemon::update(cx, |d, _| d.config = config);
+                    crate::appearance::apply(cx);
+                });
             }
             Err(e) => tracing::warn!("{e}; keeping the previous settings"),
         }

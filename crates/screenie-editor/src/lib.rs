@@ -183,11 +183,12 @@ pub(crate) fn open_session(
             }
         }
         Mode::Window => {
-            let window_size = initial_size(session.doc(), screen);
+            let k = screenie_ui_kit::ui_scale(cx);
+            let window_size = initial_size(session.doc(), screen, k);
             let options = WindowOptions {
                 titlebar: Some(gpui::TitlebarOptions { title: Some(setup.title.clone().into()), ..Default::default() }),
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(display, window_size, cx))),
-                window_min_size: Some(size(px(780.), px(480.))),
+                window_min_size: Some(size(px(780. * k), px(480. * k))),
                 window_decorations: Some(WindowDecorations::Server),
                 window_background: WindowBackgroundAppearance::Opaque,
                 display_id: display,
@@ -203,10 +204,11 @@ pub(crate) fn open_session(
     Ok(handle)
 }
 
-/// Big enough to show the capture at its on-screen size plus the bars, within 85% of the
-/// display.
-fn initial_size(doc: &Document, display: Option<Size<gpui::Pixels>>) -> Size<gpui::Pixels> {
+/// Big enough to show the capture at its on-screen size plus the bars (at interface
+/// scale `k`), within 85% of the display.
+fn initial_size(doc: &Document, display: Option<Size<gpui::Pixels>>, k: f32) -> Size<gpui::Pixels> {
     let (w, h) = (doc.width() as f32 / doc.scale(), doc.height() as f32 / doc.scale());
     let (max_w, max_h) = display.map_or((1600.0, 1000.0), |d| (f32::from(d.width) * 0.85, f32::from(d.height) * 0.85));
-    size(px((w + 56.0).clamp(780.0, max_w.max(780.0))), px((h + 132.0).clamp(480.0, max_h.max(480.0))))
+    let (min_w, min_h) = (780.0 * k, 480.0 * k);
+    size(px((w + 56.0 * k).clamp(min_w, max_w.max(min_w))), px((h + 132.0 * k).clamp(min_h, max_h.max(min_h))))
 }

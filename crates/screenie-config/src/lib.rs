@@ -156,6 +156,18 @@ mod tests {
     }
 
     #[test]
+    fn ui_scale_is_auto_or_a_factor() {
+        assert_eq!(parse("").unwrap().ui_scale, UiScale::Auto);
+        assert_eq!(parse("ui_scale: auto").unwrap().ui_scale, UiScale::Auto);
+        assert_eq!(parse("ui_scale: 1.25").unwrap().ui_scale, UiScale::Fixed(1.25));
+        assert_eq!(parse("ui_scale: 2").unwrap().ui_scale, UiScale::Fixed(2.0));
+        assert!(parse("ui_scale: big").is_err());
+        assert!(parse("ui_scale: -1").is_err());
+        let text = serde_saphyr::to_string(&Config { ui_scale: UiScale::Fixed(1.5), ..Default::default() }).unwrap();
+        assert_eq!(parse(&text).unwrap().ui_scale, UiScale::Fixed(1.5));
+    }
+
+    #[test]
     fn unknown_keys_are_ignored() {
         let cfg = parse("future_thing: 1\nselector:\n  sparkles: true\n").unwrap();
         assert_eq!(cfg, Config::default());

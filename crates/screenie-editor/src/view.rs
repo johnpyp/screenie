@@ -15,7 +15,7 @@ use gpui::{
 };
 use screenie_annotate::{Color, Handle, Kind, Redaction, Shape, Style};
 use screenie_core::{Image, Point, Rect};
-use screenie_ui_kit::{Icon, KeyboardGrab};
+use screenie_ui_kit::{Icon, KeyboardGrab, ui};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
 
 use crate::raster::Raster;
@@ -72,6 +72,8 @@ struct Viewport {
     origin: gpui::Point<Pixels>,
     /// Window pixels per image pixel.
     zoom: f32,
+    /// The interface scale: handles, and how close counts as grabbing one, grow with it.
+    ui: f32,
 }
 
 impl Viewport {
@@ -88,7 +90,7 @@ impl Viewport {
     }
 
     fn reach(self) -> Reach {
-        let per_px = 1.0 / self.zoom as f64;
+        let per_px = f64::from(self.ui) / self.zoom as f64;
         Reach { tolerance: (6.0 * per_px).max(3.0), handle: 10.0 * per_px }
     }
 }
@@ -112,6 +114,9 @@ pub struct Editor {
     closed: bool,
     /// The window goes only once the keys that closed it are let go (see `KeyboardGrab`).
     grab: Entity<KeyboardGrab>,
+    /// The interface scale, as of the last render: the bars' layout and the handles
+    /// scale with it, the capture never does.
+    k: f32,
 }
 
 impl Editor {
@@ -124,6 +129,7 @@ impl Editor {
     ) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        screenie_ui_kit::track_ui_scale(window, cx);
         let grab = KeyboardGrab::new(cx);
         cx.observe(&grab, |_, _, cx| cx.notify()).detach();
         let this = cx.entity().downgrade();
@@ -147,6 +153,7 @@ impl Editor {
             confirm_close: false,
             closed: false,
             grab,
+            k: screenie_ui_kit::ui_scale(cx),
         }
     }
 
@@ -414,7 +421,7 @@ impl Editor {
         // As an overlay, the capture stays exactly where it was taken (cropping included).
         if let Some(place) = self.placement(bounds.size) {
             let zoom = place.width as f32 / doc.width() as f32;
-            return Viewport { origin: bounds.origin + point(px(place.x as f32), px(place.y as f32)), zoom };
+            return Viewport { origin: bounds.origin + point(px(place.x as f32), px(place.y as f32)), zoom, ui: self.k };
         }
         // In crop mode the whole image shows, so the crop can grow again.
         let shown = if self.session.crop_edit().is_some() { doc.bounds() } else { doc.visible() };
@@ -422,6 +429,7 @@ impl Editor {
             return self.centred(bounds, shown);
         }
         let (inset_top, inset_bottom, inset_side) = WINDOW_INSETS;
+        let (inset_top, inset_bottom, inset_side) = (inset_top * self.k, inset_bottom * self.k, inset_side * self.k);
         let avail_w = (f32::from(bounds.size.width) - inset_side * 2.0).max(40.0);
         let avail_h = (f32::from(bounds.size.height) - inset_top - inset_bottom).max(40.0);
         // Never beyond the capture's own size on screen (logical 1:1), so it stays sharp.
@@ -429,7 +437,7 @@ impl Editor {
         let (w, h) = (shown.width as f32 * zoom, shown.height as f32 * zoom);
         let left = f32::from(bounds.origin.x) + inset_side + (avail_w - w) / 2.0;
         let top = f32::from(bounds.origin.y) + inset_top + (avail_h - h) / 2.0;
-        Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom }
+        Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom, ui: self.k }
     }
 
     /// An overlay's capture, when it isn't in place: logical 1:1, or shrunk if it nearly
@@ -445,11 +453,11 @@ impl Editor {
         };
         let zoom = fit / doc.scale();
         let (w, h) = (w * fit, h * fit);
-        let bars = BARS_HEIGHT + BAR_GAP;
-        let top = if h + bars + SCREEN_MARGIN * 2.0 <= screen_h { (screen_h - h - bars) / 2.0 } else { (screen_h - h) / 2.0 };
+        let bars = (BARS_HEIGHT + BAR_GAP) * self.k;
+        let top = if h + bars + SCREEN_MARGIN * self.k * 2.0 <= screen_h { (screen_h - h - bars) / 2.0 } else { (screen_h - h) / 2.0 };
         let left = f32::from(bounds.origin.x) + (screen_w - w) / 2.0;
         let top = f32::from(bounds.origin.y) + top;
-        Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom }
+        Viewport { origin: point(px(left - shown.x as f32 * zoom), px(top - shown.y as f32 * zoom)), zoom, ui: self.k }
     }
 
     /// Where the overlay shows the capture in place: the spot it was taken from, if that
@@ -712,19 +720,19 @@ impl Editor {
             bar = bar.child(hud::separator()).child(
                 div()
                     .id("fill")
-                    .size(px(30.))
+                    .size(ui(30.))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(px(9.))
+                    .rounded(ui(9.))
                     .cursor_pointer()
                     .when(fill, |d| d.bg(color::selected()))
                     .hover(|d| d.bg(color::hover()))
                     .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx))
                     .child(
                         div()
-                            .size(px(14.))
-                            .rounded(px(3.))
+                            .size(ui(14.))
+                            .rounded(ui(3.))
                             .border_2()
                             .border_color(color::text())
                             .when(fill, |d| d.bg(color::text())),
@@ -760,8 +768,8 @@ impl Editor {
             .child(
                 div()
                     .id("size")
-                    .w(px(30.))
-                    .h(px(30.))
+                    .w(ui(30.))
+                    .h(ui(30.))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -772,7 +780,7 @@ impl Editor {
                     .on_scroll_wheel(move |e, _, cx| {
                         this.update(cx, |editor, cx| editor.scroll_size(e.delta, cx));
                     })
-                    .child(div().size(px(dot)).rounded_full().bg(color::text())),
+                    .child(div().size(ui(dot)).rounded_full().bg(color::text())),
             )
             .child(
                 self.button_for("size-up", cx, |e, _, _| e.session.step_size(1))
@@ -788,7 +796,7 @@ impl Editor {
                 div()
                     .px_2()
                     .text_color(color::text_dim())
-                    .text_size(px(12.5))
+                    .text_size(ui(12.5))
                     .child(format!("{} × {}", crop.width.round(), crop.height.round())),
             )
             .child(hud::separator())
@@ -837,21 +845,21 @@ impl Editor {
     fn close_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let card = div()
             .occlude()
-            .w(px(340.))
-            .p(px(18.))
+            .w(ui(340.))
+            .p(ui(18.))
             .flex()
             .flex_col()
             .gap_3()
-            .rounded(px(14.))
+            .rounded(ui(14.))
             .bg(color::panel_solid())
             .border_1()
             .border_color(color::hairline())
             .shadow(hud::panel_shadow())
             .text_color(color::text())
-            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child("Keep your annotations?"))
+            .child(div().text_size(ui(15.)).font_weight(FontWeight::SEMIBOLD).child("Keep your annotations?"))
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(ui(13.))
                     .text_color(color::text_dim())
                     .child("They'll be lost if you close without keeping them."),
             )
@@ -871,6 +879,7 @@ impl Editor {
 
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.k = screenie_ui_kit::ui_scale(cx);
         window.set_window_edited(self.session.has_unsaved_work());
         let this = cx.entity();
         let canvas = canvas(
@@ -919,9 +928,9 @@ impl Editor {
     fn window_bars(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let top = div()
             .absolute()
-            .top(px(12.))
-            .left(px(12.))
-            .right(px(12.))
+            .top(ui(12.))
+            .left(ui(12.))
+            .right(ui(12.))
             .flex()
             .flex_row()
             .justify_between()
@@ -930,10 +939,10 @@ impl Editor {
             .child(self.tool_bar(cx))
             .child(self.action_bar(cx));
         let bottom = self.style_bar(cx).map(|bar| {
-            div().absolute().bottom(px(14.)).left_0().right_0().flex().flex_row().justify_center().child(bar)
+            div().absolute().bottom(ui(14.)).left_0().right_0().flex().flex_row().justify_center().child(bar)
         });
         let toast = self.toast_pill().map(|pill| {
-            div().absolute().bottom(px(70.)).left_0().right_0().flex().flex_row().justify_center().child(pill)
+            div().absolute().bottom(ui(70.)).left_0().right_0().flex().flex_row().justify_center().child(pill)
         });
         let mut out = vec![top.into_any_element()];
         out.extend(bottom.map(IntoElement::into_any_element));
@@ -950,7 +959,8 @@ impl Editor {
         let shown = self.shown(Bounds::new(point(px(0.), px(0.)), screen));
         let (top, bottom) = (f32::from(shown.top()), f32::from(shown.bottom()));
         let measured = self.bar_width.get();
-        let need = BARS_HEIGHT;
+        let k = self.k;
+        let (need, gap, margin) = (BARS_HEIGHT * k, BAR_GAP * k, SCREEN_MARGIN * k);
 
         #[derive(PartialEq)]
         enum Side {
@@ -958,15 +968,15 @@ impl Editor {
             Above,
             Inside,
         }
-        let side = if bottom + BAR_GAP + need <= h - SCREEN_MARGIN {
+        let side = if bottom + gap + need <= h - margin {
             Side::Below
-        } else if top - BAR_GAP - need >= SCREEN_MARGIN {
+        } else if top - gap - need >= margin {
             Side::Above
         } else {
             Side::Inside
         };
 
-        let row = || div().h(px(BAR_HEIGHT)).flex().flex_row().items_center().justify_center();
+        let row = || div().h(ui(BAR_HEIGHT)).flex().flex_row().items_center().justify_center();
         let slot = self.bar_width.clone();
         let main = row()
             .relative()
@@ -991,7 +1001,7 @@ impl Editor {
             .flex()
             .flex_col()
             .items_center()
-            .gap(px(BAR_GAP - 2.0))
+            .gap(ui(BAR_GAP - 2.0))
             .when(measured.is_none(), |d| d.opacity(0.));
         // The main bar sits nearest the capture.
         let style = self.style_bar(cx).map(|bar| row().child(bar));
@@ -1003,24 +1013,22 @@ impl Editor {
 
         // Centred on the capture; against the nearer screen edge when too wide for that.
         let center = f32::from(shown.center().x).clamp(0.0, w);
-        let half = (center - SCREEN_MARGIN).min(w - SCREEN_MARGIN - center).max(0.0);
+        let half = (center - margin).min(w - margin - center).max(0.0);
         let fits = measured.is_none_or(|width| f32::from(width) <= half * 2.0);
-        let mut column = div().absolute().flex().flex_col().gap(px(BAR_GAP - 2.0));
+        let mut column = div().absolute().flex().flex_col().gap(ui(BAR_GAP - 2.0));
         column = if fits {
             column.left(px(center - half)).w(px(half * 2.0)).items_center()
         } else if center < w / 2.0 {
-            column.left(px(SCREEN_MARGIN)).right(px(SCREEN_MARGIN)).items_start()
+            column.left(px(margin)).right(px(margin)).items_start()
         } else {
-            column.left(px(SCREEN_MARGIN)).right(px(SCREEN_MARGIN)).items_end()
+            column.left(px(margin)).right(px(margin)).items_end()
         };
         // Toasts go on the far side of the bars, so the bars never move for them.
         let toast = self.toast_pill();
         column = match side {
-            Side::Below => column.top(px(bottom + BAR_GAP)).child(stack).children(toast),
-            Side::Above => column.bottom(px(h - top + BAR_GAP)).children(toast).child(stack),
-            Side::Inside => {
-                column.bottom(px((h - bottom).max(0.0) + BAR_GAP + 4.0)).children(toast).child(stack)
-            }
+            Side::Below => column.top(px(bottom + gap)).child(stack).children(toast),
+            Side::Above => column.bottom(px(h - top + gap)).children(toast).child(stack),
+            Side::Inside => column.bottom(px((h - bottom).max(0.0) + gap + 4.0 * k)).children(toast).child(stack),
         };
         vec![column.into_any_element()]
     }
@@ -1063,7 +1071,7 @@ fn swatch(id: impl Into<gpui::ElementId>, c: Color, selected: bool) -> gpui::Sta
     let fill: Hsla = gpui::Rgba { r: c.r as f32 / 255.0, g: c.g as f32 / 255.0, b: c.b as f32 / 255.0, a: 1.0 }.into();
     div()
         .id(id.into())
-        .size(px(28.))
+        .size(ui(28.))
         .flex()
         .items_center()
         .justify_center()
@@ -1072,7 +1080,7 @@ fn swatch(id: impl Into<gpui::ElementId>, c: Color, selected: bool) -> gpui::Sta
         .border_2()
         .border_color(if selected { color::text() } else { gpui::transparent_black() })
         .hover(|d| d.bg(color::hover()))
-        .child(div().size(px(18.)).rounded_full().bg(fill).border_1().border_color(rgba(0xffffff40)))
+        .child(div().size(ui(18.)).rounded_full().bg(fill).border_1().border_color(rgba(0xffffff40)))
 }
 
 fn shadow(color: u32, y: f32, blur: f32) -> BoxShadow {
@@ -1094,16 +1102,18 @@ fn cursor_style(cursor: Cursor) -> CursorStyle {
     }
 }
 
-fn handle_square(center: gpui::Point<Pixels>, window: &mut Window) {
-    let b = Bounds::new(point(center.x - px(4.5), center.y - px(4.5)), size(px(9.), px(9.)));
-    window.paint_drop_shadows(b, px(2.).into(), &[shadow(0x00000059, 1.0, 3.0)]);
-    window.paint_quad(quad(b, px(2.), gpui::white(), px(1.5), color::accent(), BorderStyle::Solid));
+fn handle_square(center: gpui::Point<Pixels>, ui: f32, window: &mut Window) {
+    let d = px(9. * ui);
+    let b = Bounds::new(point(center.x - d / 2., center.y - d / 2.), size(d, d));
+    window.paint_drop_shadows(b, px(2. * ui).into(), &[shadow(0x00000059, 1.0, 3.0)]);
+    window.paint_quad(quad(b, px(2. * ui), gpui::white(), px(1.5), color::accent(), BorderStyle::Solid));
 }
 
-fn handle_dot(center: gpui::Point<Pixels>, window: &mut Window) {
-    let b = Bounds::new(point(center.x - px(5.), center.y - px(5.)), size(px(10.), px(10.)));
-    window.paint_drop_shadows(b, px(5.).into(), &[shadow(0x00000059, 1.0, 3.0)]);
-    window.paint_quad(quad(b, px(5.), gpui::white(), px(1.5), color::accent(), BorderStyle::Solid));
+fn handle_dot(center: gpui::Point<Pixels>, ui: f32, window: &mut Window) {
+    let d = px(10. * ui);
+    let b = Bounds::new(point(center.x - d / 2., center.y - d / 2.), size(d, d));
+    window.paint_drop_shadows(b, (d / 2.).into(), &[shadow(0x00000059, 1.0, 3.0)]);
+    window.paint_quad(quad(b, d / 2., gpui::white(), px(1.5), color::accent(), BorderStyle::Solid));
 }
 
 fn paint_selection(vp: &Viewport, shape: &Shape, scale: f32, window: &mut Window) {
@@ -1111,14 +1121,14 @@ fn paint_selection(vp: &Viewport, shape: &Shape, scale: f32, window: &mut Window
     match &shape.kind {
         Kind::Arrow { .. } | Kind::Line { .. } => {
             for (_, p) in shape.handles() {
-                handle_dot(vp.to_window(p), window);
+                handle_dot(vp.to_window(p), vp.ui, window);
             }
         }
         Kind::Rectangle { rect } | Kind::Ellipse { rect } | Kind::Redact { rect, .. } | Kind::Spotlight { rect } => {
             window.paint_quad(quad(vp.rect(*rect), px(0.), gpui::transparent_black(), px(1.), accent, BorderStyle::Solid));
             for (handle, p) in shape.handles() {
                 if handle.is_visible() {
-                    handle_square(vp.to_window(p), window);
+                    handle_square(vp.to_window(p), vp.ui, window);
                 }
             }
         }
@@ -1171,12 +1181,13 @@ fn paint_crop(vp: &Viewport, image: Rect, crop: Rect, window: &mut Window) {
     for handle in Handle::BOX {
         let c = vp.to_window(handle.position(&crop));
         let (w, h) = match handle {
-            Handle::Top | Handle::Bottom => (px(26.), px(6.)),
-            Handle::Left | Handle::Right => (px(6.), px(26.)),
-            _ => (px(13.), px(13.)),
+            Handle::Top | Handle::Bottom => (26., 6.),
+            Handle::Left | Handle::Right => (6., 26.),
+            _ => (13., 13.),
         };
+        let (w, h, r) = (px(w * vp.ui), px(h * vp.ui), px(2.5 * vp.ui));
         let b = Bounds::new(point(c.x - w / 2., c.y - h / 2.), size(w, h));
-        window.paint_drop_shadows(b, px(2.5).into(), &[shadow(0x00000073, 1.0, 4.0)]);
-        window.paint_quad(quad(b, px(2.5), gpui::white(), px(0.), gpui::transparent_black(), BorderStyle::Solid));
+        window.paint_drop_shadows(b, r.into(), &[shadow(0x00000073, 1.0, 4.0)]);
+        window.paint_quad(quad(b, r, gpui::white(), px(0.), gpui::transparent_black(), BorderStyle::Solid));
     }
 }

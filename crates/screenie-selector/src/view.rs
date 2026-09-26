@@ -11,7 +11,7 @@ use gpui::{
 };
 use screenie_core::{Image, OutputInfo, Point, Rect, Snapshot};
 use screenie_ui_kit::hud::{self, ButtonStyle, HudButton, color};
-use screenie_ui_kit::{Icon, KeyboardGrab};
+use screenie_ui_kit::{Icon, KeyboardGrab, ui, ui_px};
 
 use crate::model::{Handle, Key, Mode, Model, Modifiers, Outcome, Purpose, Selection};
 use crate::{Choice, RecordOptions, SelectorConfig};
@@ -159,6 +159,7 @@ impl OutputView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&session, |_, _, cx| cx.notify()).detach();
+        screenie_ui_kit::track_ui_scale(window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         Self { session, output, frozen, focus }
@@ -242,11 +243,12 @@ impl OutputView {
                     let edge = gbounds(r.inset(-1.0));
                     window.paint_quad(quad(edge, px(0.), gpui::transparent_black(), px(1.), rgba(0xfffffff2), Default::default()));
                     if s.model.editing().is_some() && !s.model.is_drawing() {
+                        let d = ui_px(window, 9.);
                         for h in Handle::RESIZE {
                             let p = h.position(&r);
-                            let dot = Bounds::new(point(to_px(p.x - 4.5), to_px(p.y - 4.5)), size(px(9.), px(9.)));
-                            window.paint_drop_shadows(dot, px(4.5).into(), &[shadow(0x00000059, 1.0, 3.0)]);
-                            window.paint_quad(quad(dot, px(4.5), gpui::white(), px(1.), rgba(0x00000040), Default::default()));
+                            let dot = Bounds::new(point(to_px(p.x) - d / 2., to_px(p.y) - d / 2.), size(d, d));
+                            window.paint_drop_shadows(dot, (d / 2.).into(), &[shadow(0x00000059, 1.0, 3.0)]);
+                            window.paint_quad(quad(dot, d / 2., gpui::white(), px(1.), rgba(0x00000040), Default::default()));
                         }
                     }
                 } else if let Some(target) = &hover {
@@ -325,8 +327,8 @@ impl OutputView {
         .into_any_element()
     }
 
-    /// Size readout, window labels, and the magnifier.
-    fn annotations(&self, s: &Session) -> Vec<AnyElement> {
+    /// Size readout, window labels, and the magnifier. `k` is the interface scale.
+    fn annotations(&self, s: &Session, k: f64) -> Vec<AnyElement> {
         let mut out = Vec::new();
         let (w, h) = (self.output.logical.width, self.output.logical.height);
         let model = &s.model;
@@ -346,10 +348,10 @@ impl OutputView {
                 Some(_) if loupe_here => None,
                 Some(c) => {
                     let c = self.local(Rect::new(c.x, c.y, 0.0, 0.0));
-                    Some((c.x + 16.0, c.y + 18.0))
+                    Some((c.x + 16.0 * k, c.y + 18.0 * k))
                 }
-                None if r.bottom() + 36.0 < h => Some((r.x, r.bottom() + 8.0)),
-                None => Some((r.x + 8.0, r.bottom() - 32.0)),
+                None if r.bottom() + 36.0 * k < h => Some((r.x, r.bottom() + 8.0 * k)),
+                None => Some((r.x + 8.0 * k, r.bottom() - 32.0 * k)),
             };
             if let Some(pos) = pos
                 && self.output.logical.intersection(&sel).is_some()
@@ -357,8 +359,8 @@ impl OutputView {
                 out.push(
                     div()
                         .absolute()
-                        .left(to_px(pos.0.clamp(4.0, (w - 110.0).max(4.0))))
-                        .top(to_px(pos.1.clamp(4.0, (h - 30.0).max(4.0))))
+                        .left(to_px(pos.0.clamp(4.0, (w - 110.0 * k).max(4.0))))
+                        .top(to_px(pos.1.clamp(4.0, (h - 30.0 * k).max(4.0))))
                         .child(hud::pill(text))
                         .into_any_element(),
                 );
@@ -379,8 +381,8 @@ impl OutputView {
                 out.push(
                     div()
                         .absolute()
-                        .left(to_px(v.x + 12.0))
-                        .top(to_px(v.y + 12.0))
+                        .left(to_px(v.x + 12.0 * k))
+                        .top(to_px(v.y + 12.0 * k))
                         .child(hud::pill(format!("{label}   {pw} × {ph}")))
                         .into_any_element(),
                 );
@@ -389,25 +391,25 @@ impl OutputView {
 
         if loupe_here && let (Some(cursor), Some((_, image))) = (model.cursor(), &self.frozen) {
             let size = model.is_drawing().then(|| model.selection_rect()).flatten().map(|r| s.pixel_size(r));
-            out.push(self.loupe(cursor, image, size));
+            out.push(self.loupe(cursor, image, size, k));
         }
         out
     }
 
     /// A magnifier of the physical pixels around the cursor, with the center pixel's color
     /// and the cursor position.
-    fn loupe(&self, cursor: Point, image: &Image, selection_size: Option<(u32, u32)>) -> AnyElement {
+    fn loupe(&self, cursor: Point, image: &Image, selection_size: Option<(u32, u32)>, k: f64) -> AnyElement {
         const CELLS: i64 = 15;
-        const CELL: f64 = 8.0;
-        let side = CELLS as f64 * CELL;
+        let cell = 8.0 * k;
+        let side = CELLS as f64 * cell;
         let o = &self.output.logical;
         let scale = image.width() as f64 / o.width;
         let local = Point::new(cursor.x - o.x, cursor.y - o.y);
         let cx_px = ((local.x * scale).floor() as i64).clamp(0, image.width() as i64 - 1);
         let cy_px = ((local.y * scale).floor() as i64).clamp(0, image.height() as i64 - 1);
 
-        let gap = 26.0;
-        let label_h = 40.0;
+        let gap = 26.0 * k;
+        let label_h = 40.0 * k;
         let mut x = local.x + gap;
         let mut y = local.y + gap;
         if x + side > o.width - 4.0 {
@@ -439,16 +441,17 @@ impl OutputView {
                 let last = CELLS - 1;
                 for (i, j, [r, g, b, _]) in &cells {
                     let cell = Bounds::new(
-                        point(o.x + px((*i as f64 * CELL) as f32), o.y + px((*j as f64 * CELL) as f32)),
-                        size(px(CELL as f32), px(CELL as f32)),
+                        point(o.x + px((*i as f64 * cell) as f32), o.y + px((*j as f64 * cell) as f32)),
+                        size(px(cell as f32), px(cell as f32)),
                     );
                     // Round the four corner cells so the loupe's corners stay clean.
                     let mut radii = gpui::Corners::default();
+                    let corner = ui_px(window, 7.);
                     match (*i, *j) {
-                        (0, 0) => radii.top_left = px(7.),
-                        (i, 0) if i == last => radii.top_right = px(7.),
-                        (0, j) if j == last => radii.bottom_left = px(7.),
-                        (i, j) if i == last && j == last => radii.bottom_right = px(7.),
+                        (0, 0) => radii.top_left = corner,
+                        (i, 0) if i == last => radii.top_right = corner,
+                        (0, j) if j == last => radii.bottom_left = corner,
+                        (i, j) if i == last && j == last => radii.bottom_right = corner,
                         _ => {}
                     }
                     let c = gpui::Rgba { r: *r as f32 / 255.0, g: *g as f32 / 255.0, b: *b as f32 / 255.0, a: 1.0 };
@@ -456,14 +459,14 @@ impl OutputView {
                 }
                 let line: Hsla = rgba(0x0000001f).into();
                 for k in 1..CELLS {
-                    let d = px((k as f64 * CELL) as f32);
+                    let d = px((k as f64 * cell) as f32);
                     window.paint_quad(fill(Bounds::new(point(o.x + d, o.y), size(px(1.), bounds.size.height)), line));
                     window.paint_quad(fill(Bounds::new(point(o.x, o.y + d), size(bounds.size.width, px(1.))), line));
                 }
-                let c = px(((CELLS / 2) as f64 * CELL) as f32);
-                let center = Bounds::new(point(o.x + c - px(1.), o.y + c - px(1.)), size(px(CELL as f32 + 2.), px(CELL as f32 + 2.)));
+                let c = px(((CELLS / 2) as f64 * cell) as f32);
+                let center = Bounds::new(point(o.x + c - px(1.), o.y + c - px(1.)), size(px(cell as f32 + 2.), px(cell as f32 + 2.)));
                 window.paint_quad(quad(center, px(1.), gpui::transparent_black(), px(1.), rgba(0x000000cc), Default::default()));
-                let inner = Bounds::new(point(o.x + c, o.y + c), size(px(CELL as f32), px(CELL as f32)));
+                let inner = Bounds::new(point(o.x + c, o.y + c), size(px(cell as f32), px(cell as f32)));
                 window.paint_quad(quad(inner, px(0.), gpui::transparent_black(), px(1.), gpui::white(), Default::default()));
             },
         )
@@ -474,7 +477,7 @@ impl OutputView {
             .flex_row()
             .items_center()
             .gap_1p5()
-            .child(div().size(px(10.)).rounded_full().bg(center_color).border_1().border_color(rgba(0xffffffb3)))
+            .child(div().size(ui(10.)).rounded_full().bg(center_color).border_1().border_color(rgba(0xffffffb3)))
             .child(format!("#{r:02X}{g:02X}{b:02X}"))
             .child(div().text_color(color::text_dim()).child(match selection_size {
                 Some((w, h)) => format!("{w} × {h}"),
@@ -492,28 +495,28 @@ impl OutputView {
             .child(
                 div()
                     .size(to_px(side))
-                    .rounded(px(8.))
+                    .rounded(ui(8.))
                     .shadow(vec![shadow(0x00000073, 4.0, 14.0)])
                     .child(grid)
-                    .child(div().absolute().inset_0().rounded(px(8.)).border_2().border_color(rgba(0xffffffe6))),
+                    .child(div().absolute().inset_0().rounded(ui(8.)).border_2().border_color(rgba(0xffffffe6))),
             )
             .child(
                 div()
-                    .px(px(8.))
-                    .py(px(3.))
-                    .rounded(px(7.))
+                    .px(ui(8.))
+                    .py(ui(3.))
+                    .rounded(ui(7.))
                     .bg(rgba(0x1c1c1ee0))
                     .border_1()
                     .border_color(color::hairline())
                     .text_color(color::text())
-                    .text_size(px(12.))
+                    .text_size(ui(12.))
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .child(readout),
             )
             .into_any_element()
     }
 
-    fn toolbar(&self, s: &Session) -> AnyElement {
+    fn toolbar(&self, s: &Session, k: f64) -> AnyElement {
         let model = &s.model;
         let editing = model.editing().is_some();
         let purpose = model.purpose();
@@ -543,7 +546,7 @@ impl OutputView {
             (_, Mode::Window, false) => "Click a window",
             (_, Mode::Screen, false) => "Click a screen",
         };
-        bar = bar.child(div().px_2().text_color(color::text_dim()).text_size(px(12.5)).child(hint));
+        bar = bar.child(div().px_2().text_color(color::text_dim()).text_size(ui(12.5)).child(hint));
 
         if purpose == Purpose::Recording {
             bar = bar.child(hud::separator());
@@ -596,10 +599,10 @@ impl OutputView {
 
         // Keep clear of a selection near the bottom edge.
         let o = &self.output.logical;
-        let band = Rect::new(o.x, o.bottom() - 140.0, o.width, 140.0);
+        let band = Rect::new(o.x, o.bottom() - 140.0 * k, o.width, 140.0 * k);
         let at_top = model.selection_rect().is_some_and(|r| r.intersection(&band).is_some());
         let row = div().absolute().left_0().right_0().flex().flex_row().justify_center();
-        let row = if at_top { row.top(px(36.)) } else { row.bottom(px(36.)) };
+        let row = if at_top { row.top(ui(36.)) } else { row.bottom(ui(36.)) };
         row.child(bar).into_any_element()
     }
 }
@@ -625,10 +628,11 @@ impl Render for OutputView {
         }
         let scene = self.scene(cx);
         let s = self.session.read(cx);
-        let annotations = self.annotations(s);
+        let k = f64::from(screenie_ui_kit::ui_scale(cx));
+        let annotations = self.annotations(s, k);
         let busy = s.model.is_drawing() || s.model.is_grabbing();
         let show_toolbar = s.config.toolbar && !busy && s.active_output.as_deref() == Some(self.output.name.as_str());
-        let toolbar = show_toolbar.then(|| self.toolbar(s));
+        let toolbar = show_toolbar.then(|| self.toolbar(s, k));
 
         root.child(scene)
             .children(annotations)

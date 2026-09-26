@@ -6329,8 +6329,10 @@ name = "screenie-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ashpd",
  "async-channel",
  "chrono",
+ "futures-lite",
  "gpui-kit",
  "gpui-pre",
  "png 0.18.1",

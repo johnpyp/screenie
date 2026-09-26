@@ -131,7 +131,7 @@ pub enum Outcome {
 
 /// Minimum pointer travel (logical px) for a press to count as a drag rather than a click.
 const CLICK_SLOP: f64 = 4.0;
-/// Distance (logical px) within which a handle can be grabbed.
+/// Distance (logical px, at interface scale 1) within which a handle can be grabbed.
 const HANDLE_REACH: f64 = 10.0;
 
 #[derive(Debug, Clone)]
@@ -154,6 +154,9 @@ pub struct Model {
     purpose: Purpose,
     mode: Mode,
     capture_on_release: bool,
+    /// How close counts as grabbing a handle: [`HANDLE_REACH`] at the interface scale,
+    /// since the handles are drawn at it.
+    handle_reach: f64,
     window_snapping: bool,
     cursor: Option<Point>,
     press: Option<Point>,
@@ -170,6 +173,7 @@ impl Model {
             purpose,
             mode,
             capture_on_release: true,
+            handle_reach: HANDLE_REACH,
             window_snapping: true,
             cursor: None,
             press: None,
@@ -181,6 +185,12 @@ impl Model {
 
     pub fn with_capture_on_release(mut self, on: bool) -> Self {
         self.capture_on_release = on;
+        self
+    }
+
+    /// Handles are drawn `scale` times their normal size, so they grab from as far.
+    pub fn with_ui_scale(mut self, scale: f64) -> Self {
+        self.handle_reach = HANDLE_REACH * scale;
         self
     }
 
@@ -258,7 +268,7 @@ impl Model {
         if let Some(g) = grab {
             return Some(g.handle);
         }
-        self.cursor.and_then(|p| handle_at(&selection.rect(), p))
+        self.cursor.and_then(|p| handle_at(&selection.rect(), p, self.handle_reach))
     }
 
     pub fn output_at(&self, p: Point) -> Option<&OutputInfo> {
@@ -405,7 +415,7 @@ impl Model {
         match &mut self.phase {
             Phase::Editing { selection, grab } => {
                 let rect = selection.rect();
-                if let Some(handle) = handle_at(&rect, p) {
+                if let Some(handle) = handle_at(&rect, p, self.handle_reach) {
                     *grab = Some(Grab { handle, start: snapped, original: rect });
                     return Outcome::Redraw;
                 }
@@ -571,11 +581,12 @@ impl Model {
     }
 }
 
-/// The handle of `r` at `p`, preferring corners, then edges, then the inside.
-pub fn handle_at(r: &Rect, p: Point) -> Option<Handle> {
+/// The handle of `r` at `p`, within `reach`, preferring corners, then edges, then the
+/// inside.
+pub fn handle_at(r: &Rect, p: Point, reach: f64) -> Option<Handle> {
     // Small selections get proportionally smaller handle zones so the inside stays
     // grabbable.
-    let reach = HANDLE_REACH.min(r.width / 3.0).min(r.height / 3.0).max(4.0);
+    let reach = reach.min(r.width / 3.0).min(r.height / 3.0).max(4.0);
     let near = |h: Handle| h.position(r).distance(p) <= reach;
     for h in [Handle::TopLeft, Handle::TopRight, Handle::BottomRight, Handle::BottomLeft] {
         if near(h) {
@@ -780,9 +791,9 @@ mod tests {
     #[test]
     fn handles() {
         let r = Rect::new(100.0, 100.0, 200.0, 100.0);
-        assert_eq!(handle_at(&r, Point::new(101.0, 99.0)), Some(Handle::TopLeft));
-        assert_eq!(handle_at(&r, Point::new(200.0, 199.0)), Some(Handle::Bottom));
-        assert_eq!(handle_at(&r, Point::new(200.0, 150.0)), Some(Handle::Inside));
-        assert_eq!(handle_at(&r, Point::new(500.0, 150.0)), None);
+        assert_eq!(handle_at(&r, Point::new(101.0, 99.0), HANDLE_REACH), Some(Handle::TopLeft));
+        assert_eq!(handle_at(&r, Point::new(200.0, 199.0), HANDLE_REACH), Some(Handle::Bottom));
+        assert_eq!(handle_at(&r, Point::new(200.0, 150.0), HANDLE_REACH), Some(Handle::Inside));
+        assert_eq!(handle_at(&r, Point::new(500.0, 150.0), HANDLE_REACH), None);
     }
 }

@@ -18,6 +18,10 @@ Screenie's GPUI look and feel, shared by every window.
   hide keys from it) and close through `when_released`: the action runs once, outside
   event dispatch, when every key and modifier is up (or after a timeout). While leaving,
   the surface should render as gone, and the grab swallows further key events.
+- **`scale`**: the interface scale (`ui_scale`). Interface sizes are written as `ui(n)`
+  (rems: n pixels at scale 1), and screen geometry stays in `px`. `ui_px` gives the same
+  length in pixels for layout math and painting. `set_ui_scale` applies a scale to
+  every window; root views call `track_ui_scale` when created.
 - **`image`**: `render_image` converts a `screenie_core::Image` into a GPUI `RenderImage`.
 
 Call `screenie_ui_kit::init(cx)` once at startup.

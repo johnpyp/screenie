@@ -4,6 +4,7 @@
 //! invocation: the GPUI app (so overlays appear instantly), clipboard contents, the
 //! preview stack, and running recordings. The `screenie` CLI starts it on demand.
 
+mod appearance;
 mod clipboard;
 mod daemon;
 mod deliver;
@@ -36,6 +37,7 @@ pub fn run(commit: &'static str) -> anyhow::Result<()> {
         .run(move |cx| {
         screenie_ui_kit::init(cx);
         cx.set_global(daemon::Daemon::new(config, capture, commit));
+        appearance::start(cx);
         cx.spawn(async move |cx| daemon::serve(incoming, cx).await).detach();
         cx.spawn(async move |cx| daemon::watch_config(cx).await).detach();
     });

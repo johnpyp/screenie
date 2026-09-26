@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use crate::assets::Icon;
+use crate::scale::ui;
 
 pub mod color {
     use gpui::{Hsla, rgba};
@@ -92,21 +93,21 @@ pub fn panel() -> Div {
         .items_center()
         .gap_0p5()
         .p_1()
-        .rounded(px(14.))
+        .rounded(ui(14.))
         .bg(color::panel())
         .border_1()
         .border_color(color::hairline())
         .shadow(panel_shadow())
         .text_color(color::text())
-        .text_size(px(13.))
+        .text_size(ui(13.))
 }
 
 /// A small rounded label, e.g. the size readout next to a selection.
 pub fn pill(text: impl Into<SharedString>) -> Div {
     div()
-        .px(px(8.))
-        .py(px(3.))
-        .rounded(px(7.))
+        .px(ui(8.))
+        .py(ui(3.))
+        .rounded(ui(7.))
         .bg(rgba(0x1c1c1ee0))
         .border_1()
         .border_color(color::hairline())
@@ -118,23 +119,23 @@ pub fn pill(text: impl Into<SharedString>) -> Div {
             inset: false,
         }])
         .text_color(color::text())
-        .text_size(px(12.))
+        .text_size(ui(12.))
         .font_weight(FontWeight::MEDIUM)
         .child(text.into())
 }
 
 pub fn separator() -> Div {
-    div().w(px(1.)).h(px(20.)).mx_1().bg(color::separator())
+    div().w(px(1.)).h(ui(20.)).mx_1().bg(color::separator())
 }
 
 /// A keyboard key hint.
 pub fn keycap(text: impl Into<SharedString>) -> Div {
     div()
-        .px(px(5.))
-        .rounded(px(4.))
+        .px(ui(5.))
+        .rounded(ui(4.))
         .bg(color::hover())
         .text_color(color::text_dim())
-        .text_size(px(11.))
+        .text_size(ui(11.))
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.into())
 }
@@ -238,12 +239,12 @@ impl RenderOnce for HudButton {
             .items_center()
             .justify_center()
             .gap_1p5()
-            .h(px(30.))
-            .rounded(px(9.))
+            .h(ui(30.))
+            .rounded(ui(9.))
             .text_color(fg)
-            .text_size(px(13.))
+            .text_size(ui(13.))
             .font_weight(if self.style == ButtonStyle::Plain { FontWeight::MEDIUM } else { FontWeight::SEMIBOLD });
-        el = if icon_only { el.w(px(32.)) } else { el.px(px(if self.style == ButtonStyle::Plain { 10. } else { 14. })) };
+        el = if icon_only { el.w(ui(32.)) } else { el.px(ui(if self.style == ButtonStyle::Plain { 10. } else { 14. })) };
         if let Some(bg) = bg {
             el = el.bg(bg);
         }

@@ -157,6 +157,8 @@ The config lives in `~/.config/screenie/config.yaml`. Every key is optional, and
 apply within a second, without a restart.
 
 ```yaml
+ui_scale: auto            # interface size (bars, buttons, text, cards), e.g. 1.25; auto follows GTK text scaling
+
 screenshot:
   directory: ~/Pictures/Screenshots
   filename: "Screenshot_%Y-%m-%d_%H-%M-%S_{app}"  # {app}/{title}: the captured window, if any

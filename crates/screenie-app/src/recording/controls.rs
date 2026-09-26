@@ -18,7 +18,7 @@ use gpui::{
 };
 use screenie_core::{OutputInfo, Point, Rect, Size};
 use screenie_ui_kit::hud::{self, HudButton, color};
-use screenie_ui_kit::{Icon, LayerSpec, layer_options};
+use screenie_ui_kit::{Icon, LayerSpec, layer_options, ui};
 
 use crate::daemon::Daemon;
 
@@ -37,28 +37,35 @@ pub(crate) enum Phase {
 
 /// Where the pill goes: the output to show it on and its top-left in that output's
 /// coordinates. Prefers below the region, then above, then beside it, then another
-/// output.
-pub(crate) fn place_pill(region: Rect, home: &OutputInfo, outputs: &[OutputInfo]) -> Option<(String, Point)> {
+/// output. `k` is the interface scale.
+pub(crate) fn place_pill(region: Rect, home: &OutputInfo, outputs: &[OutputInfo], k: f64) -> Option<(String, Point)> {
+    let pill = pill_size(k);
+    let gap = GAP * k;
     let o = home.logical;
-    let fits_x = o.width >= PILL.width + 2.0 * GAP;
-    let centered_x = (region.center().x - PILL.width / 2.0).clamp(o.x + GAP, (o.right() - PILL.width - GAP).max(o.x));
+    let fits_x = o.width >= pill.width + 2.0 * gap;
+    let centered_x = (region.center().x - pill.width / 2.0).clamp(o.x + gap, (o.right() - pill.width - gap).max(o.x));
     let local = |x: f64, y: f64| Some((home.name.clone(), Point::new(x - o.x, y - o.y)));
-    if fits_x && o.bottom() - region.bottom() >= PILL.height + 2.0 * GAP {
-        return local(centered_x, region.bottom() + GAP);
+    if fits_x && o.bottom() - region.bottom() >= pill.height + 2.0 * gap {
+        return local(centered_x, region.bottom() + gap);
     }
-    if fits_x && region.y - o.y >= PILL.height + 2.0 * GAP {
-        return local(centered_x, region.y - GAP - PILL.height);
+    if fits_x && region.y - o.y >= pill.height + 2.0 * gap {
+        return local(centered_x, region.y - gap - pill.height);
     }
-    let side_y = (region.bottom() - PILL.height).clamp(o.y + GAP, (o.bottom() - PILL.height - GAP).max(o.y));
-    if o.right() - region.right() >= PILL.width + 2.0 * GAP {
-        return local(region.right() + GAP, side_y);
+    let side_y = (region.bottom() - pill.height).clamp(o.y + gap, (o.bottom() - pill.height - gap).max(o.y));
+    if o.right() - region.right() >= pill.width + 2.0 * gap {
+        return local(region.right() + gap, side_y);
     }
-    if region.x - o.x >= PILL.width + 2.0 * GAP {
-        return local(region.x - GAP - PILL.width, side_y);
+    if region.x - o.x >= pill.width + 2.0 * gap {
+        return local(region.x - gap - pill.width, side_y);
     }
     let other = outputs.iter().filter(|x| x.name != home.name).max_by(|a, b| a.logical.area().total_cmp(&b.logical.area()))?;
     let l = other.logical;
-    Some((other.name.clone(), Point::new((l.width - PILL.width) / 2.0, l.height - PILL.height - 48.0)))
+    Some((other.name.clone(), Point::new((l.width - pill.width) / 2.0, l.height - pill.height - 48.0 * k)))
+}
+
+/// The pill's size at interface scale `k`.
+fn pill_size(k: f64) -> Size {
+    Size { width: PILL.width * k, height: PILL.height * k }
 }
 
 /// One surface's worth of chrome.
@@ -82,7 +89,8 @@ pub(crate) fn open(
     phase: Phase,
     cx: &mut AsyncApp,
 ) -> Vec<WindowHandle<Controls>> {
-    let pill = place_pill(region, home, outputs);
+    let k = cx.update(|cx| f64::from(screenie_ui_kit::ui_scale(cx)));
+    let pill = place_pill(region, home, outputs, k);
     let whole_output = home.logical.inset(1.0).intersection(&region) == Some(home.logical.inset(1.0));
     let mut surfaces: Vec<(&OutputInfo, Controls)> = vec![(
         home,
@@ -127,6 +135,7 @@ pub(crate) fn open(
             .passive();
             cx.update(|cx| {
                 cx.open_window(layer_options(cx, &spec), |window, cx| {
+                    screenie_ui_kit::track_ui_scale(window, cx);
                     cx.new(|cx| {
                         // Keep the timer fresh, redrawing only when it changes: every
                         // frame we draw is damage the recording has to encode.
@@ -206,14 +215,15 @@ impl Controls {
             .child(ring(BORDER_OFFSET, 2.0, rgba(0xff453ae6)))
     }
 
-    fn countdown(&self, n: u32, region: Rect) -> impl IntoElement {
+    /// `k` is the interface scale.
+    fn countdown(&self, n: u32, region: Rect, k: f64) -> impl IntoElement {
         let c = region.center();
-        let diameter = 112.0;
+        let diameter = 112.0 * k;
         div()
             .absolute()
-            .left(px((c.x - 150.0) as f32))
+            .left(px((c.x - 150.0 * k) as f32))
             .top(px((c.y - diameter / 2.0) as f32))
-            .w(px(300.))
+            .w(px((300.0 * k) as f32))
             .flex()
             .flex_col()
             .items_center()
@@ -230,7 +240,7 @@ impl Controls {
                     .items_center()
                     .justify_center()
                     .text_color(color::text())
-                    .text_size(px(52.))
+                    .text_size(ui(52.))
                     .font_weight(FontWeight::BOLD)
                     .child(n.to_string())
                     .with_animation(
@@ -248,9 +258,10 @@ impl Controls {
         let (elapsed, paused) = pill_status(cx).unwrap_or_default();
         let counting = matches!(self.phase, Phase::Countdown(_));
         let sink = self.pill_bounds.clone();
+        let size = pill_size(f64::from(screenie_ui_kit::ui_scale(cx)));
 
         // Static on purpose: an animation would repaint (and so re-encode) constantly.
-        let dot = div().size(px(10.)).rounded_full().bg(if paused || counting { color::text_dim() } else { color::record() });
+        let dot = div().size(ui(10.)).rounded_full().bg(if paused || counting { color::text_dim() } else { color::record() });
         let label = match self.phase {
             Phase::Countdown(n) => format!("Starting in {n}"),
             Phase::Recording => format_elapsed(elapsed),
@@ -260,8 +271,8 @@ impl Controls {
             .absolute()
             .left(px(at.x as f32))
             .top(px(at.y as f32))
-            .w(px(PILL.width as f32))
-            .h(px(PILL.height as f32))
+            .w(px(size.width as f32))
+            .h(px(size.height as f32))
             .pl_3()
             .gap_1()
             .child(dot)
@@ -269,7 +280,7 @@ impl Controls {
                 div()
                     .flex_1()
                     .pl_1()
-                    .text_size(px(13.))
+                    .text_size(ui(13.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(if paused { color::text_dim() } else { color::text() })
                     .child(label),
@@ -287,15 +298,15 @@ impl Controls {
                     // The universal stop glyph: a solid square.
                     div()
                         .id("stop")
-                        .size(px(30.))
+                        .size(ui(30.))
                         .flex()
                         .items_center()
                         .justify_center()
-                        .rounded(px(9.))
+                        .rounded(ui(9.))
                         .bg(color::record())
                         .hover(|s| s.bg(color::record_hover()))
                         .cursor_pointer()
-                        .child(div().size(px(10.)).rounded(px(2.5)).bg(gpui::white()))
+                        .child(div().size(ui(10.)).rounded(ui(2.5)).bg(gpui::white()))
                         .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Stop and save").build(window, cx))
                         .on_click(|_, _, cx| {
                             cx.spawn(async move |cx| super::stop(cx).await).detach();
@@ -318,6 +329,7 @@ impl Render for Controls {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.pill_bounds.borrow_mut().clear();
         let bounds = self.pill_bounds.clone();
+        let k = f64::from(screenie_ui_kit::ui_scale(cx));
         div()
             .size_full()
             .relative()
@@ -326,7 +338,7 @@ impl Render for Controls {
             .when_some(self.region.zip(match self.phase {
                 Phase::Countdown(n) => Some(n),
                 Phase::Recording => None,
-            }), |el, (r, n)| el.child(self.countdown(n, r)))
+            }), |el, (r, n)| el.child(self.countdown(n, r, k)))
             .when_some(self.pill, |el, at| el.child(self.pill(at, cx)))
             // Painted last: only the pill takes input.
             .child(
@@ -356,11 +368,11 @@ mod tests {
     fn pill_goes_below_then_above_then_beside() {
         let o = output("A", 0.0, 1920.0, 1080.0);
         let outputs = [o.clone()];
-        let (_, p) = place_pill(Rect::new(100.0, 100.0, 400.0, 300.0), &o, &outputs).unwrap();
+        let (_, p) = place_pill(Rect::new(100.0, 100.0, 400.0, 300.0), &o, &outputs, 1.0).unwrap();
         assert_eq!(p.y, 412.0);
-        let (_, p) = place_pill(Rect::new(100.0, 700.0, 400.0, 370.0), &o, &outputs).unwrap();
+        let (_, p) = place_pill(Rect::new(100.0, 700.0, 400.0, 370.0), &o, &outputs, 1.0).unwrap();
         assert_eq!(p.y, 700.0 - GAP - PILL.height);
-        let (_, p) = place_pill(Rect::new(0.0, 0.0, 1400.0, 1080.0), &o, &outputs).unwrap();
+        let (_, p) = place_pill(Rect::new(0.0, 0.0, 1400.0, 1080.0), &o, &outputs, 1.0).unwrap();
         assert_eq!(p.x, 1400.0 + GAP);
     }
 
@@ -369,10 +381,10 @@ mod tests {
         let a = output("A", 0.0, 1920.0, 1080.0);
         let b = output("B", 1920.0, 1706.0, 960.0);
         let outputs = [a.clone(), b];
-        let (name, p) = place_pill(a.logical, &a, &outputs).unwrap();
+        let (name, p) = place_pill(a.logical, &a, &outputs, 1.0).unwrap();
         assert_eq!(name, "B");
         assert!(p.x > 0.0 && p.y > 0.0, "local coordinates");
-        assert!(place_pill(a.logical, &a, std::slice::from_ref(&a)).is_none());
+        assert!(place_pill(a.logical, &a, std::slice::from_ref(&a), 1.0).is_none());
     }
 
     #[test]

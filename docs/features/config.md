@@ -10,6 +10,25 @@ second of any change, whether it was made by hand or by the settings window
 Sections: `screenshot`, `recording`, `preview`, `selector`, `editor`, `advanced`. See
 `crates/screenie-config/src/schema.rs` for every key with its doc comment.
 
+## Interface scale
+
+`ui_scale` sizes the interface: bars, buttons, text, handles, the loupe and preview
+cards. It works on top of the display's own scale, so the two multiply: `ui_scale: 1.25`
+on a 1.5× monitor draws the interface at 1.875 device pixels per pixel, still sharp.
+Screen geometry never scales: selections, and captures shown in place, stay exactly
+where they are on screen.
+
+- `auto` (the default) follows the desktop's text scaling: GTK's `text-scaling-factor`,
+  which GNOME's "Large Text" and GNOME Tweaks set (or
+  `gsettings set org.gnome.desktop.interface text-scaling-factor 1.25`). It's read
+  through the settings portal and followed live. Without a GNOME or GTK portal backend
+  it's 1.
+- A number, such as `1.25`, fixes it. It's clamped to 0.5–3.
+
+It's implemented with GPUI rems. Interface sizes are written as `ui(n)` (n pixels at
+scale 1), and each window's rem size is set from the scale. Screen geometry stays in
+plain `px`.
+
 Other paths:
 
 - State and logs: `$XDG_STATE_HOME/screenie/`. That holds `daemon.log`, and
