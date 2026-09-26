@@ -204,13 +204,22 @@ async fn handle(request: Request, cx: &mut AsyncApp) -> Response {
 }
 
 /// Reload the config when the file changes (from the settings window or by hand).
+///
+/// It compares what the file says, not when it was modified: a config managed by
+/// home-manager is a symlink into the Nix store, where every file's mtime is the epoch,
+/// so switching generations changes the link's target and nothing else. The file is
+/// small enough to read every second.
 pub(crate) async fn watch_config(cx: &mut AsyncApp) {
     let path: PathBuf = Paths::get().config_file();
-    let mtime = |p: &PathBuf| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-    let mut last: Option<SystemTime> = mtime(&path);
+    let background = cx.background_executor().clone();
+    let read = || {
+        let path = path.clone();
+        background.spawn(async move { std::fs::read(path).ok() })
+    };
+    let mut last = read().await;
     loop {
-        cx.background_executor().timer(Duration::from_secs(1)).await;
-        let now = mtime(&path);
+        background.timer(Duration::from_secs(1)).await;
+        let now = read().await;
         if now == last {
             continue;
         }
