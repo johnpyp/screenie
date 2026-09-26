@@ -242,9 +242,7 @@ impl Session {
             return false;
         }
         self.style.size = size;
-        if let Some(id) = self.target() {
-            self.doc.restyle_merging(id, self.style);
-        }
+        self.restyle_target(true);
         true
     }
 
@@ -261,7 +259,10 @@ impl Session {
             && let Some(Kind::Redact { mode: current, .. }) = self.doc.shape(id).map(|s| &s.kind)
             && *current != mode
         {
-            self.doc.checkpoint();
+            // A shape being drawn already has its undo step.
+            if !self.is_drawing() {
+                self.doc.checkpoint();
+            }
             if let Some(Shape {
                 kind: Kind::Redact { mode: m, .. },
                 ..
@@ -275,14 +276,30 @@ impl Session {
     /// Change the style for new shapes and for the shape being edited.
     fn restyle(&mut self, style: Style) {
         self.style = style;
-        if let Some(id) = self.target() {
-            self.doc.restyle(id, style);
+        self.restyle_target(false);
+    }
+
+    /// Give the target the current style: as its own undo step (`merging`: joining a run
+    /// of them), or, for a shape being drawn, as part of drawing it, which is already one.
+    fn restyle_target(&mut self, merging: bool) {
+        let Some(id) = self.target() else { return };
+        if self.is_drawing() {
+            if let Some(shape) = self.doc.shape_mut(id) {
+                shape.style = self.style;
+            }
+        } else if merging {
+            self.doc.restyle_merging(id, self.style);
+        } else {
+            self.doc.restyle(id, self.style);
         }
     }
 
-    /// The shape style changes apply to.
+    /// The shape style changes apply to: the one being drawn, typed into, or selected.
     fn target(&self) -> Option<ShapeId> {
-        self.text.map(|t| t.id).or(self.selected)
+        match self.gesture {
+            Some(Gesture::Draw { id, .. }) => Some(id),
+            _ => self.text.map(|t| t.id).or(self.selected),
+        }
     }
 
     fn select(&mut self, id: Option<ShapeId>) {
@@ -531,7 +548,7 @@ impl Session {
                     self.doc.discard_checkpoint_if_unchanged();
                     self.selected = None;
                 } else if !matches!(self.tool, Tool::Pen | Tool::Highlighter) {
-                    self.selected = Some(id);
+                    self.select(Some(id));
                 }
             }
             Gesture::Move { .. } | Gesture::Handle { .. } => {
@@ -1128,6 +1145,25 @@ mod tests {
         drag(&mut s, pt(100.0, 100.0), pt(120.0, 100.0));
         s.key(Key::Escape, NONE);
         assert_eq!(s.doc().crop(), Some(Rect::new(50.0, 40.0, 350.0, 260.0)));
+    }
+
+    #[test]
+    fn resizing_while_drawing_resizes_the_shape_being_drawn() {
+        let mut s = session();
+        s.press(pt(10.0, 10.0), REACH, 1);
+        s.drag(pt(60.0, 40.0), NONE);
+        let before = s.style().size;
+        assert!(s.scroll_size(2));
+        s.key(Key::Text("]".into()), NONE);
+        s.drag(pt(100.0, 80.0), NONE);
+        s.release();
+        let size = Style::step_size(before, 3);
+        assert_eq!(s.selected().unwrap().style.size, size);
+        assert_eq!(s.style().size, size);
+        // Still one undo step for the whole shape.
+        s.undo();
+        assert!(s.doc().shapes().is_empty());
+        assert!(!s.doc().can_undo());
     }
 
     #[test]
