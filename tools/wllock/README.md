@@ -1,8 +1,8 @@
 # wllock
 
-A dev tool that stands in for a fullscreen game: a fullscreen window that locks the
-pointer (`zwp_pointer_constraints_v1`, persistent) when told to, for testing overlays
-against pointer locks.
+A dev tool that stands in for a game: a fullscreen window (`--windowed` for a normal
+one) that locks the pointer (`zwp_pointer_constraints_v1`, persistent) when told to, for
+testing overlays against pointer locks.
 
 It prints what it gets, a line each:
 

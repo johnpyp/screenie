@@ -30,10 +30,16 @@ recording, for status bars (see the README for the formats).
    the pill, which also has the keyboard while the pointer is on it. The recorded app
    keeps its typing otherwise, and a fullscreen game's pointer lock can't trap the
    pointer on the pill.
-3. The pill goes below the region, else above, else beside it, else on another output.
-   A recording of the only output's whole area has no pill. The countdown then says to
-   stop with the record shortcut or `screenie stop`.
-4. Stopping shows a preview card at once: the last frame and a duration badge, with a
+3. The pill goes below the region, else above, else beside it, on the recorded output.
+   Without room for it (a whole screen) there's no pill, and the countdown says to stop
+   with the record shortcut or `screenie stop`.
+4. Nothing stays over a fullscreen app. An output a window fills (a game, recorded by
+   itself or as part of its screen) gets no ring and no pill once the countdown is
+   over. A fullscreen app is scanned out directly (its buffer goes to the display
+   without compositing: the lowest latency, and tearing where allowed) only while it's
+   the only thing on its output. Anything over it, however small or transparent, costs
+   that. The countdown and the preview card are brief, so they still show.
+5. Stopping shows a preview card at once: the last frame and a duration badge, with a
    spinner while the file is finished (writing the index can take a moment for long
    recordings). Capture stops first, so the card is never in the video. It doesn't time
    out while saving, and gets its file actions once the file is written. On hover it
@@ -52,7 +58,11 @@ A picked window is recorded **by itself** where the compositor offers
 compositors): its own pixels, not the screen where it was. Windows covering it, bars,
 notifications and other workspaces never show, and the recording follows it if it moves
 or you switch workspaces. It then gets no ring, since the window may move away from
-it, and the pill can sit over the window, since nothing on screen is recorded.
+it, and the pill can sit over the window (unless it's fullscreen), since nothing on
+screen is recorded. It's also the light way to record a fullscreen game: on wlroots,
+capturing an output composites it for as long as the capture lasts, while a window is
+rendered for the capture separately and the game stays on direct scanout
+(`tools/scanout.py` shows both).
 
 - The window is matched by the toplevel identifier sway's IPC reports, or else by app
   id and title, which must be unique.
@@ -65,9 +75,10 @@ it, and the pill can sit over the window, since nothing on screen is recorded.
 ## Pipeline (`screenie-record`)
 
 ```
-FrameSource (paced screencopy) ─ capture thread ─▶ appsrc ─▶ scale + convert (GPU with VA-API) ─▶ H.264 ─┐
-pulsesrc @DEFAULT_MONITOR@ ─┐                                                                             ├─▶ mp4mux ─▶ file
-pulsesrc (default mic) ─────┴─▶ audiomixer ─▶ AAC ────────────────────────────────────────────────────────┘
+FrameSource (paced capture) ─ capture thread ─▶ appsrc ─▶ scale + convert (GPU) ─▶ H.264 ─┐
+  frames in GPU buffers, or memory                                                          ├─▶ mp4mux ─▶ file
+pulsesrc @DEFAULT_MONITOR@ ─┐                                                               │
+pulsesrc (default mic) ─────┴─▶ audiomixer ─▶ AAC ──────────────────────────────────────────┘
 ```
 
 Settings:
@@ -81,37 +92,61 @@ Settings:
   orientation. It never scales up and keeps the aspect ratio. A 4K screen at `1080p`
   is a quarter of the pixels to encode and store.
 
-- **Encoders** are probed once by actually encoding test frames, through the same
-  scaling and conversion a recording uses. The order is `vah264enc` → `vah264lpenc` →
-  `vaapih264enc` → `x264enc` → `openh264enc`, and `recording.encoder`
-  (`auto`/`hardware`/`software`) filters it. Encoders whose size limits (read from
-  their pad templates; VA-API takes 128 to 4096 pixels a side) don't fit the video are
-  skipped, so a tiny region or a native ultrawide falls back to x264. Constant quality
-  (CQP / CRF) comes from `recording.quality`, with no B-frames and keyframes every 2 s.
+- **Frames stay on the GPU** where the compositor offers GPU buffers
+  (`ext-image-copy-capture-v1` with a DMA-BUF device, e.g. sway 1.10+). screenie
+  allocates them with GBM on the compositor's GPU, in a format and layout (modifier)
+  both the compositor and the encoder's converter take, and the compositor renders each
+  frame into one: no read-back for the compositor and no copy for us, since the
+  converter imports the buffer directly. A buffer goes back to the capture pool once
+  the converter is done with it. Otherwise frames come through shared memory,
+  double-buffered so the compositor copies the next frame while this one is read: on
+  rotated outputs, once a recorded window is resized, on compositors without GPU
+  buffers, and with GStreamer before 1.24.
+- **Encoders** are found in the GStreamer registry, whatever the vendor: VA-API (AMD,
+  Intel, and any GPU with a VA driver, one element set per GPU), NVENC (NVIDIA),
+  gstreamer-vaapi, V4L2 (SoCs), then x264 and OpenH264. Hardware on the GPU holding the
+  frames comes first, then other hardware, then software, and `recording.encoder`
+  (`auto`/`hardware`/`software`) filters the list. Each is probed once by encoding test
+  frames through the same conversion a recording uses: VA-API elements exist whenever
+  the plugin does, driver or not. Encoders whose size limits (read from their pad
+  templates; VA-API takes 128 to 4096 pixels a side) don't fit the video are skipped,
+  so a tiny region or a native ultrawide falls back to x264. Constant quality (CQP /
+  CRF) comes from `recording.quality`, with no B-frames, keyframes every 2 s, and the
+  High profile (left to itself, NVENC picks Baseline, which costs a fifth more bits).
   x264enc's `bitrate` is set to its maximum: in CRF mode GStreamer turns it into a VBV
   ceiling, 2 Mbit/s by default, which starves anything that moves.
-- **Frames** are damage-driven and paced, and identical frames are skipped. A static
-  screen costs almost nothing, and the output is variable frame rate. Buffers wrap the
-  captured pixels without copying. Odd sizes lose their last row or column, since 4:2:0
+  `SCREENIE_ENCODER=factory[:va|gl|cpu]` forces one, for troubleshooting; the `rec`
+  example below lists them.
+- **Scaling and conversion** to the encoder's 4:2:0 input happen on the encoder's GPU:
+  `vapostproc` for VA-API, GL (`glupload ! glcolorscale ! glcolorconvert`) for NVENC,
+  which takes GL memory as is. Both take GPU buffers and memory alike. Software encoders
+  get `videoscale ! videoconvert`, scaling first (4K to 1080p on the CPU takes a core).
+- **Frames** are damage-driven and paced, and identical frames in memory are skipped. A
+  static screen costs almost nothing, and the output is variable frame rate. Each frame
+  is asked for a little ahead of when it's due, by how long the compositor has been
+  taking, so it's there on time. Buffers wrap the captured pixels without copying. Odd sizes lose their last row or column, since 4:2:0
   needs even dimensions. The video is the first frame's size, capped by the resolution.
   The appsrc's caps follow each frame, so frames of another size (a resized window) are
   scaled to fit, letterboxed.
-- **Scaling and conversion** to the encoder's 4:2:0 input happen on the GPU with
-  `vapostproc` when the encoder is VA-API (with the upload, so it costs almost no CPU;
-  scaling 4K to 1080p on the CPU takes a whole core). Software encoders get
-  `videoscale ! videoconvert`, scaling first.
 - **Falling behind**: the capture loop only pushes when the pipeline has room (two raw
   frames) and otherwise holds the newest frame. Frames replaced before they could be
-  pushed are counted. Each recording logs `recorded frames received=… pushed=…
-  skipped=… fps=… longest_gap=…`, and warns when more than 5% were skipped.
+  pushed are counted. Each recording logs `recording encoder=… gpu_frames=…` as it
+  starts, then `capture stream frames=… gpu_frames=… latency_avg=… latency_max=…` (how
+  long the compositor takes to deliver a frame) and `recorded frames received=…
+  pushed=… gpu=… skipped=… fps=… longest_gap=…`, and warns when more than 5% were
+  skipped.
 - **Measuring**: `tools/rec_stress.py` records an uncapped fullscreen `weston-simple-egl`
-  on a temporary 4K output of the headless session and reports the video's frame rate
-  and gaps, the encoder and the bitrate. On the dev machine (an integrated Radeon): 60
-  fps at 1080p with VA-API or x264; native 4K is held to ~32 fps by that GPU's
-  encoder.
-- **Timing**: buffers carry the pipeline's running time. Pausing sets the live
-  pipeline to PAUSED, which stops running time for audio and video alike, so resumed
-  segments join seamlessly.
+  (the whole 4K output, an odd-sized region of it, or the window) on a temporary output
+  of the headless session and reports the video's frame rate and gaps, the encoder and
+  the bitrate. On the dev machine (a 2-CU integrated Radeon), 4K to 1080p: 60 fps while
+  the GPU has headroom, about half when the demo saturates it, since VA-API's scaler
+  shares it. On an RTX 5090 recording a game drawing ~290 fps: a steady 60 fps with
+  NVENC, and the game within a few percent of its usual rate. `tools/scanout.py` shows
+  whether a fullscreen app stays on direct scanout while it's recorded.
+- **Timing**: each frame is stamped with when the compositor presented it, on the
+  pipeline's clock (CLOCK_MONOTONIC), so the video's timing is the screen's however
+  unevenly frames reach us. Pausing sets the live pipeline to PAUSED, which stops
+  running time for audio and video alike, so resumed segments join seamlessly.
 - **Audio** goes through pulsesrc (PipeWire and PulseAudio both serve it) and is encoded
   as AAC (`avenc_aac` → `fdkaacenc` → `voaacenc`), or Opus if there's no AAC encoder.
 - **File**: MP4 with the index up front (faststart). Its scratch file lives next to the

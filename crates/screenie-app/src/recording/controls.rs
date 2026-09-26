@@ -1,18 +1,22 @@
-//! On-screen chrome for a recording: the countdown, a border just outside the recorded
-//! region, and the control pill (timer, pause, stop, discard).
+//! On-screen chrome for a recording, on the recorded output: the countdown, a border just
+//! outside the recorded region, and the control pill (timer, pause, stop, discard).
 //!
 //! Screen capture includes every surface, so nothing here may overlap the region while
-//! recording. The border is drawn outside it, and the pill goes below, above or beside
-//! it, or onto another output. When the region fills the only output, there's no pill and
-//! the recording is stopped with the same shortcut (or `screenie stop`). The countdown
-//! says so.
+//! recording. The border is drawn outside it, and the pill goes below, above or beside it.
+//! A window recorded by itself sees none of this, and can move away from where it was: it
+//! gets no border, and the pill may go over it.
 //!
-//! A window recorded by itself sees none of this, and can move away from where it was:
-//! it gets no border, and the pill may go over it.
+//! Nothing covers a fullscreen app once the countdown is over. An app filling its output
+//! (a game) is scanned out directly, with no compositing and so the lowest latency (and
+//! tearing, where allowed), only while it's the only thing there: anything over it,
+//! however small or transparent, costs that. So an output a window fills gets neither
+//! border nor pill. Neither does a region filling its output, nor one without room for
+//! the pill next to it. The recording is then stopped with the same shortcut (or
+//! `screenie stop`), which the countdown says.
 //!
 //! Only the pill takes input, and the keyboard only while the pointer is on it (see
-//! [`Hover`]): the recorded app keeps its typing, and a fullscreen game's pointer lock
-//! can't trap the pointer on the pill.
+//! [`Hover`]): the recorded app keeps its typing, and a game's pointer lock can't trap
+//! the pointer on the pill.
 
 use std::time::Duration;
 
@@ -49,22 +53,22 @@ pub(crate) enum Phase {
     Recording,
 }
 
-/// Where the pill goes: the output to show it on and its top-left in that output's
-/// coordinates. Prefers below the region, then above, then beside it, then another
-/// output. `k` is the interface scale.
-pub(crate) fn place_pill(
-    region: Rect,
-    chrome: Chrome,
-    home: &OutputInfo,
-    outputs: &[OutputInfo],
-    k: f64,
-) -> Option<(String, Point)> {
+/// Whether `rect` covers all of `output`: a whole screen, or a window filling it.
+pub(crate) fn fills(rect: Rect, output: &OutputInfo) -> bool {
+    let o = output.logical.inset(1.0);
+    o.intersection(&rect) == Some(o)
+}
+
+/// Where the pill goes, top-left in `home`'s coordinates: below the region, else above,
+/// else beside it. A window recorded by itself can have it over its bottom instead. `k`
+/// is the interface scale.
+fn place_pill(region: Rect, chrome: Chrome, home: &OutputInfo, k: f64) -> Option<Point> {
     let pill = pill_size(k);
     let gap = GAP * k;
     let o = home.logical;
     let fits_x = o.width >= pill.width + 2.0 * gap;
     let centered_x = (region.center().x - pill.width / 2.0).clamp(o.x + gap, (o.right() - pill.width - gap).max(o.x));
-    let local = |x: f64, y: f64| Some((home.name.clone(), Point::new(x - o.x, y - o.y)));
+    let local = |x: f64, y: f64| Some(Point::new(x - o.x, y - o.y));
     if fits_x && o.bottom() - region.bottom() >= pill.height + 2.0 * gap {
         return local(centered_x, region.bottom() + gap);
     }
@@ -78,12 +82,7 @@ pub(crate) fn place_pill(
     if region.x - o.x >= pill.width + 2.0 * gap {
         return local(region.x - gap - pill.width, side_y);
     }
-    let bottom = |l: Rect| Point::new((l.width - pill.width) / 2.0, l.height - pill.height - 48.0 * k);
-    if chrome == Chrome::Window {
-        return Some((home.name.clone(), bottom(o)));
-    }
-    let other = outputs.iter().filter(|x| x.name != home.name).max_by(|a, b| a.logical.area().total_cmp(&b.logical.area()))?;
-    Some((other.name.clone(), bottom(other.logical)))
+    (chrome == Chrome::Window).then(|| Point::new((o.width - pill.width) / 2.0, o.height - pill.height - 48.0 * k))
 }
 
 /// The pill's size at interface scale `k`.
@@ -91,19 +90,37 @@ fn pill_size(k: f64) -> Size {
     Size { width: PILL.width * k, height: PILL.height * k }
 }
 
-/// What one output shows.
-#[derive(Debug, Clone, Copy, Default)]
+/// What the chrome shows.
+#[derive(Debug, Clone, Copy)]
 struct Layout {
-    /// The region in this output's coordinates, when it's on this output.
-    region: Option<Rect>,
-    /// Draw the border (not when the region is the whole output).
+    /// The region, in the output's coordinates.
+    region: Rect,
+    /// Draw the border (not around a whole output, nor over a fullscreen app).
     border: bool,
     pill: Option<Point>,
     /// Shown during the countdown when nothing else tells the user how to stop.
     stop_hint: bool,
 }
 
-/// One output's surface of chrome.
+impl Layout {
+    /// `covered`: a window fills the output, so nothing may stay over it.
+    fn new(region: Rect, chrome: Chrome, home: &OutputInfo, covered: bool, k: f64) -> Self {
+        let pill = if covered { None } else { place_pill(region, chrome, home, k) };
+        Layout {
+            region: region.translate(-home.logical.x, -home.logical.y),
+            border: chrome == Chrome::Region && !covered && !fills(region, home),
+            pill,
+            stop_hint: pill.is_none(),
+        }
+    }
+
+    /// Whether it has anything to show in `phase`.
+    fn shows(&self, phase: Phase) -> bool {
+        matches!(phase, Phase::Countdown(_)) || self.border || self.pill.is_some()
+    }
+}
+
+/// The chrome's surface.
 pub(crate) struct Controls {
     layout: Layout,
     phase: Phase,
@@ -111,99 +128,83 @@ pub(crate) struct Controls {
     hover: Entity<Hover<()>>,
 }
 
-/// Open the chrome for `region` on every output that needs some.
+/// Open the chrome for `region` on `home`, if it has anything to show. `covered`: a
+/// window fills `home` (a fullscreen app), which then keeps it to itself after the
+/// countdown.
 pub(crate) fn open(
     region: Rect,
     chrome: Chrome,
     home: &OutputInfo,
-    outputs: &[OutputInfo],
+    covered: bool,
     phase: Phase,
     cx: &mut AsyncApp,
-) -> Vec<WindowHandle<Controls>> {
+) -> Option<WindowHandle<Controls>> {
     let k = cx.update(|cx| f64::from(screenie_ui_kit::ui_scale(cx)));
-    let pill = place_pill(region, chrome, home, outputs, k);
-    let whole_output = home.logical.inset(1.0).intersection(&region) == Some(home.logical.inset(1.0));
-    let mut surfaces: Vec<(&OutputInfo, Layout)> = vec![(
-        home,
-        Layout {
-            region: Some(region.translate(-home.logical.x, -home.logical.y)),
-            border: chrome == Chrome::Region && !whole_output,
-            pill: None,
-            stop_hint: pill.is_none(),
-        },
-    )];
-    if let Some((name, at)) = pill {
-        match surfaces.iter_mut().find(|(o, _)| o.name == name) {
-            Some((_, layout)) => layout.pill = Some(at),
-            None => {
-                if let Some(other) = outputs.iter().find(|o| o.name == name) {
-                    surfaces.push((other, Layout { pill: Some(at), ..Layout::default() }));
-                }
-            }
-        }
+    let layout = Layout::new(region, chrome, home, covered, k);
+    if !layout.shows(phase) {
+        return None;
     }
-
-    surfaces
-        .into_iter()
-        .filter_map(|(output, layout)| {
-            let spec = LayerSpec::fullscreen_overlay(
-                "screenie-recording",
-                &output.name,
-                size(px(output.logical.width as f32), px(output.logical.height as f32)),
-            )
-            .passive();
-            cx.update(|cx| {
-                cx.open_window(layer_options(cx, &spec), |window, cx| {
-                    screenie_ui_kit::track_ui_scale(window, cx);
-                    let hover = Hover::new(window, cx);
-                    cx.new(|cx| {
-                        // Keep the timer fresh, redrawing only when it changes: every
-                        // frame we draw is damage the recording has to encode.
-                        cx.spawn_in(window, async move |this, cx| {
-                            let mut shown = None;
-                            loop {
-                                cx.background_executor().timer(Duration::from_millis(100)).await;
-                                let alive = this.update(cx, |_, cx| {
-                                    let now = pill_status(cx).map(|(elapsed, paused)| (elapsed.as_secs(), paused));
-                                    if now != shown {
-                                        shown = now;
-                                        cx.notify();
-                                    }
-                                });
-                                if alive.is_err() {
-                                    break;
-                                }
+    let spec = LayerSpec::fullscreen_overlay(
+        "screenie-recording",
+        &home.name,
+        size(px(home.logical.width as f32), px(home.logical.height as f32)),
+    )
+    .passive();
+    cx.update(|cx| {
+        cx.open_window(layer_options(cx, &spec), |window, cx| {
+            screenie_ui_kit::track_ui_scale(window, cx);
+            let hover = Hover::new(window, cx);
+            cx.new(|cx| {
+                // Keep the timer fresh, redrawing only when it changes: every frame we
+                // draw is damage the recording has to encode.
+                cx.spawn_in(window, async move |this, cx| {
+                    let mut shown = None;
+                    loop {
+                        cx.background_executor().timer(Duration::from_millis(100)).await;
+                        let alive = this.update(cx, |_, cx| {
+                            let now = pill_status(cx).map(|(elapsed, paused)| (elapsed.as_secs(), paused));
+                            if now != shown {
+                                shown = now;
+                                cx.notify();
                             }
-                        })
-                        .detach();
-                        Controls { layout, phase, hover }
-                    })
+                        });
+                        if alive.is_err() {
+                            break;
+                        }
+                    }
                 })
+                .detach();
+                Controls { layout, phase, hover }
             })
-            .map_err(|e| tracing::warn!("cannot show recording controls on {}: {e}", output.name))
-            .ok()
         })
-        .collect()
+    })
+    .map_err(|e| tracing::warn!("cannot show recording controls on {}: {e}", home.name))
+    .ok()
 }
 
-pub(crate) fn set_phase(handles: &[WindowHandle<Controls>], phase: Phase, cx: &mut AsyncApp) {
-    for handle in handles {
-        let _ = handle.update(cx, |c, _, cx| {
+/// Move the chrome on to `phase`, closing it if it's left with nothing to show.
+pub(crate) fn set_phase(handle: Option<WindowHandle<Controls>>, phase: Phase, cx: &mut AsyncApp) {
+    let _ = handle.map(|handle| {
+        handle.update(cx, |c, window, cx| {
             c.phase = phase;
-            cx.notify();
-        });
-    }
+            if c.layout.shows(phase) {
+                cx.notify();
+            } else {
+                window.remove_window();
+            }
+        })
+    });
 }
 
-/// Close the chrome, each surface once the keys held on it are let go.
-pub(crate) fn close(handles: &[WindowHandle<Controls>], cx: &mut App) {
-    for &handle in handles {
-        let _ = handle.update(cx, |controls, _, cx| {
+/// Close the chrome once the keys held on it are let go.
+pub(crate) fn close(handle: Option<WindowHandle<Controls>>, cx: &mut App) {
+    let _ = handle.map(|handle| {
+        handle.update(cx, |controls, _, cx| {
             controls.hover.update(cx, |hover, cx| {
                 hover.when_released(move |cx| _ = handle.update(cx, |_, window, _| window.remove_window()), cx);
             })
-        });
-    }
+        })
+    });
 }
 
 /// Elapsed time and paused state of the running recording.
@@ -360,8 +361,8 @@ impl Render for Controls {
             .size_full()
             .relative()
             .font_family(screenie_ui_kit::FONT)
-            .when_some(region.filter(|_| border), |el, r| el.child(self.border(r)))
-            .when_some(region.zip(counting), |el, (r, n)| el.child(self.countdown(n, r, k)))
+            .when(border, |el| el.child(self.border(region)))
+            .when_some(counting, |el, n| el.child(self.countdown(n, region, k)))
             .when_some(pill, |el, at| el.child(self.pill(at, cx)));
         Hover::root(&self.hover, root, cx)
     }
@@ -385,33 +386,43 @@ mod tests {
     #[test]
     fn pill_goes_below_then_above_then_beside() {
         let o = output("A", 0.0, 1920.0, 1080.0);
-        let outputs = [o.clone()];
-        let (_, p) = place_pill(Rect::new(100.0, 100.0, 400.0, 300.0), Chrome::Region, &o, &outputs, 1.0).unwrap();
+        let p = place_pill(Rect::new(100.0, 100.0, 400.0, 300.0), Chrome::Region, &o, 1.0).unwrap();
         assert_eq!(p.y, 412.0);
-        let (_, p) = place_pill(Rect::new(100.0, 700.0, 400.0, 370.0), Chrome::Region, &o, &outputs, 1.0).unwrap();
+        let p = place_pill(Rect::new(100.0, 700.0, 400.0, 370.0), Chrome::Region, &o, 1.0).unwrap();
         assert_eq!(p.y, 700.0 - GAP - PILL.height);
-        let (_, p) = place_pill(Rect::new(0.0, 0.0, 1400.0, 1080.0), Chrome::Region, &o, &outputs, 1.0).unwrap();
+        let p = place_pill(Rect::new(0.0, 0.0, 1400.0, 1080.0), Chrome::Region, &o, 1.0).unwrap();
         assert_eq!(p.x, 1400.0 + GAP);
     }
 
     #[test]
-    fn full_screen_pill_moves_to_another_output_or_nowhere() {
+    fn a_whole_screen_has_no_pill() {
         let a = output("A", 0.0, 1920.0, 1080.0);
-        let b = output("B", 1920.0, 1706.0, 960.0);
-        let outputs = [a.clone(), b];
-        let (name, p) = place_pill(a.logical, Chrome::Region, &a, &outputs, 1.0).unwrap();
-        assert_eq!(name, "B");
-        assert!(p.x > 0.0 && p.y > 0.0, "local coordinates");
-        assert!(place_pill(a.logical, Chrome::Region, &a, std::slice::from_ref(&a), 1.0).is_none());
+        let layout = Layout::new(a.logical, Chrome::Region, &a, false, 1.0);
+        assert!(!layout.border && layout.pill.is_none() && layout.stop_hint);
+        assert!(!layout.shows(Phase::Recording));
     }
 
     #[test]
-    fn a_full_screen_window_keeps_its_pill_on_its_output() {
+    fn a_window_with_no_room_around_it_has_its_pill_over_it() {
         let a = output("A", 0.0, 1920.0, 1080.0);
-        let b = output("B", 1920.0, 1706.0, 960.0);
-        let (name, p) = place_pill(a.logical, Chrome::Window, &a, &[a.clone(), b], 1.0).unwrap();
-        assert_eq!(name, "A");
+        let maximized = Rect::new(0.0, 30.0, 1920.0, 1050.0);
+        let p = place_pill(maximized, Chrome::Window, &a, 1.0).unwrap();
         assert_eq!(p.y, 1080.0 - PILL.height - 48.0);
+    }
+
+    #[test]
+    fn nothing_stays_over_a_fullscreen_app() {
+        let a = output("A", 0.0, 1920.0, 1080.0);
+        let region = Rect::new(560.0, 240.0, 800.0, 600.0);
+        // A region of a screen a game fills, or the game recorded by itself.
+        for (rect, chrome) in [(region, Chrome::Region), (a.logical, Chrome::Window)] {
+            let layout = Layout::new(rect, chrome, &a, true, 1.0);
+            assert!(layout.shows(Phase::Countdown(3)));
+            assert!(!layout.shows(Phase::Recording), "{chrome:?}");
+            assert!(layout.stop_hint);
+        }
+        let windowed = Layout::new(region, Chrome::Region, &a, false, 1.0);
+        assert!(windowed.border && windowed.pill.is_some() && windowed.shows(Phase::Recording));
     }
 
     #[test]

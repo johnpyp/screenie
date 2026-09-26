@@ -1,6 +1,7 @@
-//! A stand-in for a fullscreen game: a fullscreen window that locks the pointer on
-//! request (`lock` / `unlock` on stdin, each answered `ok` once the compositor has it)
-//! and prints its focus, lock and relative motion events, a line each. See the README.
+//! A stand-in for a game: a fullscreen window (or not, with `--windowed`) that locks the
+//! pointer on request (`lock` / `unlock` on stdin, each answered `ok` once the compositor
+//! has it) and prints its focus, lock and relative motion events, a line each. See the
+//! README.
 
 use std::io::{BufRead, Write};
 use std::os::fd::AsFd;
@@ -162,7 +163,9 @@ fn main() {
     let toplevel = xdg.get_toplevel(&qh, ());
     toplevel.set_title("wllock".into());
     toplevel.set_app_id("wllock".into());
-    toplevel.set_fullscreen(None);
+    if !std::env::args().any(|a| a == "--windowed") {
+        toplevel.set_fullscreen(None);
+    }
     surface.commit();
 
     let pointer = seat.get_pointer(&qh, ());

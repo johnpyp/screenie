@@ -30,7 +30,7 @@ pub(crate) struct Active {
     pub recording: Option<Recording>,
     /// Set when stopped or cancelled, so a start still in flight backs out.
     cancelled: Arc<AtomicBool>,
-    controls: Vec<WindowHandle<Controls>>,
+    controls: Option<WindowHandle<Controls>>,
     actions: Actions,
 }
 
@@ -157,7 +157,7 @@ fn take_active(cx: &mut AsyncApp) -> Option<Active> {
             active
         })?;
         active.cancelled.store(true, Ordering::Relaxed);
-        controls::close(&active.controls, cx);
+        controls::close(active.controls, cx);
         Some(active)
     })
 }
@@ -237,6 +237,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
             chosen.logical
         }
         Target::ActiveWindow => {
+            let compositor = compositor.clone();
             let windows = background.spawn(async move { compositor.windows() }).await?;
             let focused = windows.into_iter().find(|w| w.focused).ok_or_else(|| anyhow!("no focused window"))?;
             window.insert(focused).rect
@@ -283,7 +284,13 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
 
     let first_phase = if countdown > 0 { Phase::Countdown(countdown) } else { Phase::Recording };
     let chrome = if window_source.is_some() { Chrome::Window } else { Chrome::Region };
-    let handles = controls::open(region, chrome, &home, &outputs, first_phase, cx);
+    // A fullscreen app (a window filling the output) keeps its output to itself.
+    let covered = {
+        let (compositor, home) = (compositor.clone(), home.clone());
+        let windows = background.spawn(async move { compositor.windows().unwrap_or_default() }).await;
+        windows.iter().any(|w| controls::fills(w.rect, &home))
+    };
+    let handles = controls::open(region, chrome, &home, covered, first_phase, cx);
     cx.update(|cx| {
         Daemon::update(cx, |d, _| {
             d.recording = Some(Active {
@@ -291,7 +298,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
                 output: home.name.clone(),
                 recording: None,
                 cancelled: cancelled.clone(),
-                controls: handles.clone(),
+                controls: handles,
                 actions,
             });
             d.broadcast();
@@ -299,13 +306,13 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     });
 
     for n in (1..=countdown).rev() {
-        controls::set_phase(&handles, Phase::Countdown(n), cx);
+        controls::set_phase(handles, Phase::Countdown(n), cx);
         background.timer(Duration::from_secs(1)).await;
         if cancelled.load(Ordering::Relaxed) {
             return Ok(None);
         }
     }
-    controls::set_phase(&handles, Phase::Recording, cx);
+    controls::set_phase(handles, Phase::Recording, cx);
     // Let the compositor present a frame without the countdown before capturing.
     background.timer(Duration::from_millis(120)).await;
 

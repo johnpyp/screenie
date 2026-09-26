@@ -2,6 +2,7 @@
 """Compare two images pixel-wise. Usage: imgdiff.py a.png b.png  -> prints size and diff stats.
 Exit 0 if identical (RGB), 1 otherwise."""
 import sys
+
 import numpy as np
 from PIL import Image
 

@@ -1,8 +1,7 @@
 """Overlays over a game can't trap its locked pointer.
 
-On sway, the app with the keyboard gets its pointer lock back (a fullscreen game, as
-soon as it's focused), and while the cursor is on another surface every motion is
-dropped. An overlay that had the pointer but not the keyboard would hold the cursor
+On sway, the app with the keyboard gets its pointer lock back (a game, as soon as it's
+focused), and while the cursor is on another surface every motion is dropped. An overlay that had the pointer but not the keyboard would hold the cursor
 for good. So an overlay holds the keyboard while the pointer is on it.
 """
 

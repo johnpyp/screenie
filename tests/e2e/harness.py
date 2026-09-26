@@ -352,15 +352,21 @@ class KeyLog:
 
 
 class Game:
-    """`wllock`, a stand-in for a fullscreen game: a fullscreen window that locks the
-    pointer when told to. Its focus, lock and relative motion events are logged, a line
-    each (`pointer enter`, `keyboard leave`, `locked`, `motion 3 -1`…)."""
+    """`wllock`, a stand-in for a game in a window (a fullscreen one has no recording pill
+    over it) that locks the pointer when told to. Its focus, lock and relative motion
+    events are logged, a line each (`pointer enter`, `keyboard leave`, `locked`,
+    `motion 3 -1`…)."""
 
     def __init__(self, session: Session):
         self.lines: list[str] = []
         self.replies: queue.Queue[str] = queue.Queue()
         self.process = subprocess.Popen(
-            [str(WLLOCK)], env=session.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1
+            [str(WLLOCK), "--windowed"],
+            env=session.env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            bufsize=1,
         )
         threading.Thread(target=self._read, daemon=True).start()
         self.wait("ready", 0)
