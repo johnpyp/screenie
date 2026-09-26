@@ -50,6 +50,25 @@ Known bugs, gaps and upstream limitations. Newest first within each section.
 - File names carried the time of saving, not of capture. Parallel captures in the same
   second could overwrite each other. `-o DIR` failed and left a `.part` file behind.
 - niri: a column scrolled partly off its monitor reached onto the next one.
+- `shot last`, `record last` and `query last` forgot everything when the daemon
+  restarted (an automatic upgrade, above all). The last region and captures are in
+  `state.yaml` now.
+- Two commands at once with no daemon could start two, one of them unreachable. The
+  daemon holds a lock for life, and clients take turns deciding whether to start one.
+- `daemon.log` was truncated by the next spawn, erasing a crash; it's kept as
+  `daemon.log.1` now, in plain text with local times.
+- The daemon kept the working directory of the shell that started it (so an unmount
+  failed), and relative `directory:` settings resolved against it. It runs from `/`, and
+  directories expand `~`/`$VAR` and are relative to home.
+- Config reload missed symlinks swapped to a target with the same mtime (home-manager).
+  It compares contents now.
+- `query … --watch` exited on any socket or decode error, and panicked on a closed pipe.
+- `screenie cancel` exited 1 after discarding; `stop`/`pause`/`cancel` started a daemon
+  to say nothing was recording.
+- `selector.freeze`, `advanced.daemon_idle_exit` and `recording.after_capture.save/edit`
+  did nothing; they're gone.
+- With `capture_on_release: false`, a click just off a handle captured the window under
+  it, discarding the adjusted selection. It keeps the selection now.
 - Clicking the selector's Window button captured immediately: the release reached the
   canvas as a click. Releases now only count after a press on the canvas.
 - Clearer selector hint ("…or press Enter to capture the whole screen").
