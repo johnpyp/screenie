@@ -13,9 +13,12 @@ Screenie's GPUI look and feel, shared by every window.
   explain itself. `HudButton::tooltip` takes one (or a plain title); other elements use
   `.tooltip(tip.builder())`.
 - **`layer`**: `LayerSpec` describes a layer-shell surface (fullscreen overlay or floating
-  panel) targeted to an output by connector name. `layer_options` turns it into GPUI
-  window options, and `fallback_options` gives a plain window where layer-shell is
-  missing. `wait_for_displays` covers GPUI's late output discovery.
+  panel) targeted to an output by connector name. `open_layer` opens one: through
+  layer-shell, or on GNOME as a window screenie's GNOME Shell extension makes into it
+  (described first, by a title only it has), or, for one that takes the keyboard, as a
+  plain fullscreen window. `floats` says whether surfaces that don't (cards, a
+  recording's chrome) can be had at all. `wait_for_displays` covers GPUI's late output
+  discovery.
 - **`keys`** and **`hover`**: input for overlays; see below.
 - **`conceal`**: keeping screenie out of its own captures. Surfaces that must never be
   captured `track` themselves when they open and finish their root with `root`, which

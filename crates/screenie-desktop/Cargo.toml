@@ -1,6 +1,6 @@
 [package]
 name = "screenie-desktop"
-description = "Fitting screenie into GNOME, KDE and the rest: which desktop it's on, and its desktop entry"
+description = "Fitting screenie into GNOME, KDE and the rest: which desktop it's on, its desktop entry, shortcuts, and GNOME Shell extension"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

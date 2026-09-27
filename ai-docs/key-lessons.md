@@ -123,6 +123,28 @@ real digging.
 - **GNOME's custom shortcuts are run by gsd-media-keys**, not the shell; a session
   without it grabs nothing. And a built-in binding wins over a custom one with the same
   key.
+- **GJS can't read pixels back.** `Cogl.Texture.get_data` and
+  `Clutter.Stage.paint_to_buffer` fill a copy of the array passed in, which is dropped
+  (and `Cogl.Framebuffer.read_pixels` crashes the shell). An extension's screenshots
+  come out as PNG only (`Shell.Screenshot`), about 3.5 s for two busy 4K screens, where a
+  Mutter cast's first frame takes tens of milliseconds.
+- **A cast's top-bar indicator can't be told apart by its handle**
+  (`MetaRemoteAccessHandle` has no sender or session). But Mutter makes the handle while
+  handling the session's `Start`, and gnome-shell's indicators hear of it right then
+  (`_onNewHandle`), so the extension claims the one handle made between the caller's
+  "next cast is mine" and "started", and keeps it from them. A non-recording cast's
+  indicator also stays five seconds after it ends: stills are marked recordings.
+- **An always-on-top window keeps new windows it mostly covers from being focused**
+  (Mutter 47+, `window_would_mostly_be_covered_by_always_above_window`; any overlap
+  before). A dock is above normal windows anyway (its layer), so screenie's floating
+  surfaces are docks that are never made always-on-top; only the selector and editor
+  are, and they're focused explicitly once shown.
+- **GNOME loads extensions only at login.** A new one isn't found until then (and
+  `EnableExtension` fails for it), so `screenie extension install` enables it in
+  `enabled-extensions` for the next login; files updated mid-session run from the next
+  one too. Extensions are also turned off while the screen is locked.
+- **A Mutter remote desktop session's absolute pointer positions are in the stream's
+  pixels**, not logical ones: divided by the monitor's scale on the way in.
 
 ## Daemon, files and clipboard
 

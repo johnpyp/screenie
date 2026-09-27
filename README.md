@@ -136,6 +136,12 @@ They stay where the desktop has them: <kbd>Print</kbd> picks an area, window or 
 keys follow suit (`screenie shortcuts` lists them). Change them in the desktop's keyboard
 settings; `screenie shortcuts remove` gives the originals back.
 
+On GNOME, also install screenie's GNOME Shell extension, and log out and back in:
+
+```sh
+screenie extension install
+```
+
 Elsewhere, bind screenie to keys in your compositor (`screenie shortcuts` prints the
 lines for yours):
 
@@ -448,7 +454,7 @@ editor:
 | labwc | ✅ | |
 | COSMIC | ✅ | |
 | KDE Plasma 6 | ✅ | ✅ |
-| GNOME | ✅ | |
+| GNOME | ✅ | ✅ with the extension |
 
 Any compositor with `ext-image-copy-capture-v1` or `wlr-screencopy` should work. More
 detail is in [the compositor matrix](crates/screenie-compositor/README.md#compositor-support).
@@ -458,13 +464,21 @@ without asking you to set anything up. Screenie adds its entry to your app menu 
 how these desktops know an app), and `screenie shortcuts install` gives it the desktop's
 screenshot keys.
 
-On GNOME, a few things differ, as GNOME gives apps less:
+On GNOME, only code in GNOME Shell may see where windows are, float over them, or take a
+screenshot without flashing the screen. Screenie's extension (`screenie extension
+install`, from the next login) does these for it, so screenie works as it does
+elsewhere, except:
+
+- Before GNOME 49, captures appear as notifications rather than cards, with the same
+  buttons, and a recording shows in the top bar, where its button stops it, with no
+  countdown or pill.
+- A recording also shows in the top bar, as all of GNOME's screen casts do.
+
+Without the extension:
 
 - The first screenshot asks your permission, and each one flashes the screen with the
   shutter sound, as GNOME's screenshots do.
-- Captures appear as notifications rather than cards, with the same buttons.
-- A recording shows in the top bar, where its button stops it. There's no countdown and
-  no pill.
+- Captures appear as notifications, and recordings in the top bar, as above.
 - The selector can't pick windows. `shot window` and `record window` take the focused
   one.
 

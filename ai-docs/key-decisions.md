@@ -24,11 +24,22 @@ Why screenie is built the way it is. Change these deliberately, not by drift.
 - **GNOME and KDE through their own APIs, the portal as the fallback.** KWin's
   screenshots and casts are silent and exact, granted through a desktop entry screenie
   keeps current; Mutter's casts need no dialog. The portal asks, and on GNOME flashes and
-  plays a sound, so it's for GNOME's stills (a cast's top-bar indicator would be in
-  them) and whatever else lacks a way. Where there's no layer-shell (GNOME), the selector
-  is fullscreen windows, previews are notifications with the card's buttons, and a
-  recording has no countdown or pill: it's a screen-sharing cast, stopped from the top
-  bar like any other.
+  plays a sound, so it's for GNOME's stills without the extension (a cast's top-bar
+  indicator would be in them) and whatever else lacks a way.
+- **On GNOME, an extension of screenie's own.** Mutter tells no client where windows
+  are, has no layer-shell, and marks every cast in the top bar; only code in the shell
+  gets past that, so screenie ships a GNOME Shell extension (`screenie extension
+  install`) that serves it over D-Bus, and nothing else: it answers only the binary
+  screenie's desktop entry runs, as KWin does. It stays small and optional. Stills are
+  still Mutter casts (the extension just keeps them out of the top bar), because the
+  shell's own screenshots come out only as PNG, seconds on a busy 4K screen. Screenie's
+  windows stay screenie's: the extension only places and marks them, from a description
+  sent before each opens, rather than spawning the daemon (which would give it the
+  daemon's lifetime) or drawing anything itself. Without it, the selector is fullscreen
+  windows, previews are notifications with the card's buttons, and a recording has no
+  countdown or pill: it's a screen-sharing cast, stopped from the top bar like any
+  other. Before GNOME 49 (when any window could be made a dock), previews and
+  recordings are that way with it too.
 - **Keys belong to the desktop.** Screenie registers no global hotkeys of its own.
   GNOME and KDE bind screenshot keys in their settings, so `screenie shortcuts install`
   takes those over there, in the desktop's own layout (Print, Shift+Print for the whole

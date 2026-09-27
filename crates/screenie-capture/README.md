@@ -23,15 +23,18 @@ worked last:
 | --- | --- | --- |
 | wlroots and the like | ext, wlr | ext, wlr (wlr first for a region) |
 | KDE Plasma | `kwin` (ScreenShot2), portal | `kwin` (`zkde_screencast`), portal |
-| GNOME | portal, `mutter` | `mutter`, portal |
+| GNOME | `mutter` (with the extension), portal, `mutter` | `mutter`, portal |
 
 - **`kwin`**: KWin's own screenshots and screen casts, silent and per output. KWin grants
   them only to the binary a desktop entry runs, which `screenie-desktop` keeps in place.
 - **`mutter`**: Mutter's screen casts (`org.gnome.Mutter.ScreenCast`), which need no
-  permission. A cast shows in GNOME's top bar, so stills only fall back to it: a still is
-  marked a recording, to be over quickly, and a recording isn't, so the top bar's
-  button stops it. `RecordWindow` casts the focused window alone
-  (`focused_window_still`, `stream_focused_window`), with the shadow trimmed off.
+  permission. A cast shows in GNOME's top bar, and so in a still, unless screenie's
+  GNOME Shell extension keeps it out (asked before each still): then stills are casts,
+  and otherwise they only fall back to one. A still is marked a recording, to be over
+  quickly, and a recording isn't, so the top bar's button stops it. `RecordWindow`
+  casts a window alone, with the shadow trimmed off: the one with Mutter's id where the
+  extension lists windows (`stream_window`), or else the focused one
+  (`focused_window_still`, `stream_focused_window`).
 - **`portal`**: xdg-desktop-portal's Screenshot and ScreenCast. Screenshots ask once,
   as an unidentified app: GNOME lets an app with an id ask only while it's the focused
   app, which a daemon never is. Screen casts ask as screenie, and keep their restore

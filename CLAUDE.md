@@ -45,7 +45,7 @@ The workspace is split into small crates so builds stay fast; each has a README.
 | `screenie-wayland` | ext-image-copy-capture / wlr-screencopy, stills and streams; KWin's screen casts |
 | `screenie-pipewire` | Screen casts (Mutter, KWin, portal) read over PipeWire |
 | `screenie-compositor` | Window geometry via Sway / Hyprland / niri IPC, KWin scripts, Mutter's display config |
-| `screenie-desktop` | GNOME and KDE: desktop entry, shortcuts, notifications, GNOME's clipboard and overview |
+| `screenie-desktop` | GNOME and KDE: desktop entry, shortcuts, notifications, GNOME's clipboard and overview, and screenie's GNOME Shell extension (`extension/`) |
 | `screenie-ui-kit` | Shared GPUI look: fonts, icons, HUD widgets, layer-shell helpers |
 | `screenie-ipc` | CLI ⇄ daemon protocol and socket |
 | `screenie-config` | Config schema, XDG paths, file naming |
@@ -80,14 +80,17 @@ and target directory mounted at the same paths, so a host build runs inside as i
 
 ```sh
 tools/desktop.sh build                       # once
-tools/desktop.sh start gnome                 # or kde; home is .cache/desktop/<name>/home
+tools/desktop.sh start gnome                 # or kde, or gnome48; home is .cache/desktop/<name>/home
 tools/desktop.sh run gnome target/release/screenie shot all
 printf 'key Print\nsleep 2\n' | tools/desktop.sh input gnome -   # one input session per script
 tools/desktop.sh shot gnome .cache/gnome.png
 ```
 
 On GNOME, drive input through one piped `input gnome -` session: each call makes a remote
-desktop session whose devices come and go, and GPUI misses events meanwhile.
+desktop session whose devices come and go, and GPUI misses events meanwhile (start it
+with a `sleep 1.5`). `screenie extension install` there, then `start` again, is a login
+with the extension; `start gnome --unsafe-mode` allows `org.gnome.Shell.Eval` for poking
+at the shell.
 
 `tests/e2e` drives the real daemon in the sway session with pytest (keyboard handoff, the editor's
 close/save flows, Save As, remembered state, interface scale); each test gets its own config,
