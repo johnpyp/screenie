@@ -42,6 +42,10 @@ to grim.
   user last interacted with), reads `wl_surface.enter`, and removes it.
 - Protocols: `ext-image-copy-capture-v1` and `wlr-screencopy-unstable-v1`, chosen
   automatically or forced with `Backend`.
+- `kde_cast(source, pointer)` starts one of KWin's screen casts
+  (`zkde_screencast_unstable_v1`) of an output, a region or a window, and returns the
+  PipeWire node to read it from (`screenie-pipewire`). KWin offers the protocol only to
+  clients its desktop entry lists it for, up to Plasma 6.7.
 - Handles 8-bit and 10-bit shm formats, y-invert, and all output transforms. Results are
   pixel-identical to grim.
 

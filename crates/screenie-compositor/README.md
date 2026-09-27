@@ -10,10 +10,13 @@ and placing the pointer over a recorded window on sway. Capture works without it
 | Sway | i3 IPC (`$SWAYSOCK`) |
 | Hyprland | `.socket.sock` (`j/clients`, `j/monitors`) |
 | niri | `$NIRI_SOCKET` JSON |
+| KDE Plasma | a KWin script run over D-Bus, reporting back through a method call |
+| GNOME | `org.gnome.Mutter.DisplayConfig` for the layout; no windows (`lists_windows()` is false) |
 | anything else | `Generic` (no windows) |
 
 `Compositor::windows()` returns visible windows in logical coordinates, topmost first.
-`focused_output()` names the output with focus. `paints_pointer_into_windows()` is false
+`focused_output()` names the output with focus. `lists_windows()` is false where there are
+never any, so callers take the focused window another way (GNOME's window casts). `paints_pointer_into_windows()` is false
 where a window capture ignores `paint_cursors` (sway), so a window recording draws the
 pointer itself, placed through `windows()`.
 
@@ -35,8 +38,8 @@ Screenie depends on protocols, not compositors. IPC only adds window snapping an
 | Wayfire | wlr | layer-shell | data-control | — | — |
 | labwc | wlr | layer-shell | data-control | — | — |
 | COSMIC | ext | layer-shell | data-control | — | — |
-| KDE Plasma 6 | portal (planned) | layer-shell | data-control | — | — |
-| GNOME | portal (planned) | fullscreen window fallback | ❌ (no data-control) | — | — |
+| KDE Plasma 6 | KWin's own, portal | layer-shell | data-control | KWin scripting | ✅ container |
+| GNOME | portal, Mutter casts | fullscreen windows | Mutter remote desktop | display config only | ✅ container |
 
 Without IPC, window mode has no windows to pick, so clicks select screens, and the
 focused output comes from a layer-shell probe (`screenie_wayland::focused_output`).

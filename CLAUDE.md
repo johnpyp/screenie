@@ -41,9 +41,11 @@ The workspace is split into small crates so builds stay fast; each has a README.
 | `screenie-editor` | The annotation editor (overlay or window) and its (unit-tested) interaction model |
 | `screenie-annotate` | Annotation documents and their tiny-skia renderer (shared by canvas and export) |
 | `screenie-record` | GStreamer recording engine |
-| `screenie-capture` | "Freeze the desktop" facade and backend selection |
-| `screenie-wayland` | ext-image-copy-capture / wlr-screencopy, stills and streams |
-| `screenie-compositor` | Window geometry via Sway / Hyprland / niri IPC |
+| `screenie-capture` | "Freeze the desktop" facade and backend selection (Wayland, KWin, Mutter, portal) |
+| `screenie-wayland` | ext-image-copy-capture / wlr-screencopy, stills and streams; KWin's screen casts |
+| `screenie-pipewire` | Screen casts (Mutter, KWin, portal) read over PipeWire |
+| `screenie-compositor` | Window geometry via Sway / Hyprland / niri IPC, KWin scripts, Mutter's display config |
+| `screenie-desktop` | GNOME and KDE: desktop entry, shortcuts, notifications, GNOME's clipboard and overview |
 | `screenie-ui-kit` | Shared GPUI look: fonts, icons, HUD widgets, layer-shell helpers |
 | `screenie-ipc` | CLI ⇄ daemon protocol and socket |
 | `screenie-config` | Config schema, XDG paths, file naming |
@@ -72,7 +74,22 @@ python3 tools/imgdiff.py a.png b.png
 uv run --project tests/e2e tools/rec_stress.py screen 6   # recording frame rate at 4K
 ```
 
-`tests/e2e` drives the real daemon in that session with pytest (keyboard handoff, the editor's
+GNOME and KDE Plasma run headless in podman containers (Fedora images, real gnome-shell and
+kwin_wayland with two virtual outputs, D-Bus, PipeWire, the portals), with the repository
+and target directory mounted at the same paths, so a host build runs inside as is:
+
+```sh
+tools/desktop.sh build                       # once
+tools/desktop.sh start gnome                 # or kde; home is .cache/desktop/<name>/home
+tools/desktop.sh run gnome target/release/screenie shot all
+printf 'key Print\nsleep 2\n' | tools/desktop.sh input gnome -   # one input session per script
+tools/desktop.sh shot gnome .cache/gnome.png
+```
+
+On GNOME, drive input through one piped `input gnome -` session: each call makes a remote
+desktop session whose devices come and go, and GPUI misses events meanwhile.
+
+`tests/e2e` drives the real daemon in the sway session with pytest (keyboard handoff, the editor's
 close/save flows, Save As, remembered state, interface scale); each test gets its own config,
 state and home. `mise run test:e2e` (or `mise run test:e2e -- -k save_as -x`). See its README.
 

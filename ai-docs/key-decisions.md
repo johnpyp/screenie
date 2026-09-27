@@ -20,7 +20,15 @@ Why screenie is built the way it is. Change these deliberately, not by drift.
   renderer, so the file is what you saw.
 - **Protocols, not compositors.** Native capture on anything with
   `ext-image-copy-capture` or `wlr-screencopy`; compositor IPC only *enhances* (window
-  snapping, active window) and degrades gracefully. GNOME/KDE via portals (planned).
+  snapping, active window) and degrades gracefully.
+- **GNOME and KDE through their own APIs, the portal as the fallback.** KWin's
+  screenshots and casts are silent and exact, granted through a desktop entry screenie
+  keeps current; Mutter's casts need no dialog. The portal asks, and on GNOME flashes and
+  plays a sound, so it's for GNOME's stills (a cast's top-bar indicator would be in
+  them) and whatever else lacks a way. Where there's no layer-shell (GNOME), the selector
+  is fullscreen windows, previews are notifications with the card's buttons, and a
+  recording has no countdown or pill: it's a screen-sharing cast, stopped from the top
+  bar like any other.
 - **Keys belong to the desktop.** Screenie registers no global hotkeys of its own.
   GNOME and KDE bind screenshot keys in their settings, so `screenie shortcuts install`
   takes those over there, in the desktop's own layout (Print, Shift+Print for the whole

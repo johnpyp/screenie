@@ -447,16 +447,31 @@ editor:
 | Wayfire | ✅ | |
 | labwc | ✅ | |
 | COSMIC | ✅ | |
-| KDE Plasma | planned | |
-| GNOME | planned | |
+| KDE Plasma 6 | ✅ | ✅ |
+| GNOME | ✅ | |
 
 Any compositor with `ext-image-copy-capture-v1` or `wlr-screencopy` should work. More
 detail is in [the compositor matrix](crates/screenie-compositor/README.md#compositor-support).
 
+KDE Plasma and GNOME have their own ways to capture the screen, which screenie uses
+without asking you to set anything up. Screenie adds its entry to your app menu (it's
+how these desktops know an app), and `screenie shortcuts install` gives it the desktop's
+screenshot keys.
+
+On GNOME, a few things differ, as GNOME gives apps less:
+
+- The first screenshot asks your permission, and each one flashes the screen with the
+  shutter sound, as GNOME's screenshots do.
+- Captures appear as notifications rather than cards, with the same buttons.
+- A recording shows in the top bar, where its button stops it. There's no countdown and
+  no pill.
+- The selector can't pick windows. `shot window` and `record window` take the focused
+  one.
+
 ## Known limitations
 
-- Recording a window captures just that window on Sway 1.11+. Elsewhere it records that
-  part of the screen.
+- Recording a window captures just that window on Sway 1.11+, KDE Plasma and GNOME.
+  Elsewhere it records that part of the screen.
 - A window recording on Sway shows the pointer only when it's a hardware cursor. On
   NVIDIA, or with `WLR_NO_HARDWARE_CURSORS=1`, it's left out. Record the screen to
   include it.

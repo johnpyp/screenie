@@ -10,8 +10,9 @@
 //! a [`FrameStream`] for continuous capture (recording) of an output, or of one window
 //! where the compositor offers `ext-foreign-toplevel-image-capture-source-v1` (the window's
 //! own pixels, wherever it is and whatever covers it). Frames are always returned upright
-//! with transforms and y-inversion undone. Compositors without either protocol (GNOME,
-//! KDE) will be served by a planned `screenie-portal` crate instead.
+//! with transforms and y-inversion undone. Compositors without either protocol are
+//! captured their own ways (`screenie-capture`); KDE Plasma's screen casts are a Wayland
+//! protocol, `zkde_screencast_unstable_v1`, so they're here ([`kde_cast`]).
 //!
 //! A stream's frames come in shared memory, read into [`Image`]s, or, where the consumer
 //! can take them, in GPU buffers on the compositor's GPU (see `dmabuf`), which neither
