@@ -35,6 +35,14 @@ GPUI asked for fullscreen with no output, so the compositor picked one: on GNOME
 the selector and editor are fullscreen windows (no layer-shell), every output's
 selector piled up on the focused output and the others weren't covered.
 
+`src/linux/wayland/window.rs` (`set_input_region`): no commit of its own before the
+window's first frame.
+
+Screenie's cards set their input region while drawing the first frame, and that commit
+carried the configure's acknowledgement with no buffer, so the buffer came next without
+one. Mutter warned that the window geometry was invalid and that the client had
+committed content without acknowledging a configure (working around both).
+
 ## gpui-pre 0.3.6
 
 `src/platform.rs` (`PlatformWindow::on_pointer_stuck`) and `src/window.rs`

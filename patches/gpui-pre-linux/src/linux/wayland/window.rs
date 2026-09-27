@@ -706,6 +706,11 @@ impl PresentationState {
             Self::Presented | Self::RetryAfterPresent => Self::RetryAfterPresent,
         }
     }
+
+    /// screenie patch: whether the surface has had a buffer.
+    fn has_presented(self) -> bool {
+        matches!(self, Self::Presented | Self::RetryAfterPresent)
+    }
 }
 
 #[cfg(test)]
@@ -2113,7 +2118,12 @@ impl PlatformWindow for WaylandWindow {
         // Commit so the new input region applies immediately. Otherwise it
         // waits for the next frame, which could be the very click we want to
         // allow passing through.
-        state.surface.commit();
+        // screenie patch: but not before the first frame, which applies it anyway. That
+        // commit would carry the configure's acknowledgement without a buffer, and the
+        // first buffer then none: Mutter warns of both, and of the window geometry.
+        if state.presentation.has_presented() {
+            state.surface.commit();
+        }
     }
 
     fn window_decorations(&self) -> Decorations {
