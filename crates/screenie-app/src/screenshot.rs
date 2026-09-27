@@ -233,7 +233,10 @@ async fn run(
                 .find(|w| w.focused)
                 .cloned()
                 .ok_or_else(|| {
-                    anyhow!("no focused window (needs compositor IPC: Hyprland, Sway or niri)")
+                    anyhow!(
+                        "no focused window (screenie finds windows on Hyprland, Sway, niri \
+                         and KDE Plasma)"
+                    )
                 })?;
             let rect = focused.rect;
             window = Some(focused);

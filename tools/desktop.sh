@@ -61,9 +61,13 @@ start() {
   gnome) env+=(-e XDG_CURRENT_DESKTOP=GNOME) ;;
   kde) env+=(-e XDG_CURRENT_DESKTOP=KDE -e KDE_FULL_SESSION=true -e KDE_SESSION_VERSION=6) ;;
   esac
+  # The host's GPU, where there is one: KWin renders without, but takes screenshots
+  # only with OpenGL.
+  local gpu=()
+  [[ -d /dev/dri ]] && gpu=(--device /dev/dri)
   podman run -d --name "screenie-$name" --userns=keep-id --user "$(id -u):$(id -g)" \
     -v "$ROOT:$ROOT" -v "$target:$target:ro" -v "$rundir:/run/user/1000" \
-    --shm-size=1g "${env[@]}" "localhost/screenie-desktop-$name" \
+    "${gpu[@]}" --shm-size=1g "${env[@]}" "localhost/screenie-desktop-$name" \
     "$HERE/session.sh" "$name" >/dev/null
   for _ in $(seq 100); do
     [[ -S $rundir/wayland-0 ]] && break

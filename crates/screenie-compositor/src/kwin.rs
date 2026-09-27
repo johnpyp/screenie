@@ -74,6 +74,7 @@ trait Scripting {
     gen_blocking = false
 )]
 trait Script {
+    #[zbus(name = "run")]
     fn run(&self) -> zbus::Result<()>;
 }
 

@@ -100,17 +100,19 @@ def kde_capture(name: str, out: Path) -> None:
 
 
 def allow_kwin_screenshots() -> None:
-    """KWin lets a process take screenshots when a desktop file with its executable asks."""
+    """KWin lets a process take screenshots when a desktop file with its executable asks.
+    It looks among the apps a menu would show, so the file can't be NoDisplay."""
     apps = Path.home() / ".local/share/applications"
     desktop = apps / "screenie-desktop-shot.desktop"
-    if desktop.exists():
-        return
-    apps.mkdir(parents=True, exist_ok=True)
-    desktop.write_text(
-        "[Desktop Entry]\nType=Application\nName=Desktop shot\nNoDisplay=true\n"
+    entry = (
+        "[Desktop Entry]\nType=Application\nName=Desktop shot\n"
         f"Exec={os.path.realpath(sys.executable)}\n"
         "X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2\n"
     )
+    if desktop.exists() and desktop.read_text() == entry:
+        return
+    apps.mkdir(parents=True, exist_ok=True)
+    desktop.write_text(entry)
     subprocess.run(["kbuildsycoca6"], capture_output=True)
 
 

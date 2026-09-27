@@ -9,5 +9,5 @@ RUN dnf -y --setopt=install_weak_deps=False install \
       gstreamer1-plugins-bad-free gstreamer1-plugins-ugly-free \
       mesa-dri-drivers mesa-vulkan-drivers vulkan-loader mesa-libgbm \
       libxkbcommon libxkbcommon-x11 fontconfig google-noto-sans-fonts \
-      xdg-desktop-portal ImageMagick \
+      xdg-desktop-portal ImageMagick gstreamer1-plugin-openh264 \
     && dnf clean all
