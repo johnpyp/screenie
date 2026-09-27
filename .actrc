@@ -1,0 +1,6 @@
+# act (`mise run ci`) runs the CI jobs locally, in catthehacker's images of GitHub's
+# runners, quirks included. Jobs on arm64 runners are skipped.
+-P ubuntu-24.04=ghcr.io/catthehacker/ubuntu:full-24.04
+-P ubuntu-22.04=ghcr.io/catthehacker/ubuntu:full-22.04
+--pull=false
+--container-daemon-socket -

@@ -81,7 +81,8 @@ CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests, and on every pus
 locally for the same archive in `.cache/dist/`). To release, bump `version` in the
 workspace `Cargo.toml` and push a matching `vX.Y.Z` tag: CI publishes a GitHub release
 that `mise use github:johnpyp/screenie` installs. The e2e tests don't run in CI, as the
-runners' sway is too old.
+runners' sway is too old. `mise run ci -j package` runs a job locally with act, in podman
+(`systemctl --user start podman.socket`), in images of GitHub's runners (`.actrc`).
 
 The README's images come from `tools/demo` (see its README): a headless demo desktop, a scripted
 tour, `stills.py` for the hero composite and close-ups, and `render.py` for the video.

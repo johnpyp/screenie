@@ -1,4 +1,5 @@
 [tools]
+act = "latest"
 rust = { version = "stable", mr_boxington = true }
 uv = "latest"
 
@@ -9,6 +10,10 @@ run = "uv run --script tools/fetch_references.py"
 [tasks."test:e2e"]
 description = "End-to-end tests in the headless sway session (args go to pytest)"
 run = "uv run --project tests/e2e pytest tests/e2e"
+
+[tasks.ci]
+description = "Run CI's jobs locally with act, in podman (args go to act, e.g. -j package)"
+run = 'DOCKER_HOST="${DOCKER_HOST:-unix://$XDG_RUNTIME_DIR/podman/podman.sock}" act push'
 
 [tasks.fmt]
 description = "Format and lint everything: Rust with rustfmt, Python with ruff"

@@ -112,7 +112,9 @@ jobs:
         if: github.ref_type == 'tag' && !github.event.repository.private
         with:
           subject-path: .cache/dist/*.tar.gz
+      # act (`mise run ci`) has no artifact server that takes v7's uploads.
       - uses: actions/upload-artifact@v7
+        if: ${{ !env.ACT }}
         with:
           name: dist-${{ matrix.target }}
           path: .cache/dist/
