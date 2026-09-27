@@ -112,6 +112,21 @@ fn run(
         Remote::Session => context.connect_rc(None)?,
         Remote::Fd(fd) => context.connect_fd_rc(fd, None)?,
     };
+    // The node going away is the end of the cast. The stream only pauses when it's
+    // stopped from the desktop (GNOME's screen-sharing button, say).
+    let registry = core.get_registry_rc()?;
+    let _registry_listener = registry
+        .add_listener_local()
+        .global_remove({
+            let shared = shared.clone();
+            move |id| {
+                if id == node {
+                    tracing::debug!(node, "the screen cast's node is gone");
+                    shared.update(|s| s.ended = Some("the screen cast was stopped".into()));
+                }
+            }
+        })
+        .register();
     let stream = pw::stream::StreamRc::new(
         core,
         "screenie",

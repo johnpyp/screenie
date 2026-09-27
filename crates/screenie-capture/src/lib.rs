@@ -281,7 +281,11 @@ impl CaptureContext {
                     .iter()
                     .map(|o| mutter::Source::Monitor(&o.name))
                     .collect();
-                let cast = mutter::Cast::start(&sources, mutter::CastPointer::from(cursor))?;
+                let cast = mutter::Cast::start(
+                    &sources,
+                    mutter::CastPointer::from(cursor),
+                    mutter::Purpose::Still,
+                )?;
                 let mut streams = cast
                     .nodes
                     .iter()
@@ -368,7 +372,11 @@ impl CaptureContext {
                     Some(rect) => mutter::Source::Area(rect),
                     None => mutter::Source::Monitor(&output.name),
                 };
-                let cast = mutter::Cast::start(&[source], mutter::CastPointer::from(cursor))?;
+                let cast = mutter::Cast::start(
+                    &[source],
+                    mutter::CastPointer::from(cursor),
+                    mutter::Purpose::Stream,
+                )?;
                 let stream = pipewire(Remote::Session, cast.nodes[0], None)?;
                 Ok(Keeping::boxed(stream, cast))
             }

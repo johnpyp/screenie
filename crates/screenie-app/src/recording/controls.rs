@@ -177,7 +177,9 @@ pub(crate) fn open(
     let home = &scene.home;
     let k = cx.update(|cx| f64::from(screenie_ui_kit::ui_scale(cx)));
     let layout = Layout::new(scene.region, scene.chrome, home, covered, k);
-    if !layout.shows(phase) {
+    // The chrome floats over everything, which takes layer-shell (not on GNOME).
+    let layer_shell = cx.update(|cx| Daemon::get(cx).capture.support().layer_shell);
+    if !layout.shows(phase) || !layer_shell {
         return None;
     }
     let spec = LayerSpec::fullscreen_overlay(

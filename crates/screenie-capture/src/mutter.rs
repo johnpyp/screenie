@@ -2,9 +2,12 @@
 //! recorder and the portal use too. Any client may start one, with no dialog; frames come
 //! over PipeWire on the session's daemon.
 //!
-//! While a cast runs, gnome-shell shows it in the top bar: casts marked as recordings get
-//! the red recording dot for as long as they run, others a "screen shared" button that
-//! stays up for five seconds. Screenie marks its casts as recordings, which they are.
+//! While a cast runs, gnome-shell shows it in the top bar. A cast marked as a recording
+//! gets a dot among the status icons for as long as it runs, and nothing stops it there
+//! (only gnome-shell's own recorder gets a stop button). Any other gets the
+//! screen-sharing button, whose click stops it, and which stays up for five seconds
+//! after. So a still is marked a recording, to be over quickly, and a recording isn't,
+//! to be stopped from the top bar like any recorder going through the portal.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -91,11 +94,15 @@ pub(crate) struct Cast {
 
 impl Cast {
     /// Start casting `sources`, the pointer shown as `pointer` (embedded or hidden: the
-    /// metadata mode puts it only on the monitor it's on). Blocks until Mutter has made
-    /// the PipeWire nodes.
-    pub(crate) fn start(sources: &[Source<'_>], pointer: CastPointer) -> Result<Cast> {
+    /// metadata mode puts it only on the monitor it's on), for `purpose`. Blocks until
+    /// Mutter has made the PipeWire nodes.
+    pub(crate) fn start(
+        sources: &[Source<'_>],
+        pointer: CastPointer,
+        purpose: Purpose,
+    ) -> Result<Cast> {
         async_io::block_on(async {
-            let started = Self::start_async(sources, pointer);
+            let started = Self::start_async(sources, pointer, purpose);
             let timeout = async {
                 async_io::Timer::after(Duration::from_secs(3)).await;
                 Err(Error::Cast("Mutter didn't start the screen cast".into()))
@@ -104,7 +111,11 @@ impl Cast {
         })
     }
 
-    async fn start_async(sources: &[Source<'_>], pointer: CastPointer) -> Result<Cast> {
+    async fn start_async(
+        sources: &[Source<'_>],
+        pointer: CastPointer,
+        purpose: Purpose,
+    ) -> Result<Cast> {
         let connection = Connection::session().await.map_err(dbus)?;
         let path = ScreenCastProxy::new(&connection)
             .await
@@ -128,9 +139,8 @@ impl Cast {
             let properties = || {
                 HashMap::from([
                     ("cursor-mode", Value::from(pointer as u32)),
-                    // The red recording dot, for as long as the cast runs, rather than the
-                    // "screen shared" button that stays up for five seconds after.
-                    ("is-recording", Value::from(true)),
+                    // See the module docs.
+                    ("is-recording", Value::from(purpose == Purpose::Still)),
                 ])
             };
             let path = match source {
@@ -180,6 +190,13 @@ impl Drop for Cast {
     fn drop(&mut self) {
         let _ = async_io::block_on(self.session.stop());
     }
+}
+
+/// What a cast is for, which decides how gnome-shell shows it (see the module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Purpose {
+    Still,
+    Stream,
 }
 
 /// Mutter's `cursor-mode`.

@@ -162,16 +162,14 @@ fn describe(item: &PreviewItem, cx: &App) -> Notification {
             };
             format!("Saved in {dir}")
         });
+    // One line: banners show no more.
     let (summary, body) = match &item.media {
         Media::Screenshot { .. } => {
-            let copied = item
-                .is_copied()
-                .then(|| "Copied to the clipboard".to_string());
-            let lines: Vec<String> = copied.into_iter().chain(saved_to).collect();
-            let body = if lines.is_empty() {
-                item.caption()
-            } else {
-                lines.join("\n")
+            let body = match (item.is_copied(), saved_to) {
+                (true, Some(saved)) => format!("Copied to the clipboard, and s{}", &saved[1..]),
+                (true, None) => "Copied to the clipboard".to_string(),
+                (false, Some(saved)) => saved,
+                (false, None) => item.caption(),
             };
             ("Screenshot captured", body)
         }
@@ -182,7 +180,7 @@ fn describe(item: &PreviewItem, cx: &App) -> Notification {
                 .into_iter()
                 .flatten()
                 .collect::<Vec<_>>()
-                .join("\n"),
+                .join(" · "),
         ),
     };
     // What's left to do, most useful first; notifications show three buttons at most.

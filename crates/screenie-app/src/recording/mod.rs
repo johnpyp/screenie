@@ -376,7 +376,13 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         None,
         false,
     );
-    let countdown = config.recording.countdown;
+    // Without layer-shell there's no chrome to count down in, so it starts at once (GNOME
+    // shows it's recording in its top bar, whose button stops it).
+    let countdown = if capture.support().layer_shell {
+        config.recording.countdown
+    } else {
+        0
+    };
     let cancelled = Arc::new(AtomicBool::new(false));
 
     let first_phase = if countdown > 0 {
