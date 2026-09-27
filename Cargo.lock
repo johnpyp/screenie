@@ -6554,9 +6554,13 @@ dependencies = [
 name = "screenie-desktop"
 version = "0.1.1"
 dependencies = [
+ "async-channel",
+ "async-io",
+ "futures-lite",
  "screenie-config",
  "screenie-core",
  "tracing",
+ "zbus",
 ]
 
 [[package]]

@@ -102,15 +102,15 @@ above plus:
 
 ```sh
 sudo apt install build-essential pkg-config \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev \
+  libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev libclang-dev
 ```
 
 or on Arch:
 
 ```sh
-sudo pacman -S --needed base-devel gstreamer gst-plugins-base-libs \
-  libxkbcommon-x11 mesa fontconfig \
+sudo pacman -S --needed base-devel clang gstreamer gst-plugins-base-libs \
+  libpipewire libxkbcommon-x11 mesa fontconfig \
   gst-plugins-good gst-plugins-bad-libs gst-plugins-ugly gst-libav
 ```
 

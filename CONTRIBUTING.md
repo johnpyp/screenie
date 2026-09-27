@@ -8,15 +8,15 @@ Project tooling (Rust, uv, act) comes from [mise](https://mise.jdx.dev):
 mise install
 ```
 
-screenie builds against GStreamer, xkbcommon, GBM and fontconfig, and records with
-GStreamer's plugins.
+screenie builds against GStreamer, PipeWire, xkbcommon, GBM and fontconfig (and needs
+libclang for PipeWire's bindings), and records with GStreamer's plugins.
 
 On Debian or Ubuntu:
 
 ```sh
 sudo apt install build-essential pkg-config \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev \
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev \
+  libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev libclang-dev \
   gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-pulseaudio
 ```
@@ -24,8 +24,8 @@ sudo apt install build-essential pkg-config \
 On Arch:
 
 ```sh
-sudo pacman -S --needed base-devel gstreamer gst-plugins-base-libs \
-  libxkbcommon-x11 mesa fontconfig \
+sudo pacman -S --needed base-devel clang gstreamer gst-plugins-base-libs \
+  libpipewire libxkbcommon-x11 mesa fontconfig \
   gst-plugins-good gst-plugins-bad-libs gst-plugins-ugly gst-libav gst-plugin-va
 ```
 

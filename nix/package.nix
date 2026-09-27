@@ -6,6 +6,7 @@
   pkg-config,
   makeWrapper,
   gst_all_1,
+  pipewire,
   libxkbcommon,
   libxcb,
   libgbm,
@@ -63,10 +64,13 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [
     pkg-config
     makeWrapper
+    # libclang, for PipeWire's bindings.
+    rustPlatform.bindgenHook
   ];
   buildInputs = [
     gst_all_1.gstreamer
     gst_all_1.gst-plugins-base
+    pipewire
     libxkbcommon
     libxcb
     libgbm
