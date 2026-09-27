@@ -39,21 +39,8 @@ screenie record   # record one
 ## Installing
 
 Prebuilt binaries for x86_64 and aarch64 Linux are on the
-[releases page](https://github.com/johnpyp/screenie/releases). With
-[mise](https://mise.jdx.dev):
-
-```sh
-mise use -g github:johnpyp/screenie
-```
-
-Or unpack a release by hand into `~/.local`:
-
-```sh
-tar -xzf screenie-*-x86_64-unknown-linux-gnu.tar.gz
-cp -r screenie-*/bin screenie-*/share ~/.local/
-```
-
-They need glibc 2.35 or newer and GStreamer's plugins. On Debian or Ubuntu:
+[releases page](https://github.com/johnpyp/screenie/releases). They need glibc 2.35 or
+newer and GStreamer's plugins. On Debian or Ubuntu:
 
 ```sh
 sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
@@ -67,12 +54,25 @@ sudo apt install mesa-va-drivers       # AMD
 sudo apt install intel-media-va-driver # Intel
 ```
 
-`man screenie` documents the commands, and `man 5 screenie` the config file (with mise,
-once it's [activated](https://mise.jdx.dev/getting-started.html#activate-mise) in your
-shell).
+`man screenie` documents the commands, and `man 5 screenie` the config file. After an
+upgrade, the next `screenie` command picks up the new build.
 
-To upgrade, `mise up`, or unpack the new release the same way. The next `screenie`
-command picks up the new build.
+### mise
+
+```sh
+mise use -g github:johnpyp/screenie
+```
+
+`mise up` upgrades it.
+
+### Manual installation
+
+Unpack a release into `~/.local`:
+
+```sh
+tar -xzf screenie-*-x86_64-unknown-linux-gnu.tar.gz
+cp -r screenie-*/bin screenie-*/share ~/.local/
+```
 
 ### Nix
 
