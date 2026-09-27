@@ -26,6 +26,12 @@ pub enum Request {
     Status,
     /// Stream status updates, one line per change (for status bars).
     Watch,
+    /// Screenie's keys in the desktop's shortcut settings.
+    Shortcuts {
+        action: ShortcutsAction,
+        /// What the keys run: `screenie`, as the user runs it.
+        command: PathBuf,
+    },
     Ping,
     Quit,
 }
@@ -56,6 +62,17 @@ pub enum SelectMode {
     Area,
     Window,
     Screen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShortcutsAction {
+    /// Which keys screenie has or would take, and what holds them now.
+    Show,
+    /// Take the desktop's screenshot keys for screenie.
+    Install,
+    /// Give them back.
+    Remove,
 }
 
 /// Per-invocation overrides of the configured after-capture actions.
@@ -118,6 +135,10 @@ pub enum Response {
     },
     Cancelled,
     Status(Box<Status>),
+    /// Something to tell the user.
+    Text {
+        text: String,
+    },
     Error {
         message: String,
     },

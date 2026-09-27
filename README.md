@@ -125,7 +125,19 @@ target/dist/screenie man ~/.local/share/man
 
 ## Getting started
 
-Bind screenie to keys in your compositor:
+On GNOME or KDE Plasma, give screenie the desktop's screenshot keys:
+
+```sh
+screenie shortcuts install
+```
+
+They stay where the desktop has them: <kbd>Print</kbd> picks an area, window or screen,
+<kbd>Shift</kbd>+<kbd>Print</kbd> takes the whole desktop, and the window and recording
+keys follow suit (`screenie shortcuts` lists them). Change them in the desktop's keyboard
+settings; `screenie shortcuts remove` gives the originals back.
+
+Elsewhere, bind screenie to keys in your compositor (`screenie shortcuts` prints the
+lines for yours):
 
 ```sh
 # Hyprland

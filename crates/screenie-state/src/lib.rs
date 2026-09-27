@@ -1,5 +1,6 @@
 //! What screenie remembers between runs, as opposed to what the user sets
-//! (`screenie-config`): the editor's last style, and the last captures.
+//! (`screenie-config`): the editor's last style, the last captures, and the desktop
+//! shortcuts it took over.
 //!
 //! It lives in `$XDG_STATE_HOME/screenie/state.yaml`. [`StateFile`] is the only reader
 //! and writer. The file carries a `version`; older files are brought up to date by the
@@ -26,6 +27,7 @@ pub struct State {
     pub editor: EditorState,
     pub last: LastState,
     pub portal: PortalState,
+    pub shortcuts: ShortcutsState,
 }
 
 /// The editor's style as last used.
@@ -65,6 +67,36 @@ pub struct PortalState {
     /// once: each cast replaces it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub screencast_token: Option<String>,
+}
+
+/// Where screenie has the desktop's screenshot keys (`screenie shortcuts install`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShortcutsState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gnome: Option<Shortcuts>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kde: Option<Shortcuts>,
+}
+
+/// Screenie's keys on one desktop.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Shortcuts {
+    /// What they run.
+    pub command: PathBuf,
+    /// Keys taken from the desktop's own shortcuts, to give back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub taken: Vec<TakenKey>,
+}
+
+/// A key taken from one of the desktop's own shortcuts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TakenKey {
+    /// The shortcut: a GNOME setting (schema and key), a KDE action (component, action,
+    /// and their names).
+    pub from: Vec<String>,
+    /// The key, as that desktop writes it.
+    pub key: String,
 }
 
 /// A rectangle in the compositor's logical coordinates.

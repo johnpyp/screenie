@@ -14,6 +14,7 @@ mod preview;
 mod recording;
 mod screenshot;
 mod server;
+mod shortcuts;
 
 use std::sync::Arc;
 
@@ -60,10 +61,11 @@ fn run(claimed: Claimed, commit: &'static str) -> anyhow::Result<()> {
     // KWin and the portals know screenie by its desktop entry, which has to be there
     // before capturing asks them anything: on GNOME and KDE always, elsewhere when
     // capturing goes through the portal.
-    let identified = desktop != Desktop::Other && install_desktop_entry();
+    shortcuts::repair(&state, desktop);
+    let identified = desktop != Desktop::Other && install_desktop_entry(&state);
     let capture = CaptureContext::new().remembering(Arc::new(PortalTokens(state.clone())));
     if !identified && !capture.offers().wayland.native_capture() && capture.offers().portal {
-        install_desktop_entry();
+        install_desktop_entry(&state);
     }
     let capture = Arc::new(capture);
     tracing::info!(version = env!("CARGO_PKG_VERSION"), commit, build = %screenie_ipc::exe_stamp(), desktop = desktop.name(), "starting");
@@ -85,8 +87,16 @@ fn run(claimed: Claimed, commit: &'static str) -> anyhow::Result<()> {
 }
 
 /// Make sure screenie's desktop entry names this binary. Whether it's there.
-fn install_desktop_entry() -> bool {
-    screenie_desktop::entry::ensure(&screenie_desktop::entry::default_actions())
+fn install_desktop_entry(state: &StateFile) -> bool {
+    use screenie_desktop::{entry, shortcuts};
+    // KDE's keys run the entry's actions, whichever desktop this is: a home can be
+    // shared by both.
+    let kde = state.state().shortcuts.kde;
+    let result = match &kde {
+        Some(keys) => entry::ensure(&shortcuts::entry_actions(Desktop::Kde), Some(&keys.command)),
+        None => entry::ensure(&entry::default_actions(), None),
+    };
+    result
         .inspect_err(|e| tracing::warn!("installing the desktop entry: {e}"))
         .is_ok()
 }

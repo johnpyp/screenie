@@ -21,8 +21,14 @@ Why screenie is built the way it is. Change these deliberately, not by drift.
 - **Protocols, not compositors.** Native capture on anything with
   `ext-image-copy-capture` or `wlr-screencopy`; compositor IPC only *enhances* (window
   snapping, active window) and degrades gracefully. GNOME/KDE via portals (planned).
+- **Keys belong to the desktop.** Screenie registers no global hotkeys of its own.
+  GNOME and KDE bind screenshot keys in their settings, so `screenie shortcuts install`
+  takes those over there, in the desktop's own layout (Print, Shift+Print for the whole
+  desktop, Meta+Shift+S on KDE...), where the user can change them, and gives them back
+  on `remove`. Tiling compositors bind keys in their config, which screenie doesn't
+  edit: it prints the lines.
 - **Non-goals:** X11, being a video editor (trimming and GIF are in scope, timelines
-  aren't), global hotkey registration (compositors own keybindings), cloud upload.
+  aren't), cloud upload.
 
 ## Technical
 

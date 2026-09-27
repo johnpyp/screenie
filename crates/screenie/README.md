@@ -22,7 +22,7 @@ and its options follow it. Without a target, they follow `shot`.
 | --- | --- |
 | (none) | Same as `pick`. |
 | `pick` | Freeze all outputs, show the selector in area mode. |
-| `window` | The focused window, no UI. Needs compositor IPC. |
+| `window` | The focused window, no UI. Needs compositor IPC, or GNOME. |
 | `window -i` | The selector in window mode. |
 | `screen` | The focused output, no UI. |
 | `screen DP-1` | That output. |
@@ -86,6 +86,15 @@ recording covers one output. While one is running, `screenie record` stops it.
 `stop`, `pause` and `cancel` take no options and never start the daemon. They exit 0 when they did what they
 say, and 2 with nothing recording. `stop` during the countdown exits 1, as nothing was
 recorded.
+
+## Shortcuts
+
+`screenie shortcuts [show|install|remove]` asks the daemon, which keeps the record. On
+GNOME and KDE Plasma, `show` (the default) lists the desktop's screenshot keys, what each
+runs and what holds it now; `install` takes them for screenie in the desktop's shortcut
+settings and `remove` gives them back (see `screenie-desktop`). The keys run the
+`screenie` found in `$PATH`, or the path it was run by. Elsewhere, `show` prints the
+lines for the compositor's configuration, and `install` fails with them.
 
 ## Queries
 

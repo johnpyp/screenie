@@ -18,7 +18,7 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use screenie_core::Rect;
 use screenie_ipc::{
     ActionOverrides, CaptureKind, Client, RecordRequest, Request, Response, ScreenshotRequest,
-    SelectMode, State, Status, Target,
+    SelectMode, ShortcutsAction, State, Status, Target,
 };
 
 mod man;
@@ -61,6 +61,16 @@ enum Command {
     Query(Query),
     /// What screenie is doing (short for `query status`).
     Status(StatusArgs),
+    /// Bind the desktop's screenshot keys to screenie.
+    ///
+    /// GNOME and KDE Plasma have screenshot keys of their own: screenie takes them over
+    /// in the desktop's shortcut settings, keeping the desktop's layout (Print, Shift+Print
+    /// for the whole desktop, and so on), and gives them back when removed. Elsewhere,
+    /// this prints the lines to add to the compositor's configuration.
+    Shortcuts {
+        #[command(subcommand)]
+        action: Option<ShortcutsCommand>,
+    },
     /// Run the daemon in the foreground (normally started automatically). Upgrades a
     /// daemon running another build, unless it is in use.
     Daemon,
@@ -69,6 +79,16 @@ enum Command {
     /// Write the man pages into DIR/man1 and DIR/man5, for packaging.
     #[command(hide = true)]
     Man { dir: PathBuf },
+}
+
+#[derive(Subcommand, Clone, Copy)]
+enum ShortcutsCommand {
+    /// Which keys screenie has, or would take, and what holds them now (the default).
+    Show,
+    /// Take the desktop's screenshot keys for screenie.
+    Install,
+    /// Unbind screenie, and give the keys back.
+    Remove,
 }
 
 // A target carries its own options, which follow it: `screenie shot window --copy`.
@@ -564,6 +584,14 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
                 args.watch,
             );
         }
+        Command::Shortcuts { action } => request(&Request::Shortcuts {
+            action: match action {
+                None | Some(ShortcutsCommand::Show) => ShortcutsAction::Show,
+                Some(ShortcutsCommand::Install) => ShortcutsAction::Install,
+                Some(ShortcutsCommand::Remove) => ShortcutsAction::Remove,
+            },
+            command: command_path(),
+        })?,
         Command::Quit => request_running(&Request::Quit, Response::Ok)?,
         Command::Daemon | Command::Man { .. } => unreachable!("handled in main"),
     };
@@ -618,6 +646,24 @@ fn not_recording() -> Response {
     Response::error("nothing is being recorded")
 }
 
+/// `screenie` as the user runs it, for keys to run: found in `$PATH` (a link or shim
+/// there stays put across upgrades, where the binary it leads to may move), or the path
+/// it was run by.
+fn command_path() -> PathBuf {
+    let arg0 = std::env::args_os().next().map(PathBuf::from);
+    let found = arg0.as_ref().and_then(|arg0| {
+        if arg0.as_os_str().to_string_lossy().contains('/') {
+            return Some(absolute(arg0.clone()));
+        }
+        std::env::split_paths(&std::env::var_os("PATH")?)
+            .map(|dir| dir.join(arg0))
+            .find(|path| path.is_file())
+    });
+    found
+        .or_else(|| std::env::current_exe().ok())
+        .unwrap_or_else(|| "screenie".into())
+}
+
 /// The absolute path of a file the user named, which must exist.
 fn existing(file: &Path) -> anyhow::Result<PathBuf> {
     std::fs::canonicalize(file).with_context(|| format!("can't open {}", file.display()))
@@ -660,6 +706,10 @@ fn report(response: Response, to_stdout: bool) -> anyhow::Result<ExitCode> {
         Response::Cancelled => Ok(ExitCode::from(1)),
         Response::Status(status) => {
             print(serde_json::to_string_pretty(&status)?)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Response::Text { text } => {
+            print(text)?;
             Ok(ExitCode::SUCCESS)
         }
         Response::Error { message } => {

@@ -19,3 +19,24 @@ last:
     time: 1790431540
 portal:
   screencast_token: 5b3c1d0e-7f2a-4c1b-9d8e-2a6f0c4b7e91
+shortcuts:
+  gnome:
+    command: /home/me/.local/bin/screenie
+    taken:
+    - from:
+      - org.gnome.shell.keybindings
+      - show-screenshot-ui
+      key: Print
+    - from:
+      - org.gnome.shell.keybindings
+      - screenshot
+      key: <Shift>Print
+  kde:
+    command: /usr/bin/screenie
+    taken:
+    - from:
+      - org.kde.spectacle.desktop
+      - _launch
+      - Spectacle
+      - Spectacle
+      key: Print

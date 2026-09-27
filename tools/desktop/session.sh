@@ -17,6 +17,16 @@ sleep 0.3
 wireplumber &
 case $1 in
 gnome)
+  # Custom keyboard shortcuts are run by gnome-settings-daemon's media-keys plugin,
+  # once the shell is up to grab them for it.
+  (
+    for _ in $(seq 100); do
+      gdbus introspect --session --dest org.gnome.Shell --object-path /org/gnome/Shell \
+        >/dev/null 2>&1 && break
+      sleep 0.1
+    done
+    exec /usr/libexec/gsd-media-keys
+  ) &
   exec gnome-shell --headless --wayland --no-x11 \
     --virtual-monitor 1920x1080 --virtual-monitor 2560x1440
   ;;

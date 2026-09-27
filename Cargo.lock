@@ -6559,6 +6559,8 @@ dependencies = [
  "futures-lite",
  "screenie-config",
  "screenie-core",
+ "serde",
+ "thiserror 2.0.21",
  "tracing",
  "zbus",
 ]

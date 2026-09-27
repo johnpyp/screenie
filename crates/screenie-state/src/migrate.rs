@@ -26,10 +26,13 @@ pub(crate) fn migrate(mut doc: Value, from: u32) -> Value {
         }
     }
     if from < 3 {
-        // v3 keeps what xdg-desktop-portal hands back, under `portal`. Nothing yet.
+        // v3 keeps what xdg-desktop-portal hands back, under `portal`, and the desktop
+        // shortcuts screenie took over, under `shortcuts`. Nothing yet.
         if let Some(map) = doc.as_object_mut() {
-            map.entry("portal")
-                .or_insert_with(|| Value::Object(Default::default()));
+            for section in ["portal", "shortcuts"] {
+                map.entry(section)
+                    .or_insert_with(|| Value::Object(Default::default()));
+            }
         }
     }
     doc

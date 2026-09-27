@@ -243,6 +243,9 @@ async fn handle(request: Request, cx: &mut AsyncApp) -> Response {
             Ok(()) => Response::Ok,
             Err(e) => Response::error(format!("{e:#}")),
         },
+        Request::Shortcuts { action, command } => {
+            crate::shortcuts::handle(action, command, cx).await
+        }
         Request::Watch => Response::error("watch is a streaming request"),
     }
 }

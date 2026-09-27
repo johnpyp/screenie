@@ -71,8 +71,10 @@ fn icon_path() -> PathBuf {
 }
 
 /// Make sure the desktop knows screenie as the binary that's running, with `actions`
-/// (and their KDE keys). Tells KDE's app database of a change itself.
-pub fn ensure(actions: &[Action]) -> std::io::Result<Outcome> {
+/// (and their KDE keys), which run `command` if given: a path that stays put, where
+/// this binary's may move with the next upgrade. Tells KDE's app database of a change
+/// itself.
+pub fn ensure(actions: &[Action], command: Option<&Path>) -> std::io::Result<Outcome> {
     let exe = std::env::current_exe()?.canonicalize()?;
     write_if_changed(&icon_path(), ICON)?;
     let path = path();
@@ -85,7 +87,7 @@ pub fn ensure(actions: &[Action]) -> std::io::Result<Outcome> {
         }
         return Ok(Outcome::Current);
     }
-    let outcome = write_if_changed(&path, &render(&exe, actions))?;
+    let outcome = write_if_changed(&path, &render(&exe, actions, command))?;
     if outcome == Outcome::Written {
         tracing::info!(path = %path.display(), "installed the desktop entry");
         refresh_kde();
@@ -93,10 +95,10 @@ pub fn ensure(actions: &[Action]) -> std::io::Result<Outcome> {
     Ok(outcome)
 }
 
-/// The entry for `exe`.
-pub fn render(exe: &Path, actions: &[Action]) -> String {
-    let command = |args: &[String]| {
-        std::iter::once(quote(&exe.to_string_lossy()))
+/// The entry for `exe`, its actions running `command` (or `exe`).
+pub fn render(exe: &Path, actions: &[Action], command: Option<&Path>) -> String {
+    let run = |program: &Path, args: &[String]| {
+        std::iter::once(quote(&program.to_string_lossy()))
             .chain(args.iter().map(|a| quote(a)))
             .collect::<Vec<_>>()
             .join(" ")
@@ -119,14 +121,14 @@ X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1,org_kde_plasma_window_management
 Actions={ids}
 ",
-        exec = command(&["shot".into()]),
+        exec = run(exe, &["shot".into()]),
     );
     for action in actions {
         entry.push_str(&format!(
             "\n[Desktop Action {}]\nName={}\nExec={}\n",
             action.id,
             action.name,
-            command(&action.args)
+            run(command.unwrap_or(exe), &action.args)
         ));
         if let Some(keys) = &action.kde_keys {
             entry.push_str(&format!("X-KDE-Shortcuts={keys}\n"));
@@ -241,7 +243,7 @@ mod tests {
     fn the_entry_runs_this_binary() {
         let mut actions = default_actions();
         actions[1].kde_keys = Some("Meta+Shift+R".into());
-        let entry = render(Path::new("/opt/my tools/screenie"), &actions);
+        let entry = render(Path::new("/opt/my tools/screenie"), &actions, None);
         assert!(entry.contains("Exec=\"/opt/my tools/screenie\" shot\n"));
         assert!(entry.contains("Actions=screen;record;\n"));
         assert!(entry.contains("[Desktop Action record]\nName=Record the Screen\nExec=\"/opt/my tools/screenie\" record\nX-KDE-Shortcuts=Meta+Shift+R\n"));
@@ -249,8 +251,16 @@ mod tests {
             exec_binary(&entry).as_deref(),
             Some("/opt/my tools/screenie")
         );
-        let plain = render(Path::new("/usr/bin/screenie"), &[]);
+        let plain = render(Path::new("/usr/bin/screenie"), &[], None);
         assert_eq!(exec_binary(&plain).as_deref(), Some("/usr/bin/screenie"));
+        // KWin checks the main command; actions may run another path to the same.
+        let stable = render(
+            Path::new("/opt/screenie-1.2/screenie"),
+            &actions,
+            Some(Path::new("/usr/local/bin/screenie")),
+        );
+        assert!(stable.contains("Exec=/opt/screenie-1.2/screenie shot\n"));
+        assert!(stable.contains("Exec=/usr/local/bin/screenie record\n"));
     }
 
     #[test]

@@ -104,6 +104,25 @@ real digging.
   clipboard (`EnableClipboard`, `SetSelection`, answer `SelectionTransfer`). Mutter's
   clipboard manager copies images up to 200 MB right away, so a copy outlives it.
   `Stop` refuses a session that was never started; it ends with the connection.
+- **A cast stopped from GNOME's top bar only pauses the stream.** The consumer's PipeWire
+  stream goes to `Paused`, not an error; the node going away (the registry's
+  `global_remove`) is what says it's over.
+- **GPUI asked for fullscreen without naming an output**, so GNOME put every selector
+  window on one screen. Patched to pass the window's own output.
+- **Each Mutter RemoteDesktop session adds virtual devices, and the seat's capabilities
+  change**: GPUI re-creates its `wl_pointer` and misses the next events. Test input goes
+  through one session for a whole script (`tools/desktop.sh input gnome -`).
+- **kglobalacceld reads an app's entry once**, when it first makes its component: a
+  rewritten entry's actions and keys are ignored, and removing its keys leaves them
+  bound. Drop the component (`cleanUp`) and have it made again (`doRegister` of a
+  dummy action, then `unregister`, as System Settings does). `doRegister` of an action
+  the entry already has makes a duplicate.
+- **Clashing default keys aren't dropped when kglobalacceld loads an entry**: two
+  components can hold Print, and one wins. Take keys from their holders with
+  `setForeignShortcutKeys`, then set your own the same way.
+- **GNOME's custom shortcuts are run by gsd-media-keys**, not the shell; a session
+  without it grabs nothing. And a built-in binding wins over a custom one with the same
+  key.
 
 ## Daemon, files and clipboard
 

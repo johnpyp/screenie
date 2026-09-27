@@ -16,3 +16,5 @@ zbus.workspace = true
 async-io.workspace = true
 futures-lite.workspace = true
 async-channel.workspace = true
+serde.workspace = true
+thiserror.workspace = true
