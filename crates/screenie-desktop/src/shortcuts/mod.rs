@@ -247,6 +247,12 @@ pub struct Error(pub String);
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+impl From<crate::gsettings::Error> for Error {
+    fn from(e: crate::gsettings::Error) -> Self {
+        Error(e.0)
+    }
+}
+
 /// Each of `desktop`'s keys, and what holds it now.
 pub fn keys(desktop: Desktop) -> Result<Vec<Key>> {
     match desktop {

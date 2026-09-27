@@ -3,6 +3,7 @@
 
 pub mod clipboard;
 pub mod entry;
+mod gsettings;
 pub mod notify;
 pub mod overview;
 pub mod shortcuts;

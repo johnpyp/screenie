@@ -1,12 +1,11 @@
 //! GNOME: screenie's keys are custom keybindings of gnome-settings-daemon, which GNOME
 //! Settings lists under Custom Shortcuts. A built-in binding wins over a custom one, so
-//! the keys are first taken from GNOME's own (its screenshot UI's). All through the
-//! `gsettings` tool, which every GNOME has.
+//! the keys are first taken from GNOME's own (its screenshot UI's).
 
 use std::path::Path;
-use std::process::Command;
 
-use super::{Binding, Chord, Error, Holder, Key, Result, Taken, shell_quote};
+use super::{Binding, Chord, Holder, Key, Result, Taken, shell_quote};
+use crate::gsettings::{self, Value};
 
 const MEDIA_KEYS: &str = "org.gnome.settings-daemon.plugins.media-keys";
 /// Relocatable: one per custom keybinding, at a path listed in `custom-keybindings`.
@@ -26,13 +25,6 @@ struct Setting {
     name: String,
     screenie: bool,
     changed: bool,
-}
-
-/// A setting's accelerators.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Value {
-    List(Vec<String>),
-    One(String),
 }
 
 impl Setting {
@@ -75,22 +67,14 @@ impl Setting {
     }
 
     fn save(&self) -> Result<()> {
-        let value = match &self.value {
-            Value::List(list) if list.is_empty() => "@as []".to_string(),
-            Value::List(list) => {
-                let items: Vec<String> = list.iter().map(|a| quote(a)).collect();
-                format!("[{}]", items.join(", "))
-            }
-            Value::One(one) => quote(one),
-        };
-        gsettings(&["set", &self.schema, &self.key, &value]).map(drop)
+        Ok(gsettings::set(&self.schema, &self.key, &self.value)?)
     }
 
     /// Save, as the default if it's that again (most likely what it was before screenie
     /// took from it), so it follows the desktop's defaults as it did.
     fn restore(&self) -> Result<()> {
-        gsettings(&["reset", &self.schema, &self.key])?;
-        let default = parse_value(&gsettings(&["get", &self.schema, &self.key])?);
+        gsettings::run(&["reset", &self.schema, &self.key])?;
+        let default = gsettings::get(&self.schema, &self.key)?;
         let sorted = |v: &Value| {
             let mut all = match v {
                 Value::List(list) => list.clone(),
@@ -109,7 +93,7 @@ impl Setting {
 /// Every setting that binds keys, built in or custom.
 fn settings() -> Result<Vec<Setting>> {
     let mut settings = Vec::new();
-    for line in gsettings(&["list-recursively"])?.lines() {
+    for line in gsettings::run(&["list-recursively"])?.lines() {
         let mut parts = line.splitn(3, ' ');
         let (Some(schema), Some(key), Some(value)) = (parts.next(), parts.next(), parts.next())
         else {
@@ -119,7 +103,7 @@ fn settings() -> Result<Vec<Setting>> {
         if !bindings || key == "custom-keybindings" {
             continue;
         }
-        let Some(value) = parse_value(value) else {
+        let Some(value) = Value::parse(value) else {
             continue;
         };
         settings.push(Setting {
@@ -133,7 +117,7 @@ fn settings() -> Result<Vec<Setting>> {
     }
     for path in custom_paths()? {
         let schema = format!("{CUSTOM}:{path}");
-        let get = |key| gsettings(&["get", &schema, key]).map(|v| parse_string(v.trim()));
+        let get = |key| gsettings::get_string(&schema, key);
         let (Some(binding), name) = (get("binding")?, get("name")?) else {
             continue;
         };
@@ -150,13 +134,7 @@ fn settings() -> Result<Vec<Setting>> {
 }
 
 fn custom_paths() -> Result<Vec<String>> {
-    let list = gsettings(&["get", MEDIA_KEYS, "custom-keybindings"])?;
-    match parse_value(list.trim()) {
-        Some(Value::List(paths)) => Ok(paths),
-        _ => Err(Error(format!(
-            "can't read GNOME's custom keybindings: {list}"
-        ))),
-    }
+    Ok(gsettings::get_list(MEDIA_KEYS, "custom-keybindings")?)
 }
 
 /// The list of custom keybindings, as `paths`.
@@ -228,9 +206,9 @@ pub(super) fn install(layout: &'static [Binding], command: &Path) -> Result<Vec<
             let args: Vec<String> = binding.args.iter().map(|a| shell_quote(a)).collect();
             let run = format!("{command} {}", args.join(" "));
             let name = format!("Screenie: {}", binding.name);
-            gsettings(&["set", &schema, "name", &quote(&name)])?;
-            gsettings(&["set", &schema, "command", &quote(&run)])?;
-            gsettings(&["set", &schema, "binding", &quote(&accelerator(&chord))])?;
+            gsettings::set(&schema, "name", &Value::One(name))?;
+            gsettings::set(&schema, "command", &Value::One(run))?;
+            gsettings::set(&schema, "binding", &Value::One(accelerator(&chord)))?;
             ours.push(path);
         }
     }
@@ -286,22 +264,7 @@ pub(super) fn remove(taken: &[Taken]) -> Result<()> {
 
 /// Forget a custom keybinding's settings.
 fn reset(path: &str) -> Result<()> {
-    gsettings(&["reset-recursively", &format!("{CUSTOM}:{path}")]).map(drop)
-}
-
-fn gsettings(args: &[&str]) -> Result<String> {
-    let output = Command::new("gsettings")
-        .args(args)
-        .output()
-        .map_err(|e| Error(format!("running gsettings: {e}")))?;
-    if !output.status.success() {
-        return Err(Error(format!(
-            "gsettings {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        )));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(gsettings::run(&["reset-recursively", &format!("{CUSTOM}:{path}")]).map(drop)?)
 }
 
 /// `chord` as GTK writes accelerators: `<Ctrl><Shift>Print`.
@@ -343,59 +306,6 @@ fn parse_accelerator(text: &str) -> Option<Chord> {
     Some(chord)
 }
 
-/// A GVariant string or array of strings, as `gsettings get` prints them.
-fn parse_value(text: &str) -> Option<Value> {
-    let text = text.trim();
-    if let Some(inner) = text
-        .strip_prefix("@as ")
-        .unwrap_or(text)
-        .strip_prefix('[')
-        .and_then(|t| t.strip_suffix(']'))
-    {
-        let mut items = Vec::new();
-        let mut rest = inner.trim();
-        while !rest.is_empty() {
-            let (item, tail) = parse_quoted(rest)?;
-            items.push(item);
-            rest = tail.trim_start();
-            rest = rest.strip_prefix(',').unwrap_or(rest).trim_start();
-        }
-        return Some(Value::List(items));
-    }
-    parse_string(text).map(Value::One)
-}
-
-fn parse_string(text: &str) -> Option<String> {
-    match parse_quoted(text)? {
-        (s, "") => Some(s),
-        _ => None,
-    }
-}
-
-/// A quoted string at the start of `text`, and what follows it.
-fn parse_quoted(text: &str) -> Option<(String, &str)> {
-    let mut chars = text.char_indices();
-    let (_, open) = chars.next().filter(|(_, c)| *c == '\'' || *c == '"')?;
-    let mut out = String::new();
-    while let Some((i, c)) = chars.next() {
-        match c {
-            '\\' => match chars.next()?.1 {
-                'n' => out.push('\n'),
-                't' => out.push('\t'),
-                c => out.push(c),
-            },
-            c if c == open => return Some((out, &text[i + 1..])),
-            c => out.push(c),
-        }
-    }
-    None
-}
-
-/// `text` as a GVariant string.
-fn quote(text: &str) -> String {
-    format!("'{}'", text.replace('\\', r"\\").replace('\'', r"\'"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,21 +321,6 @@ mod tests {
         let super_s = Chord::parse("Super+Shift+S").unwrap();
         assert_eq!(accelerator(&super_s), "<Super><Shift>S");
         assert_eq!(parse_accelerator(&accelerator(&super_s)), Some(super_s));
-    }
-
-    #[test]
-    fn values_read_as_gsettings_prints_them() {
-        assert_eq!(parse_value("@as []"), Some(Value::List(vec![])));
-        assert_eq!(
-            parse_value("['<Shift>Print', '<Super>p']"),
-            Some(Value::List(vec!["<Shift>Print".into(), "<Super>p".into()]))
-        );
-        assert_eq!(parse_value("'Print'"), Some(Value::One("Print".into())));
-        assert_eq!(parse_value("\"it's\""), Some(Value::One("it's".into())));
-        assert_eq!(parse_value("true"), None);
-        assert_eq!(parse_value("uint32 5"), None);
-        let tricky = r"/opt/my 'tools'/screenie \ shot";
-        assert_eq!(parse_string(&quote(tricky)).as_deref(), Some(tricky));
     }
 
     #[test]
