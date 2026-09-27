@@ -33,7 +33,12 @@ fn stamp(name: &str, git_args: &[&str]) -> Option<String> {
 fn main() {
     let commit = stamp(
         "SCREENIE_COMMIT",
-        &["log", "-1", "--format=%h %cd", "--date=format:%Y-%m-%d %H:%M"],
+        &[
+            "log",
+            "-1",
+            "--format=%h %cd",
+            "--date=format:%Y-%m-%d %H:%M",
+        ],
     )
     .unwrap_or_else(|| "unknown commit".into());
     println!("cargo:rustc-env=SCREENIE_COMMIT={commit}");
