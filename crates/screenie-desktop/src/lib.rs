@@ -4,6 +4,7 @@
 pub mod clipboard;
 pub mod entry;
 pub mod notify;
+pub mod overview;
 pub mod shortcuts;
 
 /// The desktop screenie runs on, where it matters: GNOME and KDE Plasma have their own

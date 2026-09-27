@@ -225,6 +225,7 @@ fn home_output(region: Rect, outputs: &[OutputInfo]) -> Option<&OutputInfo> {
 }
 
 async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<PathBuf>> {
+    crate::screenshot::leave_overview(cx).await;
     let (config, capture, last_region) = cx.update(|cx| {
         let d = Daemon::get(cx);
         (d.config.clone(), d.capture.clone(), d.last_region())

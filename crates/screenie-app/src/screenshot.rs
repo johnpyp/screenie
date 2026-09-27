@@ -104,6 +104,7 @@ async fn run(
             .timer(std::time::Duration::from_secs(req.delay as u64))
             .await;
     }
+    leave_overview(cx).await;
 
     let interactive = matches!(req.target, Target::Select { .. });
     if interactive {
@@ -375,6 +376,21 @@ async fn focused_window(
 }
 
 /// Capture every output, with screenie's own surfaces out of the way.
+/// On GNOME, leave the overview first: what's captured is the desktop, and a selector
+/// opened over the overview would land in it as a thumbnail.
+pub(crate) async fn leave_overview(cx: &AsyncApp) {
+    if screenie_desktop::Desktop::current() != screenie_desktop::Desktop::Gnome {
+        return;
+    }
+    let left = cx
+        .background_executor()
+        .spawn(async { screenie_desktop::overview::leave() })
+        .await;
+    if let Err(e) = left {
+        tracing::debug!("leaving the overview: {e}");
+    }
+}
+
 async fn freeze(
     capture: &Arc<CaptureContext>,
     options: SnapshotOptions,
