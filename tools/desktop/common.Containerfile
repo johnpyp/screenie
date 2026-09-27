@@ -1,6 +1,7 @@
 # What every desktop image shares: screenie's runtime (GStreamer with PipeWire, Vulkan in
 # software), a D-Bus session, PipeWire, portals, fonts, and a terminal to capture.
-FROM registry.fedoraproject.org/fedora:44
+ARG FEDORA=44
+FROM registry.fedoraproject.org/fedora:${FEDORA}
 RUN dnf -y --setopt=install_weak_deps=False install \
       dbus-daemon dbus-tools procps-ng psmisc findutils which python3 python3-gobject \
       python3-dbus glib2 xdg-utils wl-clipboard wayland-utils foot \

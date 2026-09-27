@@ -1,4 +1,5 @@
-FROM localhost/screenie-desktop-common
+ARG COMMON=localhost/screenie-desktop-common:44
+FROM ${COMMON}
 RUN dnf -y --setopt=install_weak_deps=False install \
       kwin kwin-wayland xdg-desktop-portal-kde kglobalacceld spectacle kscreen \
       qt6-qttools kde-cli-tools kf6-kconfig plasma-workspace konsole \
