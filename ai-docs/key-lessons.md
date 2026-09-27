@@ -84,6 +84,27 @@ real digging.
 - **A cursor session only reports a pointer the seat has.** In the headless session the
   seat's pointer is wlinput's virtual one, so it exists only while wlinput runs.
 
+## GNOME and KDE
+
+- **KWin ignores `NoDisplay` desktop entries when it authorizes a process.** It finds a
+  process's entry (whose `Exec` binary is `/proc/PID/exe`, canonically) among the apps a
+  menu would list, so a hidden entry grants nothing: ScreenShot2 answers `NoAuthorized`
+  and the restricted Wayland globals aren't advertised. Run `kbuildsycoca6` after
+  writing it.
+- **KWin screenshots need OpenGL.** On a software (QPainter) session ScreenShot2 answers
+  `Cancelled`. The test containers get the host's `/dev/dri`.
+- **KWin can hand a screen back with alpha**, zero where nothing's drawn. Screens are
+  opaque: read the alpha formats as their `x` twins.
+- **GNOME lets an app with an id raise an access dialog only while it's the focused
+  app.** A daemon that registered its app id with the portal could never be granted
+  screenshots (the portal fails at once, and nothing is stored). Unidentified host apps
+  are asked any time, and share the one permission.
+- **GNOME's clipboard needs focus, but a remote desktop session's doesn't.** A Mutter
+  RemoteDesktop session that's never started shows no indicator and can own the
+  clipboard (`EnableClipboard`, `SetSelection`, answer `SelectionTransfer`). Mutter's
+  clipboard manager copies images up to 200 MB right away, so a copy outlives it.
+  `Stop` refuses a session that was never started; it ends with the connection.
+
 ## Daemon, files and clipboard
 
 - **Wayland clipboards die with their owner**, so an upgrade that replaces the daemon
