@@ -61,7 +61,6 @@ fn run(claimed: Claimed, commit: &'static str) -> anyhow::Result<()> {
     // KWin and the portals know screenie by its desktop entry, which has to be there
     // before capturing asks them anything: on GNOME and KDE always, elsewhere when
     // capturing goes through the portal.
-    shortcuts::repair(&state, desktop);
     let identified = desktop != Desktop::Other && install_desktop_entry(&state);
     let capture = CaptureContext::new().remembering(Arc::new(PortalTokens(state.clone())));
     if !identified && !capture.offers().wayland.native_capture() && capture.offers().portal {

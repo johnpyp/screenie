@@ -49,6 +49,8 @@ shortcut settings, where they can be changed.
 - **Elsewhere**, keys are bound in the compositor's configuration: `snippet` has the
   lines for sway, Hyprland and niri.
 
-The keys run a path to `screenie` given by the caller, one that should outlast upgrades
-(the CLI's, from `$PATH`), while the entry's own `Exec` is the running binary, as KWin
-checks it. The daemon repoints the keys at itself if that path goes away.
+The keys run the path to `screenie` the caller gives: the desktop runs them with its own
+`PATH`, which often lacks `~/.cargo/bin` or mise's, so the CLI gives the one the user's
+shell found (`~/.cargo/bin/screenie`, mise's `…/latest/bin/screenie`,
+`~/.nix-profile/bin/screenie`), which stays put across upgrades. The entry's own `Exec`
+is the running binary, as KWin checks it.

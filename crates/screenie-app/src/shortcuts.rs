@@ -122,6 +122,13 @@ fn describe(desktop: Desktop, installed: Option<&Shortcuts>) -> Result<String, S
     let keys = shortcuts::keys(desktop).map_err(|e| e.to_string())?;
     let mut out = String::new();
     let _ = match installed {
+        Some(i) if !i.command.is_file() => writeln!(
+            out,
+            "{}'s screenshot keys, for screenie: installed, but they run {}, which is \
+             gone.\n`screenie shortcuts install` points them at this screenie.\n",
+            desktop.name(),
+            i.command.display()
+        ),
         Some(i) => writeln!(
             out,
             "{}'s screenshot keys, for screenie: installed, running {}.\n",
@@ -215,27 +222,5 @@ fn configuration(compositor: &str, command: &Path) -> String {
             }
             out
         }
-    }
-}
-
-/// Keys installed on this desktop run a path that's no longer there (screenie was
-/// upgraded, or moved): point them at this binary.
-pub(crate) fn repair(state: &StateFile, desktop: Desktop) {
-    let Some(installed) = installed_now(state, desktop) else {
-        return;
-    };
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    if installed.command.is_file() {
-        return;
-    }
-    tracing::info!(
-        from = %installed.command.display(),
-        to = %exe.display(),
-        "the shortcuts' command is gone; pointing them at this binary"
-    );
-    if let Err(e) = install(state, desktop, &exe) {
-        tracing::warn!("repairing the shortcuts: {e}");
     }
 }
