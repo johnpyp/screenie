@@ -25,7 +25,7 @@ use gpui::{
 };
 use screenie_config::{Align, ScreenPosition};
 use screenie_ui_kit::hud::{self, color};
-use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, layer_options, ui};
+use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, open_layer, ui};
 
 use super::{Action, Media, PreviewItem, format_duration};
 use crate::daemon::Daemon;
@@ -203,11 +203,12 @@ fn open_stack(placement: Placement, items: Vec<Card>, cx: &mut App) {
         )
     };
     let (position, output) = (placement.position, placement.output.clone());
-    let opened = cx.open_window(layer_options(cx, &spec), |window, cx| {
+    let items = std::cell::Cell::new(items);
+    let opened = open_layer(cx, &spec, |window, cx| {
         screenie_ui_kit::conceal::track(window, &spec, cx);
-        let stack = cx.new(|cx| PreviewStack::new(position, output, window, cx));
+        let stack = cx.new(|cx| PreviewStack::new(position, output.clone(), window, cx));
         stack.update(cx, |s, cx| {
-            for item in items {
+            for item in items.take() {
                 s.push(item, cx);
             }
         });

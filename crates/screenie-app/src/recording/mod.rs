@@ -401,9 +401,11 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         None,
         false,
     );
-    // Without layer-shell there's no chrome to count down in, so it starts at once (GNOME
-    // shows it's recording in its top bar, whose button stops it).
-    let countdown = if capture.support().layer_shell {
+    // Where nothing floats there's no chrome to count down in, so it starts at once (GNOME
+    // without screenie's extension shows it's recording in its top bar, whose button
+    // stops it).
+    let floats = screenie_ui_kit::floats(capture.support().layer_shell);
+    let countdown = if floats {
         config.recording.countdown
     } else {
         0

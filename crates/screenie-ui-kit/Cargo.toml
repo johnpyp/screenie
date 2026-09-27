@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 screenie-core.workspace = true
+screenie-desktop.workspace = true
 gpui.workspace = true
 gpui-kit.workspace = true
 anyhow.workspace = true

@@ -62,6 +62,9 @@ fn run(claimed: Claimed, commit: &'static str) -> anyhow::Result<()> {
     // before capturing asks them anything: on GNOME and KDE always, elsewhere when
     // capturing goes through the portal.
     let identified = desktop != Desktop::Other && install_desktop_entry(&state);
+    if desktop == Desktop::Gnome {
+        screenie_desktop::extension::keep_current();
+    }
     let capture = CaptureContext::new().remembering(Arc::new(PortalTokens(state.clone())));
     if !identified && !capture.offers().wayland.native_capture() && capture.offers().portal {
         install_desktop_entry(&state);

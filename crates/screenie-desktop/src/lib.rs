@@ -1,11 +1,14 @@
 //! Fitting screenie into the desktop it runs on: knowing which one that is ([`Desktop`]),
-//! being an app it knows ([`entry`]), and having its screenshot keys ([`shortcuts`]).
+//! being an app it knows ([`entry`]), having its screenshot keys ([`shortcuts`]), and on
+//! GNOME, its Shell extension ([`extension`], [`shell`]).
 
 pub mod clipboard;
 pub mod entry;
+pub mod extension;
 mod gsettings;
 pub mod notify;
 pub mod overview;
+pub mod shell;
 pub mod shortcuts;
 
 /// The desktop screenie runs on, where it matters: GNOME and KDE Plasma have their own

@@ -8,12 +8,16 @@
 //! screen-sharing button, whose click stops it, and which stays up for five seconds
 //! after. So a still is marked a recording, to be over quickly, and a recording isn't,
 //! to be stopped from the top bar like any recorder going through the portal.
+//!
+//! Screenie's GNOME Shell extension keeps a still's cast out of the top bar altogether
+//! ([`quiet_stills`]), which makes casts the way to take stills.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use futures_lite::StreamExt;
 use screenie_core::Rect;
+use screenie_desktop::shell::{Feature, Shell};
 use zbus::Connection;
 use zbus::zvariant::{OwnedObjectPath, Value};
 
@@ -79,6 +83,12 @@ pub(crate) fn available() -> bool {
     .unwrap_or(false)
 }
 
+/// Whether stills can be casts that don't show in the top bar: screenie's GNOME Shell
+/// extension is running, and keeps them out of it.
+pub(crate) fn quiet_stills() -> bool {
+    screenie_desktop::shell::offers(Feature::QuietCasts)
+}
+
 /// What to cast.
 pub(crate) enum Source<'a> {
     Monitor(&'a str),
@@ -86,6 +96,8 @@ pub(crate) enum Source<'a> {
     Area(Rect),
     /// The window with keyboard focus, by itself.
     FocusedWindow,
+    /// A window by itself, by Mutter's id for it.
+    Window(u64),
 }
 
 /// A running cast. Mutter ends it when this is dropped, or when the connection closes.
@@ -163,6 +175,11 @@ impl Cast {
                 }
                 // Without a `window-id`, the focused window.
                 Source::FocusedWindow => cast.session.record_window(properties()).await,
+                Source::Window(id) => {
+                    let mut properties = properties();
+                    properties.insert("window-id", Value::from(*id));
+                    cast.session.record_window(properties).await
+                }
             }
             .map_err(dbus)?;
             let stream = StreamProxy::builder(&connection)
@@ -179,7 +196,22 @@ impl Cast {
                     .map_err(dbus)?,
             );
         }
-        cast.session.start().await.map_err(dbus)?;
+        // A still is kept out of the top bar where the extension can: it has to be told
+        // just before the cast starts, which is when gnome-shell hears of it.
+        let quiet = match purpose {
+            Purpose::Still => Shell::connect(&connection, Feature::QuietCasts).await,
+            Purpose::Stream => None,
+        };
+        if let Some(shell) = &quiet
+            && let Err(e) = shell.quiet_next_cast().await
+        {
+            tracing::debug!("keeping the cast out of the top bar: {e}");
+        }
+        let started = cast.session.start().await.map_err(dbus);
+        if let Some(shell) = &quiet {
+            let _ = shell.cast_started().await;
+        }
+        started?;
         for mut signals in added {
             let signal = signals
                 .next()

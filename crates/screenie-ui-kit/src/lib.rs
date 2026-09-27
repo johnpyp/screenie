@@ -17,7 +17,8 @@ pub use hover::Hover;
 pub use image::render_image;
 pub use keys::{KeyboardGrab, RELEASE_TIMEOUT};
 pub use layer::{
-    LayerSpec, display_for_output, fallback_options, layer_options, wait_for_displays,
+    LayerSpec, display_for_output, fallback_options, floats, layer_options, open_layer,
+    wait_for_displays,
 };
 pub use scale::{UI_SCALE_RANGE, set_ui_scale, track as track_ui_scale, ui, ui_px, ui_scale};
 pub use tip::Tip;

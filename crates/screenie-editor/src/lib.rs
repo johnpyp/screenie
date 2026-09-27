@@ -22,7 +22,7 @@ use gpui::{
 };
 use screenie_annotate::{Color, Document, Style};
 use screenie_core::{Image, OutputInfo, Rect};
-use screenie_ui_kit::layer::{LayerSpec, fallback_options, layer_options};
+use screenie_ui_kit::layer::{LayerSpec, open_layer};
 
 pub use session::{Cursor, Key, Modifiers, Outcome, Reach, Session, TextEdit};
 pub use tool::Tool;
@@ -236,21 +236,9 @@ pub(crate) fn open_session(
                 output: name.map(String::from),
                 ..spec
             };
-            match cx.open_window(
-                layer_options(cx, &spec),
-                build(session.clone(), path.clone(), Some(&spec)),
-            ) {
-                Ok(handle) => handle,
-                Err(e) => {
-                    tracing::debug!(
-                        "layer-shell editor failed ({e}); falling back to a fullscreen window"
-                    );
-                    cx.open_window(
-                        fallback_options(cx, &spec),
-                        build(session, path, Some(&spec)),
-                    )?
-                }
-            }
+            open_layer(cx, &spec, |window, cx| {
+                build(session.clone(), path.clone(), Some(&spec))(window, cx)
+            })?
         }
         Mode::Window => {
             let k = screenie_ui_kit::ui_scale(cx);

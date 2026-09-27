@@ -1,0 +1,7 @@
+{
+  "uuid": "screenie@johnpyp.dev",
+  "name": "Screenie",
+  "description": "What the screenie screenshot app needs from GNOME Shell: silent screenshots, the windows to pick from, and its previews and controls placed over other windows.",
+  "shell-version": ["46", "47", "48", "49", "50"],
+  "url": "https://github.com/johnpyp/screenie"
+}

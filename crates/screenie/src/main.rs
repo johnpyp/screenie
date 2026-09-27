@@ -21,6 +21,7 @@ use screenie_ipc::{
     SelectMode, ShortcutsAction, State, Status, Target,
 };
 
+mod extension;
 mod man;
 
 /// `0.1.0 (46bce20 2026-09-25 23:20)`
@@ -71,6 +72,15 @@ enum Command {
         #[command(subcommand)]
         action: Option<ShortcutsCommand>,
     },
+    /// Screenie's GNOME Shell extension, for silent screenshots and picking windows.
+    ///
+    /// GNOME lets only code in its shell see where windows are or take a screenshot
+    /// without flashing the screen and asking first. Screenie's extension does these for
+    /// it. GNOME loads extensions when you log in, so a new one runs from the next login.
+    Extension {
+        #[command(subcommand)]
+        action: Option<ExtensionCommand>,
+    },
     /// Run the daemon in the foreground (normally started automatically). Upgrades a
     /// daemon running another build, unless it is in use.
     Daemon,
@@ -79,10 +89,20 @@ enum Command {
     /// Write the man pages into DIR/man1 and DIR/man5, for packaging.
     #[command(hide = true)]
     Man { dir: PathBuf },
-    /// Write the desktop entry, running this binary, and the icon into DIR/applications
-    /// and DIR/icons (a `share` directory), for packaging.
+    /// Write what a package installs besides the binary into DIR (a `share` directory):
+    /// the desktop entry, running this binary, the icon and the GNOME Shell extension.
     #[command(hide = true)]
-    Entry { dir: PathBuf },
+    Share { dir: PathBuf },
+}
+
+#[derive(Subcommand, Clone, Copy)]
+enum ExtensionCommand {
+    /// Whether it's installed and running (the default).
+    Show,
+    /// Install and enable it.
+    Install,
+    /// Disable and remove it.
+    Remove,
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -357,17 +377,19 @@ fn main() -> ExitCode {
             }
         };
     }
-    if let Command::Entry { dir } = &command {
-        return match screenie_desktop::entry::write_packaged(dir) {
+    if let Command::Share { dir } = &command {
+        let written = screenie_desktop::entry::write_packaged(dir)
+            .and_then(|()| screenie_desktop::extension::write_packaged(dir));
+        return match written {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!(
-                    "screenie: can't write the desktop entry to {}: {e}",
-                    dir.display()
-                );
+                eprintln!("screenie: can't write to {}: {e}", dir.display());
                 ExitCode::from(2)
             }
         };
+    }
+    if let Command::Extension { action } = command {
+        return extension::run(action.unwrap_or(ExtensionCommand::Show));
     }
     if let Command::Daemon = command {
         let commit = env!("SCREENIE_COMMIT");
@@ -611,7 +633,10 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
             command: command_path(),
         })?,
         Command::Quit => request_running(&Request::Quit, Response::Ok)?,
-        Command::Daemon | Command::Man { .. } | Command::Entry { .. } => {
+        Command::Daemon
+        | Command::Man { .. }
+        | Command::Share { .. }
+        | Command::Extension { .. } => {
             unreachable!("handled in main")
         }
     };

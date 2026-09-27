@@ -28,7 +28,7 @@ use gpui::{
 };
 use screenie_core::{OutputInfo, Point, Rect, Size};
 use screenie_ui_kit::hud::{self, HudButton, color};
-use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, layer_options, ui};
+use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, open_layer, ui};
 
 use crate::daemon::Daemon;
 
@@ -177,9 +177,11 @@ pub(crate) fn open(
     let home = &scene.home;
     let k = cx.update(|cx| f64::from(screenie_ui_kit::ui_scale(cx)));
     let layout = Layout::new(scene.region, scene.chrome, home, covered, k);
-    // The chrome floats over everything, which takes layer-shell (not on GNOME).
-    let layer_shell = cx.update(|cx| Daemon::get(cx).capture.support().layer_shell);
-    if !layout.shows(phase) || !layer_shell {
+    // The chrome floats over everything (layer-shell, or GNOME's with screenie's
+    // extension).
+    let floats =
+        cx.update(|cx| screenie_ui_kit::floats(Daemon::get(cx).capture.support().layer_shell));
+    if !layout.shows(phase) || !floats {
         return None;
     }
     let spec = LayerSpec::fullscreen_overlay(
@@ -192,7 +194,7 @@ pub(crate) fn open(
     )
     .passive();
     cx.update(|cx| {
-        cx.open_window(layer_options(cx, &spec), |window, cx| {
+        open_layer(cx, &spec, |window, cx| {
             screenie_ui_kit::conceal::track(window, &spec, cx);
             screenie_ui_kit::track_ui_scale(window, cx);
             let hover = Hover::new(window, cx);

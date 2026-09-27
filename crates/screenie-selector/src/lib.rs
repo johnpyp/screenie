@@ -27,7 +27,7 @@ use std::sync::Arc;
 use gpui::{AnyWindowHandle, App, AppContext, AsyncApp, px, size};
 use screenie_core::{OutputInfo, Snapshot, WindowInfo};
 use screenie_ui_kit::KeyboardGrab;
-use screenie_ui_kit::layer::{LayerSpec, fallback_options, layer_options, wait_for_displays};
+use screenie_ui_kit::layer::{LayerSpec, open_layer, wait_for_displays};
 
 pub use model::{Mode, Purpose, Selection};
 use view::{OutputView, Session, frozen_parts};
@@ -222,31 +222,13 @@ pub async fn select_steered(
         );
         let session = session.clone();
         let opened = cx.update(|cx| {
-            let build = |output: OutputInfo, frozen, session| {
+            open_layer(cx, &spec, |window, cx| {
                 // Kept out of captures taken while it's open (a screenshot while a
                 // recording's area is picked).
-                let spec = spec.clone();
-                move |window: &mut gpui::Window, cx: &mut gpui::App| {
-                    screenie_ui_kit::conceal::track(window, &spec, cx);
-                    cx.new(|cx| OutputView::new(session, output, frozen, window, cx))
-                }
-            };
-            let first = cx.open_window(
-                layer_options(cx, &spec),
-                build(output.clone(), frozen.clone(), session.clone()),
-            );
-            match first {
-                Ok(h) => Ok(h),
-                Err(e) => {
-                    tracing::debug!(
-                        "layer-shell window failed ({e}); falling back to a regular window"
-                    );
-                    cx.open_window(
-                        fallback_options(cx, &spec),
-                        build(output.clone(), frozen, session),
-                    )
-                }
-            }
+                screenie_ui_kit::conceal::track(window, &spec, cx);
+                let (session, output, frozen) = (session.clone(), output.clone(), frozen.clone());
+                cx.new(|cx| OutputView::new(session, output, frozen, window, cx))
+            })
         });
         match opened {
             Ok(handle) => handles.push(handle.into()),

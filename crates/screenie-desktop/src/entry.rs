@@ -216,7 +216,7 @@ fn resolve(bin: &str) -> Option<PathBuf> {
     path.canonicalize().ok()
 }
 
-fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<Outcome> {
+pub(crate) fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<Outcome> {
     if std::fs::read_to_string(path).is_ok_and(|old| old == contents) {
         return Ok(Outcome::Current);
     }

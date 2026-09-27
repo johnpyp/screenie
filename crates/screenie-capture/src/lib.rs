@@ -95,6 +95,9 @@ pub struct Offers {
     /// KWin's screen casts, which it offers only to clients it trusts.
     pub kwin_casts: bool,
     pub mutter_casts: bool,
+    /// Mutter's casts can be stills that don't show in the top bar (found per capture:
+    /// screenie's GNOME Shell extension comes and goes).
+    pub quiet_mutter_stills: bool,
     pub portal: bool,
 }
 
@@ -110,6 +113,7 @@ impl Offers {
             kwin_screenshots: !native && kwin::available(),
             kwin_casts: !native && screenie_wayland::kde_screencast_available(),
             mutter_casts: !native && mutter::available(),
+            quiet_mutter_stills: false,
             portal: portal::available(),
             wayland,
         }
@@ -191,10 +195,14 @@ impl CaptureContext {
     /// ext-image-copy-capture copies the whole output, and its GPU frames then need
     /// cropping, which not every encoder can do on the GPU.
     ///
-    /// Stills on GNOME come from the Screenshot portal rather than Mutter's casts: a cast
-    /// shows its indicator in the top bar, and so in the picture.
+    /// Stills on GNOME come from Mutter's casts only where screenie's GNOME Shell
+    /// extension keeps them out of the top bar (and so out of the picture); otherwise
+    /// from the Screenshot portal, which flashes the screen and asks first.
     fn candidates(&self, backend: CaptureBackend, kind: Kind) -> Vec<Method> {
-        let offers = &self.offers;
+        let mut offers = self.offers.clone();
+        offers.quiet_mutter_stills =
+            kind == Kind::Still && offers.mutter_casts && mutter::quiet_stills();
+        let offers = &offers;
         match backend {
             CaptureBackend::Ext => vec![Method::Ext],
             CaptureBackend::Wlr => vec![Method::Wlr],
@@ -450,7 +458,15 @@ impl CaptureContext {
         let kwin = self.offers.kwin_casts
             && self.compositor.name() == "kwin"
             && matches!(backend, CaptureBackend::Auto | CaptureBackend::Kwin);
-        ext || kwin
+        ext || kwin || self.streams_gnome_windows(backend)
+    }
+
+    /// Whether windows are cast by Mutter's id for them, which GNOME's windows come with
+    /// where screenie's GNOME Shell extension lists them.
+    fn streams_gnome_windows(&self, backend: CaptureBackend) -> bool {
+        self.offers.mutter_casts
+            && self.compositor.name() == "gnome"
+            && matches!(backend, CaptureBackend::Auto | CaptureBackend::Mutter)
     }
 
     /// Start a live stream of one window by itself. Blocks until the first frame arrives.
@@ -459,6 +475,25 @@ impl CaptureContext {
     /// has it drawn over them instead, from where it is on an output: the window's place
     /// on the desktop is kept current from compositor IPC for as long as the stream lasts.
     pub fn stream_window(&self, window: &WindowInfo, cursor: bool) -> Result<Box<dyn FrameSource>> {
+        if self.streams_gnome_windows(CaptureBackend::Auto) {
+            let id = window
+                .id
+                .parse()
+                .map_err(|_| Error::Unsupported(format!("no GNOME window {}", window.id)))?;
+            let cast = mutter::Cast::start(
+                &[mutter::Source::Window(id)],
+                mutter::CastPointer::from(cursor),
+                mutter::Purpose::Stream,
+            )?;
+            // Cropped to the window's buffer, shadow and all.
+            let stream = screenie_pipewire::Stream::connect(
+                Remote::Session,
+                cast.nodes[0],
+                Pointer::InFrames,
+                Keep::Opaque,
+            )?;
+            return prime(Keeping::boxed(stream, cast));
+        }
         if !self.offers.wayland.window_capture && self.offers.kwin_casts {
             // KWin knows windows by the UUID its IPC reports as their id.
             let pointer = if cursor {
@@ -527,7 +562,7 @@ fn auto_order(offers: &Offers, kind: Kind, working: Option<Method>) -> Vec<Metho
     let region = kind == (Kind::Stream { region: true });
     let mut all = wayland_order(&offers.wayland, region);
     let (kwin, mutter) = match kind {
-        Kind::Still => (offers.kwin_screenshots, false),
+        Kind::Still => (offers.kwin_screenshots, offers.quiet_mutter_stills),
         Kind::Stream { .. } => (offers.kwin_casts, offers.mutter_casts),
     };
     if kwin {
@@ -540,7 +575,7 @@ fn auto_order(offers: &Offers, kind: Kind, working: Option<Method>) -> Vec<Metho
         all.push(Method::Portal);
     }
     // Better a cast's indicator in a still than no still.
-    if kind == Kind::Still && offers.mutter_casts {
+    if kind == Kind::Still && offers.mutter_casts && !offers.quiet_mutter_stills {
         all.push(Method::Mutter);
     }
     if let Some(working) = working {
@@ -758,7 +793,7 @@ mod tests {
             auto_order(&kde, stream, None),
             [Method::Kwin, Method::Portal]
         );
-        // GNOME's stills come from the portal: a cast's indicator would be in them.
+        // GNOME's stills come from the portal, where a cast's indicator would be in them.
         let gnome = Offers {
             mutter_casts: true,
             portal: true,
@@ -767,6 +802,14 @@ mod tests {
         assert_eq!(
             auto_order(&gnome, Kind::Still, None),
             [Method::Portal, Method::Mutter]
+        );
+        let quiet = Offers {
+            quiet_mutter_stills: true,
+            ..gnome.clone()
+        };
+        assert_eq!(
+            auto_order(&quiet, Kind::Still, None),
+            [Method::Mutter, Method::Portal]
         );
         assert_eq!(
             auto_order(&gnome, stream, None),

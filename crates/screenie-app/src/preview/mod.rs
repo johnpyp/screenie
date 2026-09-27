@@ -378,9 +378,10 @@ impl PreviewItem {
     }
 }
 
-/// Cards need layer-shell; without it, captures are told of in notifications.
+/// Cards float over other windows (layer-shell, or GNOME's with screenie's extension);
+/// where they can't, captures are told of in notifications.
 fn cards(cx: &App) -> bool {
-    Daemon::get(cx).capture.support().layer_shell
+    screenie_ui_kit::floats(Daemon::get(cx).capture.support().layer_shell)
 }
 
 /// Show a capture, on `output` if given.

@@ -81,7 +81,7 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     $out/bin/screenie man $out/share/man
-    $out/bin/screenie entry $out/share
+    $out/bin/screenie share $out/share
   '';
 
   # The GPU and Wayland libraries are loaded at runtime rather than linked.
