@@ -205,19 +205,19 @@ fn run(
                 return;
             };
             match command {
-            Command::Pace(fps) => {
-                let format = format::enum_format(Some(fps));
-                let mut params = [Pod::from_bytes(&format).expect("a serialized pod")];
-                if let Err(e) = stream.update_params(&mut params) {
-                    tracing::debug!("can't pace the screen cast: {e}");
+                Command::Pace(fps) => {
+                    let format = format::enum_format(Some(fps));
+                    let mut params = [Pod::from_bytes(&format).expect("a serialized pod")];
+                    if let Err(e) = stream.update_params(&mut params) {
+                        tracing::debug!("can't pace the screen cast: {e}");
+                    }
                 }
-            }
-            Command::Active(active) => {
-                if let Err(e) = stream.set_active(active) {
-                    tracing::warn!("can't pause the screen cast: {e}");
+                Command::Active(active) => {
+                    if let Err(e) = stream.set_active(active) {
+                        tracing::warn!("can't pause the screen cast: {e}");
+                    }
                 }
-            }
-            Command::Quit => main_loop.quit(),
+                Command::Quit => main_loop.quit(),
             }
         }
     });
@@ -254,8 +254,13 @@ fn receive(buffer: &mut pw::buffer::Buffer<'_>, n: &mut Negotiated) {
         Some(crop) if crop.of.width > 0.0 => {
             let scale = f64::from(content.width) / crop.of.width;
             let part = crop.region.to_pixels(Point::new(0.0, 0.0), scale);
-            PixelRect::new(content.x + part.x, content.y + part.y, part.width, part.height)
-                .intersection(&content)
+            PixelRect::new(
+                content.x + part.x,
+                content.y + part.y,
+                part.width,
+                part.height,
+            )
+            .intersection(&content)
         }
         _ => Some(content),
     };
@@ -322,11 +327,7 @@ fn receive(buffer: &mut pw::buffer::Buffer<'_>, n: &mut Negotiated) {
 
 /// Read the pointer from the buffer's cursor metadata, placed relative to `origin` (the
 /// kept part's top-left in the buffer). True if it changed.
-fn update_pointer(
-    buffer: &pw::buffer::Buffer<'_>,
-    n: &mut Negotiated,
-    origin: (i32, i32),
-) -> bool {
+fn update_pointer(buffer: &pw::buffer::Buffer<'_>, n: &mut Negotiated, origin: (i32, i32)) -> bool {
     let Some(cursor) = buffer.find_meta::<MetaCursor>() else {
         return false;
     };

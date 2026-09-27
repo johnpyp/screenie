@@ -104,10 +104,16 @@ pub(crate) fn enum_format(max_fps: Option<u32>) -> Vec<u8> {
             ))),
         ),
     ];
-    let max = max_fps.map_or(Fraction { num: 1000, denom: 1 }, |fps| Fraction {
-        num: fps.max(1),
-        denom: 1,
-    });
+    let max = max_fps.map_or(
+        Fraction {
+            num: 1000,
+            denom: 1,
+        },
+        |fps| Fraction {
+            num: fps.max(1),
+            denom: 1,
+        },
+    );
     properties.push(property(
         FormatProperties::VideoMaxFramerate.as_raw(),
         Value::Choice(ChoiceValue::Fraction(Choice(

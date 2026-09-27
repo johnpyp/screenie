@@ -9,8 +9,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use screenie_core::Rect;
 use futures_lite::StreamExt;
+use screenie_core::Rect;
 use zbus::Connection;
 use zbus::zvariant::{OwnedObjectPath, Value};
 
@@ -25,7 +25,8 @@ const SERVICE: &str = "org.gnome.Mutter.ScreenCast";
     gen_blocking = false
 )]
 trait ScreenCast {
-    fn create_session(&self, properties: HashMap<&str, Value<'_>>) -> zbus::Result<OwnedObjectPath>;
+    fn create_session(&self, properties: HashMap<&str, Value<'_>>)
+    -> zbus::Result<OwnedObjectPath>;
 }
 
 #[zbus::proxy(
@@ -156,7 +157,12 @@ impl Cast {
                 .await
                 .map_err(dbus)?;
             // Subscribed before starting, so the node can't be missed.
-            added.push(stream.receive_pipe_wire_stream_added().await.map_err(dbus)?);
+            added.push(
+                stream
+                    .receive_pipe_wire_stream_added()
+                    .await
+                    .map_err(dbus)?,
+            );
         }
         cast.session.start().await.map_err(dbus)?;
         for mut signals in added {

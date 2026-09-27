@@ -42,7 +42,11 @@ pub(crate) fn available() -> bool {
         let connection = zbus::Connection::session().await?;
         zbus::fdo::DBusProxy::new(&connection)
             .await?
-            .name_has_owner("org.freedesktop.portal.Desktop".try_into().expect("a bus name"))
+            .name_has_owner(
+                "org.freedesktop.portal.Desktop"
+                    .try_into()
+                    .expect("a bus name"),
+            )
             .await
             .map_err(zbus::Error::from)
     })

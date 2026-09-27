@@ -158,8 +158,8 @@ fn quote(arg: &str) -> String {
 
 /// Whether a system-wide entry (a package's) already runs `exe`.
 fn system_entry_for(exe: &Path) -> bool {
-    let dirs = std::env::var("XDG_DATA_DIRS")
-        .unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+    let dirs =
+        std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
     dirs.split(':').filter(|d| !d.is_empty()).any(|dir| {
         let entry = Path::new(dir)
             .join("applications")
@@ -245,7 +245,10 @@ mod tests {
         assert!(entry.contains("Exec=\"/opt/my tools/screenie\" shot\n"));
         assert!(entry.contains("Actions=screen;record;\n"));
         assert!(entry.contains("[Desktop Action record]\nName=Record the Screen\nExec=\"/opt/my tools/screenie\" record\nX-KDE-Shortcuts=Meta+Shift+R\n"));
-        assert_eq!(exec_binary(&entry).as_deref(), Some("/opt/my tools/screenie"));
+        assert_eq!(
+            exec_binary(&entry).as_deref(),
+            Some("/opt/my tools/screenie")
+        );
         let plain = render(Path::new("/usr/bin/screenie"), &[]);
         assert_eq!(exec_binary(&plain).as_deref(), Some("/usr/bin/screenie"));
     }

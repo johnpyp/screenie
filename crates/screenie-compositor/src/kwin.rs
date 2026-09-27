@@ -168,7 +168,9 @@ impl Kwin {
                 .await
                 .map_err(dbus)?;
             if id < 0 {
-                return Err(Error::Reply("KWin didn't load the window list script".into()));
+                return Err(Error::Reply(
+                    "KWin didn't load the window list script".into(),
+                ));
             }
             let script = ScriptProxy::builder(connection)
                 .path(format!("/Scripting/Script{id}"))

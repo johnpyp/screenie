@@ -179,7 +179,11 @@ impl StateFile {
             return Ok(());
         }
         *current = state;
-        if self.writable { self.save(&current) } else { Ok(()) }
+        if self.writable {
+            self.save(&current)
+        } else {
+            Ok(())
+        }
     }
 
     /// Write atomically, so a reader never sees half a file.

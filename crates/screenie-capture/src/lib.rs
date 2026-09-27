@@ -225,7 +225,10 @@ impl CaptureContext {
                 }
                 Err(e) => {
                     if i + 1 < candidates.len() {
-                        tracing::warn!(method = m.name(), "capture failed ({e}); trying the next way");
+                        tracing::warn!(
+                            method = m.name(),
+                            "capture failed ({e}); trying the next way"
+                        );
                     }
                     last = Some(e);
                 }
@@ -246,7 +249,8 @@ impl CaptureContext {
             std::thread::spawn(move || compositor.windows())
         });
 
-        let outputs = self.with_methods(opts.backend, Kind::Still, |m| self.stills(m, opts.cursor))?;
+        let outputs =
+            self.with_methods(opts.backend, Kind::Still, |m| self.stills(m, opts.cursor))?;
 
         let windows = windows
             .and_then(|h| h.join().ok())
@@ -281,7 +285,14 @@ impl CaptureContext {
                 let mut streams = cast
                     .nodes
                     .iter()
-                    .map(|&node| screenie_pipewire::Stream::connect(Remote::Session, node, Pointer::InFrames, None))
+                    .map(|&node| {
+                        screenie_pipewire::Stream::connect(
+                            Remote::Session,
+                            node,
+                            Pointer::InFrames,
+                            None,
+                        )
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 outputs
                     .into_iter()
@@ -405,8 +416,12 @@ impl CaptureContext {
                 KdePointer::Hidden
             };
             let cast = screenie_wayland::kde_cast(&KdeSource::Window(window.id.clone()), pointer)?;
-            let stream =
-                screenie_pipewire::Stream::connect(Remote::Session, cast.node, Pointer::InFrames, None)?;
+            let stream = screenie_pipewire::Stream::connect(
+                Remote::Session,
+                cast.node,
+                Pointer::InFrames,
+                None,
+            )?;
             return prime(Keeping::boxed(stream, cast));
         }
         let capturer = Capturer::connect_with(Some(Backend::ExtImageCopyCapture))?;
@@ -534,7 +549,11 @@ fn prime(mut stream: Box<dyn FrameSource>) -> Result<Box<dyn FrameSource>> {
                 }));
             }
             Ok(Next::Unchanged) => {}
-            Ok(Next::Ended) => return Err(Error::Cast("the stream ended before its first frame".into())),
+            Ok(Next::Ended) => {
+                return Err(Error::Cast(
+                    "the stream ended before its first frame".into(),
+                ));
+            }
             Err(e) => return Err(Error::Cast(e.to_string())),
         }
         if Instant::now() >= deadline {
@@ -661,8 +680,14 @@ mod tests {
             ..Default::default()
         };
         let region = Kind::Stream { region: true };
-        assert_eq!(auto_order(&offers, region, Some(Method::Ext)), [Method::Ext, Method::Wlr]);
-        assert_eq!(auto_order(&offers, Kind::Still, Some(Method::Wlr)), [Method::Wlr, Method::Ext]);
+        assert_eq!(
+            auto_order(&offers, region, Some(Method::Ext)),
+            [Method::Ext, Method::Wlr]
+        );
+        assert_eq!(
+            auto_order(&offers, Kind::Still, Some(Method::Wlr)),
+            [Method::Wlr, Method::Ext]
+        );
     }
 
     #[test]
@@ -673,16 +698,28 @@ mod tests {
             portal: true,
             ..Default::default()
         };
-        assert_eq!(auto_order(&kde, Kind::Still, None), [Method::Kwin, Method::Portal]);
+        assert_eq!(
+            auto_order(&kde, Kind::Still, None),
+            [Method::Kwin, Method::Portal]
+        );
         let stream = Kind::Stream { region: false };
-        assert_eq!(auto_order(&kde, stream, None), [Method::Kwin, Method::Portal]);
+        assert_eq!(
+            auto_order(&kde, stream, None),
+            [Method::Kwin, Method::Portal]
+        );
         // GNOME's stills come from the portal: a cast's indicator would be in them.
         let gnome = Offers {
             mutter_casts: true,
             portal: true,
             ..Default::default()
         };
-        assert_eq!(auto_order(&gnome, Kind::Still, None), [Method::Portal, Method::Mutter]);
-        assert_eq!(auto_order(&gnome, stream, None), [Method::Mutter, Method::Portal]);
+        assert_eq!(
+            auto_order(&gnome, Kind::Still, None),
+            [Method::Portal, Method::Mutter]
+        );
+        assert_eq!(
+            auto_order(&gnome, stream, None),
+            [Method::Mutter, Method::Portal]
+        );
     }
 }
