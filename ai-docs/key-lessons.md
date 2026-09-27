@@ -150,6 +150,14 @@ real digging.
   `wl_pointer` or `wl_keyboard` only after the seat announces it, so a press gets no
   `enter` first. Selector drags and clicks in the GNOME container silently did nothing
   (and Escape needed sending twice); `input.py` now makes both devices first.
+- **Mutter stacks a Wayland window only once it has a buffer.** `make_above()` (which
+  raises) on `window-created` tripped `meta_window_set_stack_position_no_sync`'s
+  assertion; the extension does it on `map`. The same assertion on any window opening
+  fullscreen (`foot --fullscreen` too) is Mutter's own.
+- **A buffer-less commit between the first configure's ack and the first buffer** makes
+  Mutter warn of invalid window geometry and of content committed without acknowledging a
+  configure. GPUI's `set_input_region` committed at once, during the first draw; it waits
+  for the first frame now (a patch, `patches/README.md`).
 
 ## Daemon, files and clipboard
 
