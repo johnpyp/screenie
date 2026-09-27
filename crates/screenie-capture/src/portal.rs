@@ -2,11 +2,12 @@
 //! compositor API screenie speaks: the Screenshot portal for stills, the ScreenCast
 //! portal for streams.
 //!
-//! Screenie talks to the portals as `dev.johnpyp.Screenie` where it can (registering its
-//! own connection as that app, which needs the desktop entry installed), so the
-//! permission the desktop asks for once is screenie's own. A screen cast asks which
-//! screens to share the first time; it's then restored from a token without asking,
-//! until the screens change.
+//! Screen casts ask as `dev.johnpyp.Screenie` (registering the connection as that app,
+//! which needs the desktop entry installed), so the dialog names screenie and the choice
+//! of screens, restored from a token without asking until they change, is screenie's
+//! own. Screenshots ask as an unidentified app instead: GNOME lets an app with an id ask
+//! for screenshot access only while it's the focused app, which a daemon never is, but
+//! asks for unidentified ones any time (the one permission covers all of them).
 
 use std::sync::Arc;
 
@@ -55,7 +56,7 @@ pub(crate) fn available() -> bool {
 
 /// A connection of its own, registered as screenie where the portal can (1.19.4+; the
 /// registration has to come before any other call on it).
-async fn connection() -> Result<zbus::Connection> {
+async fn identified() -> Result<zbus::Connection> {
     let connection = zbus::Connection::session().await.map_err(dbus)?;
     let app: ashpd::AppID = APP_ID.parse().expect("a valid app id");
     if let Err(e) = ashpd::register_host_app_with_connection(connection.clone(), app).await {
@@ -67,7 +68,8 @@ async fn connection() -> Result<zbus::Connection> {
 /// A still of every output, cut from the one picture the Screenshot portal takes.
 pub(crate) fn screenshot(outputs: &[OutputInfo]) -> Result<Vec<OutputCapture>> {
     let path = async_io::block_on(async {
-        let connection = connection().await?;
+        // Not `identified` (see the module docs).
+        let connection = zbus::Connection::session().await.map_err(dbus)?;
         let response = Screenshot::request()
             .interactive(false)
             .modal(false)
@@ -140,7 +142,7 @@ impl PortalCast {
     /// time, and whenever the token in `tokens` no longer restores the choice.
     pub(crate) fn screens(pointer: bool, tokens: &Arc<dyn RestoreTokens>) -> Result<PortalCast> {
         async_io::block_on(async {
-            let connection = connection().await?;
+            let connection = identified().await?;
             let casts = Screencast::with_connection(connection)
                 .await
                 .map_err(portal_error)?;

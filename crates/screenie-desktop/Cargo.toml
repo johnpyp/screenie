@@ -12,3 +12,6 @@ publish.workspace = true
 screenie-core.workspace = true
 screenie-config.workspace = true
 tracing.workspace = true
+zbus.workspace = true
+async-io.workspace = true
+futures-lite.workspace = true

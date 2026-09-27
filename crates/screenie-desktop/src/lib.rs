@@ -1,6 +1,7 @@
 //! Fitting screenie into the desktop it runs on: knowing which one that is ([`Desktop`]),
 //! and being an app it knows ([`entry`]).
 
+pub mod clipboard;
 pub mod entry;
 
 /// The desktop screenie runs on, where it matters: GNOME and KDE Plasma have their own
