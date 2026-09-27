@@ -501,9 +501,11 @@ fn init_daemon_logging() {
     }
 }
 
-/// `SCREENIE_LOG`, or `default`.
+/// `SCREENIE_LOG`, or `default`. By default, not zbus's warnings that it couldn't cache
+/// an object's properties: the portal's requests are gone by the time it asks.
 fn log_filter(default: &str) -> tracing_subscriber::EnvFilter {
-    tracing_subscriber::EnvFilter::try_from_env("SCREENIE_LOG").unwrap_or_else(|_| default.into())
+    tracing_subscriber::EnvFilter::try_from_env("SCREENIE_LOG")
+        .unwrap_or_else(|_| format!("{default},zbus::proxy=error").into())
 }
 
 /// Local time, like the capture file names.

@@ -38,7 +38,13 @@ trait ScreenShot2 {
 pub(crate) fn available() -> bool {
     async_io::block_on(async {
         let connection = Connection::session().await?;
-        ScreenShot2Proxy::new(&connection).await?.version().await
+        // Read once: caching would warn where there's no KWin.
+        ScreenShot2Proxy::builder(&connection)
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await?
+            .version()
+            .await
     })
     .is_ok()
 }
