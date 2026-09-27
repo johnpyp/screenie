@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    # Skip changes that can't affect the build. Tag pushes ignore this and always run.
+    paths: &paths
+      - "**"
+      - "!**/*.md"
+      - "README.md" # a test parses its config examples
+      - "!ai-docs/**"
+      - "!docs/**"
+      - "!references/**"
+      - "!tests/e2e/**"
+      - "!tools/demo/**"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+
+# One run per ref at a time: a newer push replaces a waiting run, and on a pull request
+# it cancels the running one too.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Nothing here runs a debugger, and without line tables the cached target dirs are
+  # smaller, so they save and restore faster.
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+# Caching: each job keeps its own target dir with Swatinem/rust-cache (dependencies
+# only; the workspace's crates are rebuilt). Only main saves, so pull requests and tags
+# build on main's cache without adding their own and evicting it.
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --all --check
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Keep the dependencies built before a lint failed.
+          cache-on-failure: true
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - run: cargo test --workspace --locked
+
+  # The release archives (tools/dist.py). Built on every push to main too, so a tag's
+  # build finds main's cache warm, and any commit's build can be downloaded from its run.
+  package:
+    name: package (${{ matrix.target }})
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest Ubuntu runners, so the binaries need only glibc 2.35.
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Check the tag matches the version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(cargo pkgid -p screenie | sed 's/.*[#@]//')
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but Cargo.toml says $version"
+            exit 1
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: python3 tools/dist.py
+      # Lets `gh attestation verify` and mise check that an archive was built here.
+      # Private repositories need GitHub Enterprise for this.
+      - uses: actions/attest@v4
+        if: github.ref_type == 'tag' && !github.event.repository.private
+        with:
+          subject-path: .cache/dist/*.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.target }}
+          path: .cache/dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [lint, test, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A tag like v0.2.0-rc.1 is a pre-release, which mise passes over for latest.
+          prerelease=()
+          if [[ $TAG == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "screenie ${TAG#v}" --generate-notes "${prerelease[@]}"

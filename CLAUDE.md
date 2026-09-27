@@ -76,5 +76,12 @@ uv run --project tests/e2e tools/rec_stress.py screen 6   # recording frame rate
 close/save flows, Save As, remembered state, interface scale); each test gets its own config,
 state and home. `mise run test:e2e` (or `mise run test:e2e -- -k save_as -x`). See its README.
 
+CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests, and on every push to
+`main` builds the release archives for x86_64 and aarch64 with `tools/dist.py` (run it
+locally for the same archive in `.cache/dist/`). To release, bump `version` in the
+workspace `Cargo.toml` and push a matching `vX.Y.Z` tag: CI publishes a GitHub release
+that `mise use github:johnpyp/screenie` installs. The e2e tests don't run in CI, as the
+runners' sway is too old.
+
 The README's images come from `tools/demo` (see its README): a headless demo desktop, a scripted
 tour, `stills.py` for the hero composite and close-ups, and `render.py` for the video.

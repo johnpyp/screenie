@@ -38,24 +38,26 @@ screenie record   # record one
 
 ## Installing
 
-screenie is built from source for now. You need [Rust](https://rustup.rs) 1.98 or newer,
-and on Debian or Ubuntu:
+Prebuilt binaries for x86_64 and aarch64 Linux are on the
+[releases page](https://github.com/johnpyp/screenie/releases). With
+[mise](https://mise.jdx.dev):
 
 ```sh
-sudo apt install build-essential pkg-config \
-  libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
-  libwayland-dev libvulkan-dev \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-  gstreamer1.0-libav gstreamer1.0-pulseaudio
+mise use -g github:johnpyp/screenie
 ```
 
-Then build and install it:
+Or unpack a release by hand into `~/.local`:
 
 ```sh
-git clone https://github.com/johnpyp/screenie && cd screenie
-cargo build --profile dist
-install -Dm755 target/dist/screenie ~/.local/bin/screenie
+tar -xzf screenie-*-x86_64-unknown-linux-gnu.tar.gz
+cp -r screenie-*/bin screenie-*/share ~/.local/
+```
+
+They need glibc 2.35 or newer and GStreamer's plugins. On Debian or Ubuntu:
+
+```sh
+sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+  gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-pulseaudio
 ```
 
 For hardware-encoded recordings on AMD or Intel, also install a VA-API driver:
@@ -65,8 +67,34 @@ sudo apt install mesa-va-drivers       # AMD
 sudo apt install intel-media-va-driver # Intel
 ```
 
-To upgrade, pull, build and install again. The next `screenie` command picks up the new
-build.
+`man screenie` documents the commands, and `man 5 screenie` the config file (with mise,
+once it's [activated](https://mise.jdx.dev/getting-started.html#activate-mise) in your
+shell).
+
+To upgrade, `mise up`, or unpack the new release the same way. The next `screenie`
+command picks up the new build.
+
+### Building from source
+
+You need [Rust](https://rustup.rs) 1.98 or newer, and on Debian or Ubuntu the plugins
+above plus:
+
+```sh
+sudo apt install build-essential pkg-config \
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev
+```
+
+Then build and install it, with its man pages:
+
+```sh
+git clone https://github.com/johnpyp/screenie && cd screenie
+cargo build --profile dist
+install -Dm755 target/dist/screenie ~/.local/bin/screenie
+target/dist/screenie man ~/.local/share/man
+```
+
+To upgrade, pull, build and install again.
 
 ## Getting started
 
@@ -311,7 +339,8 @@ editor:
   confirm_discard: true   # ask before closing with unsaved annotations
 ```
 
-Every key is in [`schema.rs`](crates/screenie-config/src/schema.rs).
+`man 5 screenie` describes every key. It's made from
+[`schema.rs`](crates/screenie-config/src/schema.rs).
 
 ### Presets
 

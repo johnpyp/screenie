@@ -51,3 +51,10 @@ Why screenie is built the way it is. Change these deliberately, not by drift.
   (`selector::model`, `editor::Session`) are unit-tested without GPUI; the real daemon is
   tested end to end in a headless sway session (`tests/e2e`).
 - **Release profile tuned for daily use** (incremental, no LTO); `dist` is for packaging.
+- **Releases are archives built on the oldest Ubuntu runners** (glibc 2.35), linked
+  against the system's GStreamer, so one build runs on most distributions. The archive
+  is laid out like a prefix (`bin/`, `share/man/`), which is what mise's github backend
+  and `man` both look for.
+- **Docs are generated from what they document.** The man pages come from clap's
+  definitions and the config schema's doc comments (via schemars), written by the binary
+  itself (`screenie man`), and a test fails when a config key has no doc comment.

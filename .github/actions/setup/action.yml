@@ -1,0 +1,25 @@
+name: Set up
+description: The system libraries screenie builds against, and stable Rust.
+
+inputs:
+  components:
+    description: Extra rustup components, comma-separated.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install system libraries
+      shell: bash
+      run: |
+        # Skip rebuilding the man page index after installing, which takes longer than the install.
+        sudo rm -f /var/lib/man-db/auto-update
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends \
+          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+          libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev
+
+    # Before rust-cache, which keys on the compiler's version.
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: ${{ inputs.components }}
