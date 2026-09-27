@@ -33,9 +33,12 @@ env:
   # smaller, so they save and restore faster.
   CARGO_PROFILE_DEV_DEBUG: 0
 
-# Caching: each job keeps its own target dir with Swatinem/rust-cache (dependencies
-# only; the workspace's crates are rebuilt). Only main saves, so pull requests and tags
-# build on main's cache without adding their own and evicting it.
+# Caching: lint and test each keep their target dir with Swatinem/rust-cache
+# (dependencies only; the workspace's crates are rebuilt). Only main saves, so pull
+# requests build on main's cache without adding their own and evicting it.
+#
+# The optimized builds (the release archives and the flake) run only for a tag or a
+# manual run: each push is covered by test's debug build of everything.
 
 jobs:
   lint:
@@ -74,7 +77,7 @@ jobs:
   # source, a new native dependency, or a Rust newer than nixpkgs has. Nixpkgs comes from
   # its binary cache; screenie itself builds from scratch.
   nix:
-    if: github.event_name != 'pull_request'
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -85,11 +88,12 @@ jobs:
       - run: nix build -L .#screenie
       - run: result/bin/screenie --version
 
-  # The release archives (tools/dist.py). Built on every push to main too, so a tag's
-  # build finds main's cache warm, and any commit's build can be downloaded from its run.
+  # The release archives (tools/dist.py), built from scratch: a tag can't use another
+  # tag's cache, and caching them from main would mean building them on every push. A
+  # manual run on any branch builds them too, to download from the run.
   package:
     name: package (${{ matrix.target }})
-    if: github.event_name != 'pull_request'
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -116,10 +120,6 @@ jobs:
             echo "::error::The tag is $GITHUB_REF_NAME but Cargo.toml says $version"
             exit 1
           fi
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: python3 tools/dist.py
       # Lets `gh attestation verify` and mise check that an archive was built here.
       # Private repositories need GitHub Enterprise for this.

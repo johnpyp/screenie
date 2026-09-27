@@ -76,9 +76,9 @@ uv run --project tests/e2e tools/rec_stress.py screen 6   # recording frame rate
 close/save flows, Save As, remembered state, interface scale); each test gets its own config,
 state and home. `mise run test:e2e` (or `mise run test:e2e -- -k save_as -x`). See its README.
 
-CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests, and on every push to
-`main` builds the release archives for x86_64 and aarch64 with `tools/dist.py` (run it
-locally for the same archive in `.cache/dist/`). To release, run the Release workflow
+CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on every push. For a tag
+or a manual run it also builds the release archives for x86_64 and aarch64 with
+`tools/dist.py` (run it locally for the same archive in `.cache/dist/`) and the flake. To release, run the Release workflow
 (`gh workflow run release.yml -f bump=patch|minor|major`, or `-f version=X.Y.Z`,
 `-f dry_run=true` to look first): it bumps the version (`tools/bump_version.py`),
 commits, tags `vX.Y.Z` and starts CI on the tag, which publishes a GitHub release that
