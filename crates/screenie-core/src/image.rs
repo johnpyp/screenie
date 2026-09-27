@@ -164,6 +164,34 @@ impl Image {
         Image::from_raw(r.width, r.height, row_bytes, self.format, data)
     }
 
+    /// The smallest rectangle holding every fully opaque pixel: a window without the drop
+    /// shadow around it. The whole image if it has no alpha, `None` if nothing's opaque.
+    pub fn opaque_bounds(&self) -> Option<PixelRect> {
+        if !self.format.has_alpha() {
+            return Some(self.bounds());
+        }
+        let opaque = |y: u32| {
+            let row = self.row(y);
+            let pixels = row.as_chunks::<4>().0;
+            let first = pixels.iter().position(|p| p[3] == 255)?;
+            let last = pixels.iter().rposition(|p| p[3] == 255)?;
+            Some((first as u32, last as u32))
+        };
+        let top = (0..self.height).find(|&y| opaque(y).is_some())?;
+        let bottom = (top..self.height).rev().find(|&y| opaque(y).is_some())?;
+        let (left, right) = (top..=bottom)
+            .filter_map(opaque)
+            .fold((u32::MAX, 0), |(l, r), (first, last)| {
+                (l.min(first), r.max(last))
+            });
+        Some(PixelRect::new(
+            left as i32,
+            top as i32,
+            right - left + 1,
+            bottom - top + 1,
+        ))
+    }
+
     /// Re-encode the pixels in another byte order. Padding bytes become opaque alpha.
     pub fn convert(&self, format: PixelFormat) -> Image {
         if format == self.format && self.stride == self.width as usize * 4 {
@@ -444,6 +472,24 @@ fn from_rgba(format: PixelFormat, p: [u8; 4]) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opaque_bounds_leave_the_shadow_out() {
+        let mut data = vec![0u8; 6 * 5 * 4];
+        // A faint shadow pixel, and an opaque 3×2 block at (2, 1).
+        data[3] = 40;
+        for y in 1..3 {
+            for x in 2..5 {
+                data[(y * 6 + x) * 4 + 3] = 255;
+            }
+        }
+        let image = Image::from_raw(6, 5, 24, PixelFormat::Bgra, data);
+        assert_eq!(image.opaque_bounds(), Some(PixelRect::new(2, 1, 3, 2)));
+        let clear = Image::new(4, 4, PixelFormat::Bgra);
+        assert_eq!(clear.opaque_bounds(), None);
+        let opaque = Image::new(4, 4, PixelFormat::Bgrx);
+        assert_eq!(opaque.opaque_bounds(), Some(opaque.bounds()));
+    }
 
     #[test]
     fn premultiplied_pixels_draw_over() {

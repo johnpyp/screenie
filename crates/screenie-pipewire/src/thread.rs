@@ -11,7 +11,7 @@ use spa::buffer::meta::{MetaCursor, MetaHeader, MetaHeaderFlags, MetaVideoCrop};
 use spa::param::video::{VideoFormat, VideoInfoRaw};
 use spa::pod::Pod;
 
-use crate::{Crop, Error, Remote, Result, Shared, format};
+use crate::{Error, Keep, Remote, Result, Shared, format};
 
 /// Asked of the loop from outside.
 pub(crate) enum Command {
@@ -48,7 +48,7 @@ pub(crate) fn spawn(
     remote: Remote,
     node: u32,
     pointer: crate::Pointer,
-    crop: Option<Crop>,
+    keep: Keep,
     shared: Arc<Shared>,
 ) -> Result<Control> {
     static INIT: Once = Once::new();
@@ -61,7 +61,7 @@ pub(crate) fn spawn(
         .name("screenie-pipewire".into())
         .spawn(move || {
             let metadata = pointer == crate::Pointer::Metadata;
-            let wants = Wants { metadata, crop };
+            let wants = Wants { metadata, keep };
             if let Err(e) = run(remote, node, wants, shared.clone(), receiver, &started_tx) {
                 let _ = started_tx.send(Err(e.to_string()));
                 shared.update(|s| s.ended = Some(e.to_string()));
@@ -82,7 +82,7 @@ pub(crate) fn spawn(
 struct Wants {
     /// The pointer comes as metadata.
     metadata: bool,
-    crop: Option<Crop>,
+    keep: Keep,
 }
 
 /// What the stream's callbacks keep between buffers.
@@ -93,6 +93,9 @@ struct Negotiated {
     picture: Option<Image>,
     /// The last pointer sprite; a cursor update leaves it out when unchanged.
     sprite: Option<Arc<Image>>,
+    /// For [`Keep::Opaque`]: the opaque part, within content of the size it was measured
+    /// at.
+    opaque: Option<((u32, u32), PixelRect)>,
     pointer: Option<Pointer>,
     shared: Arc<Shared>,
     wants: Wants,
@@ -142,6 +145,7 @@ fn run(
         size: (0, 0),
         picture: None,
         sprite: None,
+        opaque: None,
         pointer: None,
         shared: shared.clone(),
         wants,
@@ -265,8 +269,9 @@ fn receive(buffer: &mut pw::buffer::Buffer<'_>, n: &mut Negotiated) {
             PixelRect::new(p.x, p.y, s.width, s.height).intersection(&whole)
         })
         .unwrap_or(whole);
-    let keep = match n.wants.crop {
-        Some(crop) if crop.of.width > 0.0 => {
+    let keep = match n.wants.keep {
+        Keep::All => Some(content),
+        Keep::Region(crop) if crop.of.width > 0.0 => {
             let scale = f64::from(content.width) / crop.of.width;
             let part = crop.region.to_pixels(Point::new(0.0, 0.0), scale);
             PixelRect::new(
@@ -277,40 +282,26 @@ fn receive(buffer: &mut pw::buffer::Buffer<'_>, n: &mut Negotiated) {
             )
             .intersection(&content)
         }
-        _ => Some(content),
+        Keep::Region(_) => Some(content),
+        Keep::Opaque => {
+            let size = (content.width, content.height);
+            let opaque = match n.opaque {
+                Some((measured, opaque)) if measured == size => Some(opaque),
+                // Measured on the content itself, once per size.
+                _ => copy(buffer, content, format).map(|picture| {
+                    let opaque = picture.opaque_bounds().unwrap_or(picture.bounds());
+                    n.opaque = Some((size, opaque));
+                    opaque
+                }),
+            };
+            opaque.map(|o| PixelRect::new(content.x + o.x, content.y + o.y, o.width, o.height))
+        }
     };
-    let Some(PixelRect {
-        x,
-        y,
-        width: w,
-        height: h,
-    }) = keep
-    else {
+    let Some(keep) = keep else {
         return;
     };
-    let pointer_moved = n.wants.metadata && update_pointer(buffer, n, (x, y));
-    let (x, y) = (x as u32, y as u32);
-    let picture = buffer.datas_mut().first_mut().and_then(|data| {
-        let chunk = data.chunk();
-        let (offset, size, stride) = (
-            chunk.offset() as usize,
-            chunk.size() as usize,
-            chunk.stride().unsigned_abs() as usize,
-        );
-        // An empty chunk only updates the pointer.
-        if size == 0 || w == 0 || h == 0 {
-            return None;
-        }
-        let bytes = data.data()?;
-        let bytes = bytes.get(offset..offset + size)?;
-        let row = w as usize * 4;
-        let mut pixels = Vec::with_capacity(row * h as usize);
-        for r in y..y + h {
-            let start = r as usize * stride + x as usize * 4;
-            pixels.extend_from_slice(bytes.get(start..start + row)?);
-        }
-        Some(Image::from_raw(w, h, row, format, pixels))
-    });
+    let pointer_moved = n.wants.metadata && update_pointer(buffer, n, (keep.x, keep.y));
+    let picture = copy(buffer, keep, format);
 
     let presented = header.and_then(|h| presented(h.pts()));
     let frame = match picture {
@@ -338,6 +329,41 @@ fn receive(buffer: &mut pw::buffer::Buffer<'_>, n: &mut Negotiated) {
         s.frame = Some(frame);
         s.latest = latest;
     });
+}
+
+/// Copy `rect` of the buffer's picture. `None` for an empty chunk, which only updates the
+/// pointer.
+fn copy(
+    buffer: &mut pw::buffer::Buffer<'_>,
+    rect: PixelRect,
+    format: PixelFormat,
+) -> Option<Image> {
+    let PixelRect {
+        x,
+        y,
+        width: w,
+        height: h,
+    } = rect;
+    let (x, y) = (u32::try_from(x).ok()?, u32::try_from(y).ok()?);
+    let data = buffer.datas_mut().first_mut()?;
+    let chunk = data.chunk();
+    let (offset, size, stride) = (
+        chunk.offset() as usize,
+        chunk.size() as usize,
+        chunk.stride().unsigned_abs() as usize,
+    );
+    if size == 0 || w == 0 || h == 0 {
+        return None;
+    }
+    let bytes = data.data()?;
+    let bytes = bytes.get(offset..offset + size)?;
+    let row = w as usize * 4;
+    let mut pixels = Vec::with_capacity(row * h as usize);
+    for r in y..y + h {
+        let start = r as usize * stride + x as usize * 4;
+        pixels.extend_from_slice(bytes.get(start..start + row)?);
+    }
+    Some(Image::from_raw(w, h, row, format, pixels))
 }
 
 /// Read the pointer from the buffer's cursor metadata, placed relative to `origin` (the

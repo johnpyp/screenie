@@ -48,6 +48,11 @@ pub trait Compositor: Send + Sync {
     /// Windows visible right now, topmost first, in global logical coordinates.
     fn windows(&self) -> Result<Vec<WindowInfo>>;
 
+    /// Whether [`Compositor::windows`] can list any at all.
+    fn lists_windows(&self) -> bool {
+        true
+    }
+
     /// Connector name of the output with keyboard focus.
     fn focused_output(&self) -> Result<Option<String>>;
 
@@ -89,6 +94,10 @@ impl Compositor for Generic {
 
     fn windows(&self) -> Result<Vec<WindowInfo>> {
         Ok(Vec::new())
+    }
+
+    fn lists_windows(&self) -> bool {
+        false
     }
 
     fn focused_output(&self) -> Result<Option<String>> {

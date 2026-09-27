@@ -120,6 +120,16 @@ async fn run(
         backend: config.advanced.capture_backend,
         windows: interactive || req.target == Target::ActiveWindow,
     };
+    // Where no windows are listed, but the focused one can be captured by itself (GNOME),
+    // that's all there is to take.
+    if req.target == Target::ActiveWindow
+        && !capture.compositor().lists_windows()
+        && capture.captures_focused_window(options.backend)
+    {
+        return focused_window(&capture, options.cursor, actions, config, cx)
+            .await
+            .map(Some);
+    }
     // What a selector on screen froze is what the user sees: take it from there.
     let frozen = (!interactive)
         .then(|| {
@@ -318,6 +328,50 @@ async fn run(
     deliver::screenshot(capture, actions, config, handover, cx)
         .await
         .map(Some)
+}
+
+/// The focused window by itself, captured without knowing which or where it is (see
+/// [`CaptureContext::captures_focused_window`]).
+async fn focused_window(
+    capture: &Arc<CaptureContext>,
+    cursor: bool,
+    mut actions: Actions,
+    config: screenie_config::Config,
+    cx: &mut AsyncApp,
+) -> anyhow::Result<deliver::Delivery> {
+    let taken = chrono::Local::now();
+    let output = focused_output(capture, cx).await;
+    let (image, scale) = {
+        let (capture, output) = (capture.clone(), output.clone());
+        cx.background_executor()
+            .spawn(async move {
+                let image = capture.focused_window_still(cursor)?;
+                let scale = capture
+                    .outputs()
+                    .ok()
+                    .and_then(|outputs| {
+                        outputs
+                            .into_iter()
+                            .find(|o| Some(&o.name) == output.as_ref())
+                    })
+                    .map_or(1.0, |o| o.scale as f32);
+                anyhow::Ok((image, scale))
+            })
+            .await
+            .context("capturing the focused window")?
+    };
+    let capture = Capture {
+        scale,
+        image,
+        subject: Subject::default(),
+        output,
+        placement: None,
+        taken,
+    };
+    actions.output = actions
+        .output
+        .map(|output| deliver::output_path(&output, &config, &capture));
+    deliver::screenshot(capture, actions, config, Handover::default(), cx).await
 }
 
 /// Capture every output, with screenie's own surfaces out of the way.

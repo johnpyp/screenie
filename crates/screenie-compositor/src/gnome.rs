@@ -73,6 +73,10 @@ impl Compositor for Gnome {
         Ok(Vec::new())
     }
 
+    fn lists_windows(&self) -> bool {
+        false
+    }
+
     fn focused_output(&self) -> Result<Option<String>> {
         async_io::block_on(async {
             let connection = zbus::Connection::session().await.map_err(dbus)?;

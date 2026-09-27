@@ -30,7 +30,20 @@ pub enum Remote {
     Fd(OwnedFd),
 }
 
-/// A part of a cast to keep, for a region of a screen when the cast is of all of it.
+/// What part of a cast's pictures to keep.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum Keep {
+    /// All of it.
+    #[default]
+    All,
+    /// A region, for a region of a screen when the cast is of all of it.
+    Region(Crop),
+    /// The opaque part: a window without the shadow it draws around itself. Measured
+    /// from the first picture, and again whenever the size changes.
+    Opaque,
+}
+
+/// A region of a cast.
 #[derive(Debug, Clone, Copy)]
 pub struct Crop {
     /// Logical, relative to the cast's top-left.
@@ -94,17 +107,12 @@ pub struct Stream {
 }
 
 impl Stream {
-    /// Connect to the cast's `node` on `remote`, keeping only `crop` of it if given.
-    /// Frames start coming once PipeWire has negotiated the format;
-    /// [`Stream::first_picture`] waits for one.
-    pub fn connect(
-        remote: Remote,
-        node: u32,
-        pointer: Pointer,
-        crop: Option<Crop>,
-    ) -> Result<Stream> {
+    /// Connect to the cast's `node` on `remote`, keeping `keep` of each picture. Frames
+    /// start coming once PipeWire has negotiated the format; [`Stream::first_picture`]
+    /// waits for one.
+    pub fn connect(remote: Remote, node: u32, pointer: Pointer, keep: Keep) -> Result<Stream> {
         let shared = Arc::new(Shared::default());
-        let control = thread::spawn(remote, node, pointer, crop, shared.clone())?;
+        let control = thread::spawn(remote, node, pointer, keep, shared.clone())?;
         Ok(Stream {
             shared,
             control,

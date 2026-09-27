@@ -53,6 +53,7 @@ trait Session {
         height: i32,
         properties: HashMap<&str, Value<'_>>,
     ) -> zbus::Result<OwnedObjectPath>;
+    fn record_window(&self, properties: HashMap<&str, Value<'_>>) -> zbus::Result<OwnedObjectPath>;
 }
 
 #[zbus::proxy(
@@ -83,6 +84,8 @@ pub(crate) enum Source<'a> {
     Monitor(&'a str),
     /// A logical area of the desktop.
     Area(Rect),
+    /// The window with keyboard focus, by itself.
+    FocusedWindow,
 }
 
 /// A running cast. Mutter ends it when this is dropped, or when the connection closes.
@@ -158,6 +161,8 @@ impl Cast {
                         )
                         .await
                 }
+                // Without a `window-id`, the focused window.
+                Source::FocusedWindow => cast.session.record_window(properties()).await,
             }
             .map_err(dbus)?;
             let stream = StreamProxy::builder(&connection)

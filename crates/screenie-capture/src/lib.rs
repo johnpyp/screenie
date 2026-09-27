@@ -16,7 +16,7 @@ use screenie_core::{
     DmabufFormat, FrameSource, GpuDevice, GpuOffer, Image, Next, OutputCapture, OutputInfo, Rect,
     Snapshot, SourceError, WindowInfo,
 };
-use screenie_pipewire::{Crop, Pointer, Remote};
+use screenie_pipewire::{Crop, Keep, Pointer, Remote};
 use screenie_wayland::{Backend, Capturer, KdePointer, KdeSource, Support, WindowPointer};
 
 mod kwin;
@@ -294,7 +294,7 @@ impl CaptureContext {
                             Remote::Session,
                             node,
                             Pointer::InFrames,
-                            None,
+                            Keep::All,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -349,8 +349,8 @@ impl CaptureContext {
             .ok_or_else(|| Error::Unsupported(format!("no output named {name}")))?;
         // Where the cast takes a region itself, it's in desktop coordinates.
         let on_desktop = region.map(|r| r.translate(output.logical.x, output.logical.y));
-        let pipewire = |remote, node, crop| {
-            screenie_pipewire::Stream::connect(remote, node, Pointer::InFrames, crop)
+        let pipewire = |remote, node, keep| {
+            screenie_pipewire::Stream::connect(remote, node, Pointer::InFrames, keep)
         };
         match method {
             Method::Kwin => {
@@ -364,7 +364,7 @@ impl CaptureContext {
                     KdePointer::Hidden
                 };
                 let cast = screenie_wayland::kde_cast(&source, pointer)?;
-                let stream = pipewire(Remote::Session, cast.node, None)?;
+                let stream = pipewire(Remote::Session, cast.node, Keep::All)?;
                 Ok(Keeping::boxed(stream, cast))
             }
             Method::Mutter => {
@@ -377,7 +377,7 @@ impl CaptureContext {
                     mutter::CastPointer::from(cursor),
                     mutter::Purpose::Stream,
                 )?;
-                let stream = pipewire(Remote::Session, cast.nodes[0], None)?;
+                let stream = pipewire(Remote::Session, cast.nodes[0], Keep::All)?;
                 Ok(Keeping::boxed(stream, cast))
             }
             Method::Portal => {
@@ -385,19 +385,62 @@ impl CaptureContext {
                 let shown = cast.stream_of(&output).ok_or_else(|| {
                     Error::Cast(format!("{} wasn't among the screens shared", output.name))
                 })?;
-                let crop = region.map(|region| Crop {
-                    region,
-                    of: portal::stream_size(shown, &output),
+                let keep = region.map_or(Keep::All, |region| {
+                    Keep::Region(Crop {
+                        region,
+                        of: portal::stream_size(shown, &output),
+                    })
                 });
                 let remote = cast
                     .remote
                     .try_clone()
                     .map_err(|e| Error::Cast(format!("the portal's PipeWire remote: {e}")))?;
-                let stream = pipewire(Remote::Fd(remote), shown.pipe_wire_node_id(), crop)?;
+                let stream = pipewire(Remote::Fd(remote), shown.pipe_wire_node_id(), keep)?;
                 Ok(Keeping::boxed(stream, cast))
             }
             Method::Ext | Method::Wlr => unreachable!("handled above"),
         }
+    }
+
+    /// Whether the focused window can be captured by itself without knowing which it is,
+    /// for desktops that list no windows (GNOME: Mutter casts the focused window).
+    pub fn captures_focused_window(&self, backend: CaptureBackend) -> bool {
+        self.offers.mutter_casts && matches!(backend, CaptureBackend::Auto | CaptureBackend::Mutter)
+    }
+
+    /// A still of the focused window by itself (see
+    /// [`CaptureContext::captures_focused_window`]), without the shadow a window that
+    /// draws its own frame has around it. Blocking.
+    pub fn focused_window_still(&self, cursor: bool) -> Result<Image> {
+        let cast = mutter::Cast::start(
+            &[mutter::Source::FocusedWindow],
+            mutter::CastPointer::from(cursor),
+            mutter::Purpose::Still,
+        )?;
+        let mut stream = screenie_pipewire::Stream::connect(
+            Remote::Session,
+            cast.nodes[0],
+            Pointer::InFrames,
+            Keep::Opaque,
+        )?;
+        Ok(stream.first_picture(Duration::from_secs(2))?)
+    }
+
+    /// A live stream of the focused window by itself (see
+    /// [`CaptureContext::captures_focused_window`]). Blocks until the first frame arrives.
+    pub fn stream_focused_window(&self, cursor: bool) -> Result<Box<dyn FrameSource>> {
+        let cast = mutter::Cast::start(
+            &[mutter::Source::FocusedWindow],
+            mutter::CastPointer::from(cursor),
+            mutter::Purpose::Stream,
+        )?;
+        let stream = screenie_pipewire::Stream::connect(
+            Remote::Session,
+            cast.nodes[0],
+            Pointer::InFrames,
+            Keep::Opaque,
+        )?;
+        prime(Keeping::boxed(stream, cast))
     }
 
     /// Whether [`CaptureContext::stream_window`] can work here with `backend`.
@@ -428,7 +471,7 @@ impl CaptureContext {
                 Remote::Session,
                 cast.node,
                 Pointer::InFrames,
-                None,
+                Keep::All,
             )?;
             return prime(Keeping::boxed(stream, cast));
         }

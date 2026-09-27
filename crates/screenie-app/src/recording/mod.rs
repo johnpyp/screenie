@@ -258,6 +258,7 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
     };
 
     let mut window = None;
+    let mut focused_window = false;
     let region = match &req.target {
         Target::Select { mode } => {
             let windows = {
@@ -305,6 +306,21 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
             };
             chosen.logical
         }
+        // Where no windows are listed but the focused one can be recorded by itself
+        // (GNOME), it's recorded without knowing which or where it is: its screen stands
+        // in for its place.
+        Target::ActiveWindow
+            if !compositor.lists_windows()
+                && capture.captures_focused_window(config.advanced.capture_backend) =>
+        {
+            focused_window = true;
+            let chosen = outputs
+                .iter()
+                .find(|o| Some(&o.name) == focused.as_ref())
+                .or(outputs.first())
+                .ok_or_else(|| anyhow!("no outputs"))?;
+            chosen.logical
+        }
         Target::ActiveWindow => {
             let compositor = compositor.clone();
             let windows = background
@@ -343,6 +359,14 @@ async fn begin(req: RecordRequest, cx: &mut AsyncApp) -> anyhow::Result<Option<P
         config.recording.show_cursor,
     );
     let window_source = match &window {
+        None if focused_window => {
+            let capture = capture.clone();
+            let stream = background
+                .spawn(async move { capture.stream_focused_window(cursor) })
+                .await
+                .context("recording the focused window")?;
+            Some(stream)
+        }
         Some(w) if capture.can_stream_window(backend) => {
             let (capture, w) = (capture.clone(), w.clone());
             match background
