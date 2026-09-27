@@ -19,6 +19,7 @@
 
 mod dmabuf;
 mod focus;
+mod kde;
 mod pointer;
 mod shm;
 mod state;
@@ -36,6 +37,7 @@ use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::Options;
 
 pub use focus::focused_output;
+pub use kde::{KdeCast, KdePointer, KdeSource, kde_cast, kde_screencast_available};
 use pointer::{CursorFeed, Report};
 pub use pointer::{Placement, Tracker, WindowPointer};
 pub use shm::transform_image;
@@ -138,26 +140,18 @@ impl Support {
     }
 }
 
-/// A connection to the compositor ready to capture outputs.
-pub struct Capturer {
+/// A connection with the outputs (and the GPU the compositor renders with) known, and
+/// the capture globals bound where the compositor has them.
+struct Bare {
     conn: Connection,
     globals: GlobalList,
     queue: EventQueue<State>,
     qh: QueueHandle<State>,
     state: State,
-    backend: Backend,
-    /// The seat's pointer, for cursor sessions (see `pointer`).
-    seat: Option<(wl_seat::WlSeat, wl_pointer::WlPointer)>,
 }
 
-impl Capturer {
-    /// Connect and pick the best available protocol.
-    pub fn connect() -> Result<Self> {
-        Self::connect_with(None)
-    }
-
-    /// Connect, optionally forcing a protocol.
-    pub fn connect_with(preferred: Option<Backend>) -> Result<Self> {
+impl Bare {
+    fn connect() -> Result<Bare> {
         let conn = Connection::connect_to_env()?;
         let (globals, mut queue) = registry_queue_init::<State>(&conn)?;
         let qh = queue.handle();
@@ -179,7 +173,70 @@ impl Capturer {
         if let Some(linux_dmabuf) = state.linux_dmabuf.as_ref().filter(|d| d.version() >= 4) {
             linux_dmabuf.get_default_feedback(&qh, ());
         }
+        bind_outputs(&globals, &qh, &mut state);
+        // First roundtrip delivers wl_output/xdg_output events; the second catches
+        // xdg_output info requested in response to the first.
+        queue.roundtrip(&mut state)?;
+        queue.roundtrip(&mut state)?;
+        Ok(Bare {
+            conn,
+            globals,
+            queue,
+            qh,
+            state,
+        })
+    }
 
+    fn outputs(&self) -> Vec<OutputInfo> {
+        self.state
+            .outputs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, o)| o.info(i))
+            .collect()
+    }
+}
+
+/// The outputs, in compositor order, from a compositor that may have no capture
+/// protocol at all.
+pub fn outputs() -> Result<Vec<OutputInfo>> {
+    Ok(Bare::connect()?.outputs())
+}
+
+/// The GPU the compositor renders with, where it says (linux-dmabuf v4+), whatever it
+/// captures with.
+pub fn gpu() -> Option<GpuDevice> {
+    let bare = Bare::connect().ok()?;
+    bare.state.feedback.main_device.map(GpuDevice::from_dev)
+}
+
+/// A connection to the compositor ready to capture outputs.
+pub struct Capturer {
+    conn: Connection,
+    globals: GlobalList,
+    queue: EventQueue<State>,
+    qh: QueueHandle<State>,
+    state: State,
+    backend: Backend,
+    /// The seat's pointer, for cursor sessions (see `pointer`).
+    seat: Option<(wl_seat::WlSeat, wl_pointer::WlPointer)>,
+}
+
+impl Capturer {
+    /// Connect and pick the best available protocol.
+    pub fn connect() -> Result<Self> {
+        Self::connect_with(None)
+    }
+
+    /// Connect, optionally forcing a protocol.
+    pub fn connect_with(preferred: Option<Backend>) -> Result<Self> {
+        let Bare {
+            conn,
+            globals,
+            queue,
+            qh,
+            state,
+        } = Bare::connect()?;
         let ext = state.ext_copy.is_some() && state.ext_output_sources.is_some();
         let wlr = state.wlr_screencopy.is_some();
         let backend = match preferred {
@@ -199,12 +256,6 @@ impl Capturer {
                 ));
             }
         };
-
-        bind_outputs(&globals, &qh, &mut state);
-        // First roundtrip delivers wl_output/xdg_output events; the second catches
-        // xdg_output info requested in response to the first.
-        queue.roundtrip(&mut state)?;
-        queue.roundtrip(&mut state)?;
         tracing::debug!(
             backend = backend.name(),
             outputs = state.outputs.len(),
@@ -847,40 +898,50 @@ impl Capturer {
     /// Dispatch events, waiting at most `timeout` for new ones. Returns whether any
     /// events were dispatched.
     fn dispatch_timeout(&mut self, timeout: Duration) -> Result<bool> {
-        if self.queue.dispatch_pending(&mut self.state)? > 0 {
-            return Ok(true);
-        }
-        self.queue.flush()?;
-        let Some(guard) = self.queue.prepare_read() else {
-            return Ok(self.queue.dispatch_pending(&mut self.state)? > 0);
-        };
-        let readable = {
-            use rustix::event::{PollFd, PollFlags, Timespec, poll};
-            let fd = guard.connection_fd();
-            let mut fds = [PollFd::new(&fd, PollFlags::IN | PollFlags::ERR)];
-            let ts = Timespec {
-                tv_sec: timeout.as_secs() as _,
-                tv_nsec: timeout.subsec_nanos() as _,
-            };
-            loop {
-                match poll(&mut fds, Some(&ts)) {
-                    Ok(n) => break n > 0,
-                    Err(rustix::io::Errno::INTR) => continue,
-                    Err(e) => return Err(Error::Io(e.into())),
-                }
-            }
-        };
-        if !readable {
-            return Ok(false);
-        }
-        match guard.read() {
-            Ok(_) => {}
-            Err(wayland_client::backend::WaylandError::Io(e))
-                if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(e) => return Err(e.into()),
-        }
-        Ok(self.queue.dispatch_pending(&mut self.state)? > 0)
+        dispatch_timeout(&mut self.queue, &mut self.state, timeout)
     }
+}
+
+/// Dispatch `queue`'s events, waiting at most `timeout` for new ones. Returns whether any
+/// events were dispatched.
+pub(crate) fn dispatch_timeout<S>(
+    queue: &mut EventQueue<S>,
+    state: &mut S,
+    timeout: Duration,
+) -> Result<bool> {
+    if queue.dispatch_pending(state)? > 0 {
+        return Ok(true);
+    }
+    queue.flush()?;
+    let Some(guard) = queue.prepare_read() else {
+        return Ok(queue.dispatch_pending(state)? > 0);
+    };
+    let readable = {
+        use rustix::event::{PollFd, PollFlags, Timespec, poll};
+        let fd = guard.connection_fd();
+        let mut fds = [PollFd::new(&fd, PollFlags::IN | PollFlags::ERR)];
+        let ts = Timespec {
+            tv_sec: timeout.as_secs() as _,
+            tv_nsec: timeout.subsec_nanos() as _,
+        };
+        loop {
+            match poll(&mut fds, Some(&ts)) {
+                Ok(n) => break n > 0,
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(e) => return Err(Error::Io(e.into())),
+            }
+        }
+    };
+    if !readable {
+        return Ok(false);
+    }
+    match guard.read() {
+        Ok(_) => {}
+        Err(wayland_client::backend::WaylandError::Io(e))
+            if e.kind() == std::io::ErrorKind::WouldBlock => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(queue.dispatch_pending(state)? > 0)
 }
 
 fn bind_outputs(globals: &GlobalList, qh: &QueueHandle<State>, state: &mut State) {

@@ -6,7 +6,9 @@
 //! [`detect`] falls back to [`Generic`], which knows nothing, and screenie keeps working
 //! without window snapping.
 
+mod gnome;
 mod hyprland;
+mod kwin;
 mod niri;
 mod sway;
 
@@ -17,7 +19,9 @@ use std::time::Duration;
 
 use screenie_core::WindowInfo;
 
+pub use gnome::Gnome;
 pub use hyprland::Hyprland;
+pub use kwin::Kwin;
 pub use niri::Niri;
 pub use sway::Sway;
 
@@ -64,6 +68,12 @@ pub fn detect() -> Box<dyn Compositor> {
         return Box::new(c);
     }
     if let Some(c) = Sway::from_env() {
+        return Box::new(c);
+    }
+    if let Some(c) = Kwin::from_env() {
+        return Box::new(c);
+    }
+    if let Some(c) = Gnome::from_env() {
         return Box::new(c);
     }
     Box::new(Generic)

@@ -29,7 +29,7 @@ pub(crate) struct Daemon {
     last: LastCaptures,
     /// What's remembered between runs: the editor's last style, and the last captures
     /// (so `shot last` and `query last` survive a restart, above all an automatic one).
-    pub state: screenie_state::StateFile,
+    pub state: Arc<screenie_state::StateFile>,
     commit: &'static str,
     watchers: Vec<async_channel::Sender<Status>>,
     /// What watchers were last told.
@@ -39,8 +39,12 @@ pub(crate) struct Daemon {
 impl Global for Daemon {}
 
 impl Daemon {
-    pub fn new(config: Config, capture: Arc<CaptureContext>, commit: &'static str) -> Self {
-        let state = screenie_state::StateFile::open();
+    pub fn new(
+        config: Config,
+        capture: Arc<CaptureContext>,
+        state: Arc<screenie_state::StateFile>,
+        commit: &'static str,
+    ) -> Self {
         Self {
             config,
             capture,

@@ -14,7 +14,7 @@
 use serde_json::Value;
 
 /// The layout this build reads and writes.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// Turn a version `from` document into a [`VERSION`] one.
 pub(crate) fn migrate(mut doc: Value, from: u32) -> Value {
@@ -22,6 +22,13 @@ pub(crate) fn migrate(mut doc: Value, from: u32) -> Value {
         // v2 remembers the last captures, under `last`. A v1 file has none yet.
         if let Some(map) = doc.as_object_mut() {
             map.entry("last")
+                .or_insert_with(|| Value::Object(Default::default()));
+        }
+    }
+    if from < 3 {
+        // v3 keeps what xdg-desktop-portal hands back, under `portal`. Nothing yet.
+        if let Some(map) = doc.as_object_mut() {
+            map.entry("portal")
                 .or_insert_with(|| Value::Object(Default::default()));
         }
     }

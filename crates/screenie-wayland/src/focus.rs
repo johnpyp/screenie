@@ -14,7 +14,7 @@ use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_ini
 use wayland_client::protocol::{
     wl_buffer, wl_compositor, wl_output, wl_region, wl_registry, wl_shm, wl_shm_pool, wl_surface,
 };
-use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
+use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, delegate_noop};
 use wayland_protocols::xdg::xdg_output::zv1::client::{
     zxdg_output_manager_v1::ZxdgOutputManagerV1,
     zxdg_output_v1::{self, ZxdgOutputV1},
@@ -24,7 +24,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_surface_v1::{self, KeyboardInteractivity, ZwlrLayerSurfaceV1},
 };
 
-use crate::{Error, Result};
+use crate::Result;
 
 /// How long the compositor gets to place the probe.
 const TIMEOUT: Duration = Duration::from_millis(250);
@@ -84,7 +84,7 @@ pub fn focused_output() -> Result<Option<String>> {
             tracing::debug!("the compositor didn't place the focus probe in time");
             break None;
         }
-        dispatch_timeout(&mut queue, &mut probe, deadline - now)?;
+        crate::dispatch_timeout(&mut queue, &mut probe, deadline - now)?;
     };
 
     layer.destroy();
@@ -160,48 +160,6 @@ fn transparent_pixel(shm: &wl_shm::WlShm, qh: &QueueHandle<Probe>) -> Result<wl_
     let buffer = pool.create_buffer(0, 1, 1, 4, wl_shm::Format::Argb8888, qh, ());
     pool.destroy();
     Ok(buffer)
-}
-
-/// Dispatch events, waiting at most `timeout` for new ones.
-fn dispatch_timeout(
-    queue: &mut EventQueue<Probe>,
-    probe: &mut Probe,
-    timeout: Duration,
-) -> Result<()> {
-    if queue.dispatch_pending(probe)? > 0 {
-        return Ok(());
-    }
-    queue.flush()?;
-    let Some(guard) = queue.prepare_read() else {
-        queue.dispatch_pending(probe)?;
-        return Ok(());
-    };
-    let readable = {
-        use rustix::event::{PollFd, PollFlags, Timespec, poll};
-        let fd = guard.connection_fd();
-        let mut fds = [PollFd::new(&fd, PollFlags::IN | PollFlags::ERR)];
-        let ts = Timespec {
-            tv_sec: timeout.as_secs() as _,
-            tv_nsec: timeout.subsec_nanos() as _,
-        };
-        loop {
-            match poll(&mut fds, Some(&ts)) {
-                Ok(n) => break n > 0,
-                Err(rustix::io::Errno::INTR) => continue,
-                Err(e) => return Err(Error::Io(e.into())),
-            }
-        }
-    };
-    if readable {
-        match guard.read() {
-            Ok(_) => {}
-            Err(wayland_client::backend::WaylandError::Io(e))
-                if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(e) => return Err(e.into()),
-        }
-        queue.dispatch_pending(probe)?;
-    }
-    Ok(())
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Probe {

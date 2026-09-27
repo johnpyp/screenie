@@ -471,18 +471,21 @@ pub enum EditorMode {
     Window,
 }
 
-/// The Wayland protocol that captures the screen.
+/// How screenie captures the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum CaptureBackend {
-    /// Whichever the compositor offers, trying the other when one fails.
+    /// The best the desktop offers, trying the next when one fails.
     Auto,
     /// `ext-image-copy-capture-v1`
     Ext,
     /// `wlr-screencopy-unstable-v1`
     Wlr,
-    /// xdg-desktop-portal. Planned, and left out of the docs until it captures.
-    #[schemars(skip)]
+    /// KDE Plasma's own screenshots and screen casts.
+    Kwin,
+    /// GNOME's screen casts. Screenshots show its recording indicator.
+    Mutter,
+    /// xdg-desktop-portal, which asks the first time.
     Portal,
 }
 

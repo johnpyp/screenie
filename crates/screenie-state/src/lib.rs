@@ -10,6 +10,7 @@
 mod migrate;
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use screenie_config::Paths;
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,7 @@ pub use migrate::VERSION;
 pub struct State {
     pub editor: EditorState,
     pub last: LastState,
+    pub portal: PortalState,
 }
 
 /// The editor's style as last used.
@@ -53,6 +55,16 @@ pub struct LastState {
     pub screenshot: Option<Capture>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recording: Option<Capture>,
+}
+
+/// What xdg-desktop-portal handed back to use next time.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PortalState {
+    /// Restores the screens chosen for the last screen cast without asking again. Good
+    /// once: each cast replaces it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screencast_token: Option<String>,
 }
 
 /// A rectangle in the compositor's logical coordinates.
@@ -106,11 +118,12 @@ const HEADER: &str = "\
 
 ";
 
-/// The state file: loaded once, then kept in step with every [`StateFile::update`].
+/// The state file: loaded once, then kept in step with every [`StateFile::update`]. Safe
+/// to share between threads.
 #[derive(Debug)]
 pub struct StateFile {
     path: PathBuf,
-    state: State,
+    state: Mutex<State>,
     /// False for a file from a newer screenie, which we mustn't overwrite with less.
     writable: bool,
 }
@@ -125,24 +138,14 @@ impl StateFile {
     /// broken one is renamed to `*.bad` (with a warning) and replaced.
     pub fn open_at(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
-        match load(&path) {
-            Ok(state) => Self {
-                path,
-                state,
-                writable: true,
-            },
-            Err(LoadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => Self {
-                path,
-                state: State::default(),
-                writable: true,
-            },
+        let (state, writable) = match load(&path) {
+            Ok(state) => (state, true),
+            Err(LoadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                (State::default(), true)
+            }
             Err(e @ LoadError::Newer(_)) => {
                 tracing::warn!("{}: {e}; not remembering anything this run", path.display());
-                Self {
-                    path,
-                    state: State::default(),
-                    writable: false,
-                }
+                (State::default(), false)
             }
             Err(e) => {
                 let aside = path.with_extension("yaml.bad");
@@ -152,32 +155,35 @@ impl StateFile {
                     aside.display()
                 );
                 let _ = std::fs::rename(&path, &aside);
-                Self {
-                    path,
-                    state: State::default(),
-                    writable: true,
-                }
+                (State::default(), true)
             }
+        };
+        Self {
+            path,
+            state: Mutex::new(state),
+            writable,
         }
     }
 
-    pub fn state(&self) -> &State {
-        &self.state
+    /// What's remembered now.
+    pub fn state(&self) -> State {
+        self.state.lock().unwrap().clone()
     }
 
     /// Change the state, writing the file if anything changed.
-    pub fn update(&mut self, change: impl FnOnce(&mut State)) -> Result<(), Error> {
-        let mut state = self.state.clone();
+    pub fn update(&self, change: impl FnOnce(&mut State)) -> Result<(), Error> {
+        let mut current = self.state.lock().unwrap();
+        let mut state = current.clone();
         change(&mut state);
-        if state == self.state {
+        if state == *current {
             return Ok(());
         }
-        self.state = state;
-        if self.writable { self.save() } else { Ok(()) }
+        *current = state;
+        if self.writable { self.save(&current) } else { Ok(()) }
     }
 
     /// Write atomically, so a reader never sees half a file.
-    fn save(&self) -> Result<(), Error> {
+    fn save(&self, state: &State) -> Result<(), Error> {
         #[derive(Serialize)]
         struct OnDisk<'a> {
             version: u32,
@@ -188,7 +194,7 @@ impl StateFile {
             "{HEADER}{}",
             serde_saphyr::to_string(&OnDisk {
                 version: VERSION,
-                state: &self.state
+                state
             })?
         );
         let werr = |source| Error::Write {
@@ -265,8 +271,8 @@ mod tests {
     fn missing_file_is_empty_and_updates_are_written_back() {
         let scratch = Scratch::new("roundtrip");
         let path = scratch.state_file();
-        let mut file = StateFile::open_at(&path);
-        assert_eq!(file.state(), &State::default());
+        let file = StateFile::open_at(&path);
+        assert_eq!(file.state(), State::default());
         file.update(|s| s.editor = remembered()).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains(&format!("version: {VERSION}")), "{text}");
@@ -280,7 +286,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "editor: [not, a, map").unwrap();
         let file = StateFile::open_at(&path);
-        assert_eq!(file.state(), &State::default());
+        assert_eq!(file.state(), State::default());
         assert!(path.with_extension("yaml.bad").exists());
         assert!(!path.exists());
     }
@@ -291,7 +297,7 @@ mod tests {
         let path = scratch.state_file();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "editor: { size: 8 }\n").unwrap();
-        assert_eq!(StateFile::open_at(&path).state(), &State::default());
+        assert_eq!(StateFile::open_at(&path).state(), State::default());
         assert!(path.with_extension("yaml.bad").exists());
     }
 
@@ -302,8 +308,8 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let newer = format!("version: {}\neditor: {{ size: 8 }}\n", VERSION + 1);
         std::fs::write(&path, &newer).unwrap();
-        let mut file = StateFile::open_at(&path);
-        assert_eq!(file.state(), &State::default());
+        let file = StateFile::open_at(&path);
+        assert_eq!(file.state(), State::default());
         file.update(|s| s.editor = remembered()).unwrap();
         assert_eq!(file.state().editor, remembered(), "remembered for this run");
         assert_eq!(
@@ -345,14 +351,14 @@ mod tests {
         StateFile::open_at(&path)
             .update(|s| *s = fixture.clone())
             .unwrap();
-        assert_eq!(StateFile::open_at(&path).state(), &fixture);
+        assert_eq!(StateFile::open_at(&path).state(), fixture);
     }
 
     #[test]
     fn unchanged_state_isnt_written() {
         let scratch = Scratch::new("unchanged");
         let path = scratch.state_file();
-        let mut file = StateFile::open_at(&path);
+        let file = StateFile::open_at(&path);
         file.update(|_| {}).unwrap();
         assert!(!path.exists());
     }

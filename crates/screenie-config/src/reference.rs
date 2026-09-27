@@ -180,11 +180,7 @@ mod tests {
         );
         assert_eq!(key("recording.quality").values.len(), 4);
         let backends = &key("advanced.capture_backend").values;
-        assert!(
-            backends
-                .iter()
-                .all(|(w, doc)| w != "portal" && doc.is_some())
-        );
+        assert!(backends.iter().all(|(_, doc)| doc.is_some()));
     }
 
     #[test]

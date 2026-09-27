@@ -255,7 +255,7 @@ pub(crate) async fn open_file(path: PathBuf, cx: &mut AsyncApp) -> anyhow::Resul
 /// The style the last editor closed with (even in an earlier run), or the configured
 /// defaults.
 fn remembered_style(d: &Daemon) -> Style {
-    let (config, last) = (&d.config.editor, &d.state.state().editor);
+    let (config, last) = (&d.config.editor, d.state.state().editor);
     let color = last
         .color
         .as_deref()

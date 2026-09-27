@@ -13,6 +13,7 @@ screenie-core.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
 wayland-protocols-wlr.workspace = true
+wayland-protocols-plasma.workspace = true
 rustix.workspace = true
 gbm.workspace = true
 memmap2.workspace = true

@@ -13,5 +13,12 @@ screenie-core.workspace = true
 screenie-config.workspace = true
 screenie-wayland.workspace = true
 screenie-compositor.workspace = true
+screenie-pipewire.workspace = true
+zbus.workspace = true
+ashpd = { workspace = true, features = ["screencast", "screenshot"] }
+async-io.workspace = true
+futures-lite.workspace = true
+rustix.workspace = true
+url.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

@@ -12,3 +12,7 @@ pub use geom::{PixelRect, Point, Rect, Size, Transform};
 pub use gpu::{Dmabuf, DmabufFormat, DmabufPlane, GpuDevice, GpuOffer};
 pub use image::{Image, ImageError, PixelFormat};
 pub use stream::{Frame, FrameSource, Next, Pacer, Pixels, Pointer, SourceError};
+
+/// Screenie's application id: its windows' app id, its desktop entry's name
+/// (`dev.johnpyp.Screenie.desktop`), and who it is to the portals.
+pub const APP_ID: &str = "dev.johnpyp.Screenie";

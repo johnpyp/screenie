@@ -7,6 +7,7 @@ use directories::{BaseDirs, UserDirs};
 
 pub struct Paths {
     config_dir: PathBuf,
+    data_home: PathBuf,
     state_dir: PathBuf,
     runtime_dir: PathBuf,
     home: PathBuf,
@@ -31,6 +32,10 @@ impl Paths {
                     .map(|b| b.config_dir().to_path_buf())
                     .unwrap_or_else(|| home.join(".config"))
                     .join("screenie"),
+                data_home: base
+                    .as_ref()
+                    .map(|b| b.data_dir().to_path_buf())
+                    .unwrap_or_else(|| home.join(".local/share")),
                 state_dir: base
                     .as_ref()
                     .and_then(|b| b.state_dir().map(Path::to_path_buf))
@@ -57,6 +62,11 @@ impl Paths {
 
     pub fn config_dir(&self) -> &Path {
         &self.config_dir
+    }
+
+    /// `$XDG_DATA_HOME`, where the desktop looks for applications and icons.
+    pub fn data_home(&self) -> &Path {
+        &self.data_home
     }
 
     /// Persistent state: the daemon log and what screenie remembers (`state.yaml`).

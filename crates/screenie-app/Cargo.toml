@@ -12,6 +12,7 @@ publish.workspace = true
 screenie-core.workspace = true
 screenie-config.workspace = true
 screenie-state.workspace = true
+screenie-desktop.workspace = true
 ashpd.workspace = true
 futures-lite.workspace = true
 screenie-record.workspace = true

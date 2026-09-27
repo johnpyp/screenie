@@ -22,8 +22,7 @@ pub use layer::{
 pub use scale::{UI_SCALE_RANGE, set_ui_scale, track as track_ui_scale, ui, ui_px, ui_scale};
 pub use tip::Tip;
 
-/// Application id used for windows and the desktop entry.
-pub const APP_ID: &str = "dev.johnpyp.Screenie";
+pub use screenie_core::APP_ID;
 
 /// One-time setup after the GPUI app starts: components, fonts, theme.
 pub fn init(cx: &mut gpui::App) {

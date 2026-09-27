@@ -1,6 +1,6 @@
 [package]
 name = "screenie-compositor"
-description = "Optional compositor IPC (Hyprland, Sway, niri) for window geometry and focus"
+description = "Optional compositor IPC (Hyprland, Sway, niri, KWin, Mutter) for window geometry and focus"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,12 @@ publish.workspace = true
 
 [dependencies]
 screenie-core.workspace = true
+screenie-desktop.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+zbus.workspace = true
+async-io.workspace = true
+async-channel.workspace = true
+futures-lite.workspace = true

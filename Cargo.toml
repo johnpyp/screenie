@@ -21,7 +21,8 @@ screenie-config = { path = "crates/screenie-config" }
 screenie-state = { path = "crates/screenie-state" }
 screenie-ipc = { path = "crates/screenie-ipc" }
 screenie-wayland = { path = "crates/screenie-wayland" }
-# Planned: screenie-portal, xdg-desktop-portal capture for GNOME and KDE.
+screenie-pipewire = { path = "crates/screenie-pipewire" }
+screenie-desktop = { path = "crates/screenie-desktop" }
 screenie-capture = { path = "crates/screenie-capture" }
 screenie-compositor = { path = "crates/screenie-compositor" }
 screenie-record = { path = "crates/screenie-record" }
@@ -51,13 +52,19 @@ gbm = { version = "0.18", default-features = false }
 memmap2 = "0.9"
 rayon = "1"
 png = "0.18"
+# Built against the oldest PipeWire CI builds with (0.3.48, Ubuntu 22.04).
+pipewire = "0.10"
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }
 wl-clipboard-rs = "0.9"
 url = "2"
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
 futures-lite = "2"
+# Blocking D-Bus calls from capture threads; async-io as ashpd (and GPUI) use it.
+zbus = { version = "5", default-features = false, features = ["async-io"] }
+async-io = "2"
 # UI: GPUI (Zed's GPU UI framework, via the gpui-pre snapshots) and gpui-component.
 gpui = { package = "gpui-pre", version = "=0.3.6" }
 gpui-kit = { version = "=0.6.6", default-features = false, features = ["component", "assets"] }
