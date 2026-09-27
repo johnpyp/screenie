@@ -39,7 +39,8 @@ pub fn run(action: ExtensionCommand) -> ExitCode {
 
 fn describe(state: &State) -> String {
     const WHAT: &str = "With it, screenshots are silent (no flash or sound, and no \
-        permission to give), and windows can be picked.";
+        permission to give), windows can be picked, and from GNOME 49, captures show as \
+        cards and recordings get their controls.";
     match state {
         State::Running => format!("Screenie's GNOME Shell extension is running. {WHAT}"),
         State::NextLogin => "Screenie's GNOME Shell extension is installed, and runs from \

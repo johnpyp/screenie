@@ -72,11 +72,13 @@ enum Command {
         #[command(subcommand)]
         action: Option<ShortcutsCommand>,
     },
-    /// Screenie's GNOME Shell extension, for silent screenshots and picking windows.
+    /// Screenie's GNOME Shell extension: silent screenshots, window picking, and cards.
     ///
-    /// GNOME lets only code in its shell see where windows are or take a screenshot
-    /// without flashing the screen and asking first. Screenie's extension does these for
-    /// it. GNOME loads extensions when you log in, so a new one runs from the next login.
+    /// GNOME lets only code in its shell see where windows are, float windows over
+    /// others, or take a screenshot without flashing the screen and asking first.
+    /// Screenie's extension does these for it, so screenie works on GNOME as it does
+    /// elsewhere (cards and a recording's controls from GNOME 49). GNOME loads
+    /// extensions when you log in, so a new one runs from the next login.
     Extension {
         #[command(subcommand)]
         action: Option<ExtensionCommand>,
