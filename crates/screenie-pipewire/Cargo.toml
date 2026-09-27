@@ -1,0 +1,19 @@
+[package]
+name = "screenie-pipewire"
+description = "Screen casts over PipeWire (Mutter, KWin, the portal) as frame sources"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+screenie-core.workspace = true
+pipewire.workspace = true
+rustix.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
