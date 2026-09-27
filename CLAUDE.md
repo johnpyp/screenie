@@ -84,5 +84,10 @@ that `mise use github:johnpyp/screenie` installs. The e2e tests don't run in CI,
 runners' sway is too old. `mise run ci -j package` runs a job locally with act, in podman
 (`systemctl --user start podman.socket`), in images of GitHub's runners (`.actrc`).
 
+`flake.nix` packages screenie (`nix/package.nix`: the dist profile, man pages, a wrapper
+that points GStreamer at its plugins) and has a dev shell; CI's `nix` job builds it. Its
+source is a fileset, so a file embedded from outside `crates/`, `patches/` or `assets/`
+needs adding there. A Nix build only opens windows with NixOS's GPU drivers (or nixGL).
+
 The README's images come from `tools/demo` (see its README): a headless demo desktop, a scripted
 tour, `stills.py` for the hero composite and close-ups, and `render.py` for the video.

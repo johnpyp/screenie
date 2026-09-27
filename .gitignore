@@ -12,3 +12,6 @@ references/*
 .venv/
 __pycache__/
 .pytest_cache/
+
+# nix build
+/result

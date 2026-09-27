@@ -55,6 +55,9 @@ Why screenie is built the way it is. Change these deliberately, not by drift.
   against the system's GStreamer, so one build runs on most distributions. The archive
   is laid out like a prefix (`bin/`, `share/man/`), which is what mise's github backend
   and `man` both look for.
+- **The Nix flake builds with nixpkgs' own Rust** (unstable), so `rust-version` can't
+  run ahead of it. It's for NixOS: elsewhere a Nix build can't load the system's GPU
+  drivers.
 - **Docs are generated from what they document.** The man pages come from clap's
   definitions and the config schema's doc comments (via schemars), written by the binary
   itself (`screenie man`), and a test fails when a config key has no doc comment.

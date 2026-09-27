@@ -2,6 +2,9 @@
 //! `SCREENIE_COMMIT` (e.g. `46bce20 2026-09-25 23:20`). Shown by `screenie --version` and
 //! `screenie query status --json`. `SCREENIE_COMMIT_DATE` (`2026-09-25`, or empty) dates
 //! the man pages.
+//!
+//! A build without the repository (Nix builds from a copy of the source) passes both in
+//! the environment instead, under the same names.
 
 use std::path::Path;
 use std::process::Command;
@@ -18,17 +21,27 @@ fn git(args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// The environment's `name`, or else what git says.
+fn stamp(name: &str, git_args: &[&str]) -> Option<String> {
+    println!("cargo:rerun-if-env-changed={name}");
+    std::env::var(name)
+        .ok()
+        .or_else(|| git(git_args))
+        .filter(|s| !s.is_empty())
+}
+
 fn main() {
-    let commit = git(&[
-        "log",
-        "-1",
-        "--format=%h %cd",
-        "--date=format:%Y-%m-%d %H:%M",
-    ])
-    .filter(|c| !c.is_empty())
+    let commit = stamp(
+        "SCREENIE_COMMIT",
+        &["log", "-1", "--format=%h %cd", "--date=format:%Y-%m-%d %H:%M"],
+    )
     .unwrap_or_else(|| "unknown commit".into());
     println!("cargo:rustc-env=SCREENIE_COMMIT={commit}");
-    let date = git(&["log", "-1", "--format=%cd", "--date=short"]).unwrap_or_default();
+    let date = stamp(
+        "SCREENIE_COMMIT_DATE",
+        &["log", "-1", "--format=%cd", "--date=short"],
+    )
+    .unwrap_or_default();
     println!("cargo:rustc-env=SCREENIE_COMMIT_DATE={date}");
 
     // Re-stamp when HEAD moves. Missing paths are skipped: cargo would treat them as

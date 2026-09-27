@@ -96,8 +96,8 @@ per change until its reader goes away, through daemon restarts and upgrades. A s
 this binary doesn't know (from a newer daemon) prints as `unknown`.
 
 Logging goes to stderr and is filtered by `SCREENIE_LOG` (e.g. `SCREENIE_LOG=debug`).
-`build.rs` stamps the binary with its git commit, shown by `--version` and
-`query status --json`; the daemon compares builds to upgrade itself (see `screenie-ipc`).
+`build.rs` stamps the binary with its git commit (or the one the environment names, for
+Nix builds), shown by `--version` and `query status --json`; the daemon compares builds to upgrade itself (see `screenie-ipc`).
 
 ## Man pages
 
