@@ -181,3 +181,20 @@ notes = """
 The screen-sharing portal on wlroots, which OBS and browsers record through. Its cursor
 modes and window (toplevel) sharing show what they get from the compositor.
 """
+
+# GNOME, KDE and the portals (the copyleft ones are in manifest.local.toml).
+
+[[repo]]
+name = "ashpd"
+url = "https://github.com/bilelmoussaoui/ashpd"
+notes = "Rust bindings to the xdg-desktop-portal D-Bus APIs (Screenshot, ScreenCast, GlobalShortcuts, host registry) over zbus."
+
+[[repo]]
+name = "pipewire-rs"
+url = "https://gitlab.freedesktop.org/pipewire/pipewire-rs"
+notes = "Rust PipeWire bindings: consuming a screen-cast node (examples/streams.rs), SPA format negotiation, DMA-BUF."
+
+[[repo]]
+name = "kdotool"
+url = "https://github.com/jinliu/kdotool"
+notes = "Lists and drives KWin windows by loading a KWin script over D-Bus that calls back with the results; KWin 5 and 6 APIs."
