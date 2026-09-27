@@ -1,7 +1,9 @@
 # wlinput
 
 A dev tool that drives a Wayland session with virtual pointer and keyboard
-(`zwlr_virtual_pointer_v1`, `zwp_virtual_keyboard_v1`) for testing the UI headlessly.
+(`zwlr_virtual_pointer_v1`, `zwp_virtual_keyboard_v1`) for testing the UI headlessly. On
+KWin it uses `org_kde_kwin_fake_input` instead, which KWin offers only to a binary whose
+desktop entry asks for it: `tools/desktop.sh input kde` installs one.
 
 ```sh
 wlinput move 300 200 , sleep 50 , down , move 700 520 , sleep 1500 , up

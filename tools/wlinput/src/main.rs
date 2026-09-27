@@ -1,4 +1,7 @@
-//! Drive a wlroots compositor's pointer and keyboard for UI testing.
+//! Drive a compositor's pointer and keyboard for UI testing: through the virtual pointer
+//! and keyboard protocols (wlroots compositors), or KWin's fake input, which KWin offers
+//! only to a binary whose desktop entry asks for it (`X-KDE-Wayland-Interfaces=
+//! org_kde_kwin_fake_input`; `tools/desktop.sh input kde` installs one).
 //!
 //! Coordinates are global logical coordinates (the compositor layout). Commands run in
 //! order; each is one argument group:
@@ -38,6 +41,7 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
     zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
     zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
 };
+use wayland_protocols_plasma::fake_input::client::org_kde_kwin_fake_input::OrgKdeKwinFakeInput;
 use wayland_protocols_wlr::virtual_pointer::v1::client::{
     zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1,
     zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
@@ -61,6 +65,7 @@ delegate_noop!(State: ZwlrVirtualPointerManagerV1);
 delegate_noop!(State: ZwlrVirtualPointerV1);
 delegate_noop!(State: ZwpVirtualKeyboardManagerV1);
 delegate_noop!(State: ZwpVirtualKeyboardV1);
+delegate_noop!(State: OrgKdeKwinFakeInput);
 
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
@@ -157,11 +162,21 @@ fn button(name: Option<&str>) -> u32 {
     }
 }
 
+/// The devices events go through.
+enum Device {
+    Virtual {
+        pointer: ZwlrVirtualPointerV1,
+        keyboard: Option<ZwpVirtualKeyboardV1>,
+        /// The layout's extent, which absolute motion is relative to.
+        extent: (f64, f64, f64, f64),
+    },
+    /// KWin's fake input: global coordinates, and KWin keeps track of modifiers.
+    Kwin(OrgKdeKwinFakeInput),
+}
+
 struct Input {
     conn: Connection,
-    pointer: ZwlrVirtualPointerV1,
-    keyboard: Option<ZwpVirtualKeyboardV1>,
-    extent: (f64, f64, f64, f64),
+    device: Device,
     start: Instant,
     pos: (f64, f64),
     /// Held modifiers (xkb mask). Virtual keyboards report these themselves.
@@ -178,49 +193,76 @@ impl Input {
     }
 
     fn move_to(&mut self, x: f64, y: f64) {
-        let (ox, oy, w, h) = self.extent;
         let t = self.time();
-        self.pointer.motion_absolute(
-            t,
-            (x - ox).max(0.0) as u32,
-            (y - oy).max(0.0) as u32,
-            w as u32,
-            h as u32,
-        );
-        self.pointer.frame();
+        match &self.device {
+            Device::Virtual {
+                pointer, extent, ..
+            } => {
+                let (ox, oy, w, h) = *extent;
+                pointer.motion_absolute(
+                    t,
+                    (x - ox).max(0.0) as u32,
+                    (y - oy).max(0.0) as u32,
+                    w as u32,
+                    h as u32,
+                );
+                pointer.frame();
+            }
+            Device::Kwin(fake) => fake.pointer_motion_absolute(x, y),
+        }
         self.pos = (x, y);
         self.flush();
     }
 
     fn scroll(&mut self, clicks: i32) {
         let time = self.time();
-        self.pointer.axis_source(wl_pointer::AxisSource::Wheel);
-        self.pointer.axis_discrete(
-            time,
-            wl_pointer::Axis::VerticalScroll,
-            15.0 * clicks as f64,
-            clicks,
-        );
-        self.pointer.frame();
+        match &self.device {
+            Device::Virtual { pointer, .. } => {
+                pointer.axis_source(wl_pointer::AxisSource::Wheel);
+                pointer.axis_discrete(
+                    time,
+                    wl_pointer::Axis::VerticalScroll,
+                    15.0 * clicks as f64,
+                    clicks,
+                );
+                pointer.frame();
+            }
+            Device::Kwin(fake) => fake.axis(0, 15.0 * clicks as f64),
+        }
         self.flush();
     }
 
     fn button(&mut self, button: u32, pressed: bool) {
         let t = self.time();
-        let state = if pressed {
-            wl_pointer::ButtonState::Pressed
-        } else {
-            wl_pointer::ButtonState::Released
-        };
-        self.pointer.button(t, button, state);
-        self.pointer.frame();
+        match &self.device {
+            Device::Virtual { pointer, .. } => {
+                let state = if pressed {
+                    wl_pointer::ButtonState::Pressed
+                } else {
+                    wl_pointer::ButtonState::Released
+                };
+                pointer.button(t, button, state);
+                pointer.frame();
+            }
+            Device::Kwin(fake) => fake.button(button, pressed.into()),
+        }
         self.flush();
     }
 
     fn key(&mut self, code: u32, pressed: bool) {
-        let Some(kb) = &self.keyboard else {
-            eprintln!("no virtual keyboard support");
-            return;
+        let kb = match &self.device {
+            Device::Kwin(fake) => {
+                fake.keyboard_key(code, pressed.into());
+                self.flush();
+                return;
+            }
+            Device::Virtual {
+                keyboard: Some(kb), ..
+            } => kb,
+            Device::Virtual { keyboard: None, .. } => {
+                eprintln!("no virtual keyboard support");
+                return;
+            }
         };
         kb.key(self.time(), code, if pressed { 1 } else { 0 });
         // The us keymap's modifier bits: Shift, Control, Mod1 (Alt), Mod4 (Super).
@@ -251,9 +293,7 @@ fn main() {
     }
 
     // The layout extent maps absolute motion onto global coordinates.
-    let outputs = screenie_wayland::Capturer::connect()
-        .map(|c| c.outputs())
-        .unwrap_or_default();
+    let outputs = screenie_wayland::outputs().unwrap_or_default();
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for o in &outputs {
         x0 = x0.min(o.logical.x);
@@ -269,40 +309,36 @@ fn main() {
     let (globals, mut queue) = registry_queue_init::<State>(&conn).expect("registry");
     let qh = queue.handle();
     let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=7, ()).expect("seat");
-    let pointer_manager: ZwlrVirtualPointerManagerV1 = globals
-        .bind(&qh, 1..=2, ())
-        .expect("compositor lacks zwlr_virtual_pointer_manager_v1");
-    let pointer = pointer_manager.create_virtual_pointer(Some(&seat), &qh, ());
-    let keyboard = globals
-        .bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ())
-        .ok()
-        .map(|m| {
-            let kb = m.create_virtual_keyboard(&seat, &qh, ());
-            let ctx = xkbcommon::xkb::Context::new(xkbcommon::xkb::CONTEXT_NO_FLAGS);
-            let keymap = xkbcommon::xkb::Keymap::new_from_names(
-                &ctx,
-                "",
-                "",
-                "us",
-                "",
-                None,
-                xkbcommon::xkb::KEYMAP_COMPILE_NO_FLAGS,
-            )
-            .expect("us keymap");
-            let text = keymap.get_as_string(xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1);
-            let fd =
-                rustix::fs::memfd_create("keymap", rustix::fs::MemfdFlags::CLOEXEC).expect("memfd");
-            let file = std::fs::File::from(fd);
-            use std::io::Write;
-            (&file).write_all(text.as_bytes()).expect("write keymap");
-            (&file).write_all(&[0]).expect("write keymap");
-            kb.keymap(1, file.as_fd(), text.len() as u32 + 1);
-            kb
-        });
+    let device =
+        if let Ok(manager) = globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=2, ()) {
+            let pointer = manager.create_virtual_pointer(Some(&seat), &qh, ());
+            let keyboard = globals
+                .bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ())
+                .ok()
+                .map(|m| virtual_keyboard(&m, &seat, &qh));
+            Device::Virtual {
+                pointer,
+                keyboard,
+                extent: (x0, y0, x1 - x0, y1 - y0),
+            }
+        } else if let Ok(fake) = globals.bind::<OrgKdeKwinFakeInput, _, _>(&qh, 4..=5, ()) {
+            fake.authenticate("wlinput".into(), "UI testing".into());
+            Device::Kwin(fake)
+        } else {
+            eprintln!(
+                "wlinput: the compositor offers neither zwlr_virtual_pointer_manager_v1 nor \
+             org_kde_kwin_fake_input (which KWin offers only to binaries whose desktop \
+             entry asks for it)"
+            );
+            std::process::exit(1);
+        };
     queue.roundtrip(&mut State).expect("roundtrip");
     // Clients drop the first key from a keyboard whose keymap they haven't seen yet, so
     // introduce it with a no-op modifiers event first.
-    if let Some(kb) = &keyboard {
+    if let Device::Virtual {
+        keyboard: Some(kb), ..
+    } = &device
+    {
         kb.modifiers(0, 0, 0, 0);
         queue.roundtrip(&mut State).expect("roundtrip");
         std::thread::sleep(Duration::from_millis(50));
@@ -310,9 +346,7 @@ fn main() {
 
     let mut input = Input {
         conn: conn.clone(),
-        pointer,
-        keyboard,
-        extent: (x0, y0, x1 - x0, y1 - y0),
+        device,
         start: Instant::now(),
         pos: (0.0, 0.0),
         mods: 0,
@@ -340,6 +374,34 @@ fn main() {
     }
     let _ = queue.roundtrip(&mut State);
     let _ = input.pos;
+}
+
+/// A virtual keyboard with the US layout.
+fn virtual_keyboard(
+    manager: &ZwpVirtualKeyboardManagerV1,
+    seat: &wl_seat::WlSeat,
+    qh: &QueueHandle<State>,
+) -> ZwpVirtualKeyboardV1 {
+    let kb = manager.create_virtual_keyboard(seat, qh, ());
+    let ctx = xkbcommon::xkb::Context::new(xkbcommon::xkb::CONTEXT_NO_FLAGS);
+    let keymap = xkbcommon::xkb::Keymap::new_from_names(
+        &ctx,
+        "",
+        "",
+        "us",
+        "",
+        None,
+        xkbcommon::xkb::KEYMAP_COMPILE_NO_FLAGS,
+    )
+    .expect("us keymap");
+    let text = keymap.get_as_string(xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1);
+    let fd = rustix::fs::memfd_create("keymap", rustix::fs::MemfdFlags::CLOEXEC).expect("memfd");
+    let file = std::fs::File::from(fd);
+    use std::io::Write;
+    (&file).write_all(text.as_bytes()).expect("write keymap");
+    (&file).write_all(&[0]).expect("write keymap");
+    kb.keymap(1, file.as_fd(), text.len() as u32 + 1);
+    kb
 }
 
 /// Run a chain of commands separated by `,`.

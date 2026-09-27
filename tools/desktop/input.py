@@ -12,20 +12,29 @@ line, keeping the devices between them):
     sleep SECONDS
 
 GNOME: Mutter's RemoteDesktop D-Bus API, with a screen cast of each monitor for absolute
-positions. KDE: KWin's fake input protocol (see kde_input below).
+positions. KDE: KWin's fake input protocol, through tools/wlinput (built on the host).
 """
 
 import ctypes
 import os
 import shlex
+import subprocess
 import sys
 import time
+from pathlib import Path
 
+import kwin
 from gi.repository import Gio, GLib
 
 BUS = Gio.bus_get_sync(Gio.BusType.SESSION)
 BUTTONS = {"left": 0x110, "right": 0x111, "middle": 0x112}
-MODIFIERS = {"ctrl": "Control_L", "shift": "Shift_L", "alt": "Alt_L", "super": "Super_L", "meta": "Super_L"}
+MODIFIERS = {
+    "ctrl": "Control_L",
+    "shift": "Shift_L",
+    "alt": "Alt_L",
+    "super": "Super_L",
+    "meta": "Super_L",
+}
 
 
 def call(name, path, iface, method, args=None):
@@ -49,18 +58,37 @@ class Gnome:
     def __init__(self):
         (self.session,) = call(self.RD, "/org/gnome/Mutter/RemoteDesktop", self.RD, "CreateSession")
         session_id = BUS.call_sync(
-            self.RD, self.session, "org.freedesktop.DBus.Properties", "Get",
-            GLib.Variant("(ss)", (self.RD + ".Session", "SessionId")), None, 0, 5000, None,
+            self.RD,
+            self.session,
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            GLib.Variant("(ss)", (self.RD + ".Session", "SessionId")),
+            None,
+            0,
+            5000,
+            None,
         ).unpack()[0]
-        (cast,) = call(self.SC, "/org/gnome/Mutter/ScreenCast", self.SC, "CreateSession",
-                       GLib.Variant("(a{sv})", ({"remote-desktop-session-id": GLib.Variant("s", session_id)},)))
+        (cast,) = call(
+            self.SC,
+            "/org/gnome/Mutter/ScreenCast",
+            self.SC,
+            "CreateSession",
+            GLib.Variant(
+                "(a{sv})", ({"remote-desktop-session-id": GLib.Variant("s", session_id)},)
+            ),
+        )
         name = "org.gnome.Mutter.DisplayConfig"
         _, _, logical, _ = call(name, "/org/gnome/Mutter/DisplayConfig", name, "GetCurrentState")
         self.monitors = []
         for x, y, scale, _, _, monitors, _ in logical:
             connector = monitors[0][0]
-            (stream,) = call(self.SC, cast, self.SC + ".Session", "RecordMonitor",
-                             GLib.Variant("(sa{sv})", (connector, {})))
+            (stream,) = call(
+                self.SC,
+                cast,
+                self.SC + ".Session",
+                "RecordMonitor",
+                GLib.Variant("(sa{sv})", (connector, {})),
+            )
             self.monitors.append((x, y, scale, stream))
         call(self.RD, self.session, self.RD + ".Session", "Start")
         # Streams take a moment to be ready for pointer events.
@@ -80,11 +108,68 @@ class Gnome:
     def button(self, button, pressed):
         self._rd("NotifyPointerButton", "(ib)", BUTTONS[button], pressed)
 
-    def key(self, sym, pressed):
+    def _key(self, sym, pressed):
         self._rd("NotifyKeyboardKeysym", "(ub)", sym, pressed)
+
+    def chord(self, chord):
+        syms = [keysym(MODIFIERS.get(k.lower(), k)) for k in chord.split("+")]
+        for s in syms:
+            self._key(s, True)
+        time.sleep(0.02)
+        for s in reversed(syms):
+            self._key(s, False)
+
+    def type(self, text):
+        for ch in text:
+            s = keysym({" ": "space", "\n": "Return"}.get(ch, ch))
+            self._key(s, True)
+            self._key(s, False)
+            time.sleep(0.01)
 
     def close(self):
         call(self.RD, self.session, self.RD + ".Session", "Stop")
+
+
+class Kde:
+    """wlinput, kept running, on KWin's fake input."""
+
+    WLINPUT = Path(__file__).resolve().parents[2] / "target/debug/wlinput"
+
+    def __init__(self):
+        exe = os.path.realpath(self.WLINPUT)
+        kwin.allow("input", exe, wayland=("org_kde_kwin_fake_input",))
+        self.proc = subprocess.Popen(
+            [exe, "-"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
+        )
+        if self.proc.stdout.readline().strip() != "ready":
+            sys.exit("wlinput didn't start")
+
+    def _send(self, *commands):
+        self.proc.stdin.write(" , ".join(commands) + "\n")
+        self.proc.stdin.flush()
+        answer = self.proc.stdout.readline().strip()
+        if answer != "ok":
+            sys.exit(f"wlinput: {answer}")
+
+    def move(self, x, y):
+        self._send(f"move {x} {y}")
+
+    def button(self, button, pressed):
+        self._send(f"{'down' if pressed else 'up'} {button}")
+
+    def chord(self, chord):
+        *mods, key = [k.lower() for k in chord.split("+")]
+        mods = ["super" if m == "meta" else m for m in mods]
+        self._send(
+            *[f"hold {m}" for m in mods], f"key {key}", *[f"release {m}" for m in reversed(mods)]
+        )
+
+    def type(self, text):
+        self._send(f"type {text}")
+
+    def close(self):
+        self.proc.stdin.close()
+        self.proc.wait()
 
 
 def run(device, words):
@@ -111,19 +196,10 @@ def run(device, words):
         device.button("left", False)
     elif cmd == "key":
         for chord in args:
-            syms = [keysym(MODIFIERS.get(k.lower(), k)) for k in chord.split("+")]
-            for s in syms:
-                device.key(s, True)
-            time.sleep(0.02)
-            for s in reversed(syms):
-                device.key(s, False)
+            device.chord(chord)
             time.sleep(0.02)
     elif cmd == "type":
-        for ch in " ".join(args):
-            s = keysym({" ": "space", "\n": "Return"}.get(ch, ch))
-            device.key(s, True)
-            device.key(s, False)
-            time.sleep(0.01)
+        device.type(" ".join(args))
     elif cmd == "sleep":
         time.sleep(float(args[0]))
     else:
@@ -134,9 +210,7 @@ def run(device, words):
 
 def main():
     desktop = os.environ["XDG_CURRENT_DESKTOP"]
-    if desktop != "GNOME":
-        sys.exit(f"no input driver for {desktop} yet")
-    device = Gnome()
+    device = {"GNOME": Gnome, "KDE": Kde}[desktop]()
     try:
         if sys.argv[1:] == ["-"]:
             for line in sys.stdin:

@@ -113,6 +113,8 @@ shot)
 input)
   name=$(desktop "${2:-}")
   shift 2
+  # KWin's input goes through wlinput.
+  [[ $name == kde ]] && cargo build -q -p wlinput
   run "$name" python3 "$HERE/input.py" "$@"
   ;;
 logs) podman logs "screenie-$(desktop "${2:-}")" 2>&1 | grep -v -E 'mod\.rt|RTKit|wp-internal|libcamera' ;;
