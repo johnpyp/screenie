@@ -40,7 +40,7 @@ screenie record   # record one
 
 Prebuilt binaries for x86_64 and aarch64 Linux are on the
 [releases page](https://github.com/johnpyp/screenie/releases). They need glibc 2.35 or
-newer and GStreamer's plugins. On Debian or Ubuntu:
+newer and GStreamer's plugins, which the Arch package pulls in. On Debian or Ubuntu:
 
 ```sh
 sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
@@ -65,13 +65,19 @@ mise use -g github:johnpyp/screenie
 
 `mise up` upgrades it.
 
-### Manual installation
+### Arch
 
-Unpack a release into `~/.local`:
+From the [AUR](https://aur.archlinux.org/packages/screenie-bin), with your AUR helper:
 
 ```sh
-tar -xzf screenie-*-x86_64-unknown-linux-gnu.tar.gz
-cp -r screenie-*/bin screenie-*/share ~/.local/
+paru -S screenie-bin
+```
+
+For hardware-encoded recordings on AMD or Intel, also install VA-API support:
+
+```sh
+sudo pacman -S gst-plugin-va                    # AMD
+sudo pacman -S gst-plugin-va intel-media-driver # Intel
 ```
 
 ### Nix
@@ -82,6 +88,15 @@ nix profile add github:johnpyp/screenie
 
 Outside NixOS, run it through [nixGL](https://github.com/nix-community/nixGL).
 
+### Manual installation
+
+Unpack a release into `~/.local`:
+
+```sh
+tar -xzf screenie-*-x86_64-unknown-linux-gnu.tar.gz
+cp -r screenie-*/bin screenie-*/share ~/.local/
+```
+
 ### Building from source
 
 You need [Rust](https://rustup.rs) 1.98 or newer, and on Debian or Ubuntu the plugins
@@ -91,6 +106,14 @@ above plus:
 sudo apt install build-essential pkg-config \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
   libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev
+```
+
+or on Arch:
+
+```sh
+sudo pacman -S --needed base-devel gstreamer gst-plugins-base-libs \
+  libxkbcommon-x11 mesa fontconfig \
+  gst-plugins-good gst-plugins-bad-libs gst-plugins-ugly gst-libav
 ```
 
 Then build and install it, with its man pages:
