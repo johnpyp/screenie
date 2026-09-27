@@ -33,6 +33,9 @@ const SHELL: &str = "org.gnome.shell";
 pub enum State {
     /// Running in the shell.
     Running,
+    /// Running, but an older copy than the one just installed, which runs from the next
+    /// login.
+    Updated,
     /// Installed and enabled, to run from the next login.
     NextLogin,
     /// Installed, but turned off (in GNOME's Extensions app, say).
@@ -67,11 +70,12 @@ pub fn dir() -> PathBuf {
 /// Install the extension for this user (unless a package has this very one installed
 /// system-wide) and enable it.
 pub fn install() -> Result<State> {
-    if system_copy().is_some() {
+    let changed = if system_copy().is_some() {
         remove_dir(&dir())?;
+        false
     } else {
-        write(&dir())?;
-    }
+        write(&dir())?
+    };
     let mut enabled = gsettings::get_list(SHELL, "enabled-extensions")?;
     if !enabled.iter().any(|u| u == UUID) {
         enabled.push(UUID.into());
@@ -90,7 +94,10 @@ pub fn install() -> Result<State> {
             &gsettings::Value::List(disabled),
         )?;
     }
-    Ok(state())
+    Ok(match state() {
+        State::Running if changed => State::Updated,
+        state => state,
+    })
 }
 
 /// Disable the extension, and remove the user's copy. The shell stops it at once.

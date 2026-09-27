@@ -43,6 +43,9 @@ fn describe(state: &State) -> String {
         cards and recordings get their controls.";
     match state {
         State::Running => format!("Screenie's GNOME Shell extension is running. {WHAT}"),
+        State::Updated => "Updated screenie's GNOME Shell extension: the new version runs \
+            from your next login, and the old one until then."
+            .into(),
         State::NextLogin => "Screenie's GNOME Shell extension is installed, and runs from \
             your next login: log out and back in."
             .into(),
