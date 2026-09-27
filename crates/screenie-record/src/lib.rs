@@ -43,6 +43,25 @@ use screenie_core::{DmabufFormat, Frame, FrameSource, Image, Next, Pacer, Pixels
 pub use encoder::{Chain, Encoder};
 use feed::Feed;
 
+/// Initialize GStreamer, with the plugins a package built in: `SCREENIE_GST_PLUGIN_PATH`
+/// at build time, directories separated as in `$PATH`. Nix has no system plugin
+/// directory, and an environment variable set by a wrapper script is lost when the
+/// binary is run directly (from its desktop entry, which must name the binary itself
+/// for KWin).
+pub(crate) fn init() -> Result<(), gst::glib::Error> {
+    gst::init()?;
+    static SCANNED: std::sync::Once = std::sync::Once::new();
+    SCANNED.call_once(|| {
+        if let Some(dirs) = option_env!("SCREENIE_GST_PLUGIN_PATH") {
+            let registry = gst::Registry::get();
+            for dir in std::env::split_paths(dirs) {
+                registry.scan_path(&dir);
+            }
+        }
+    });
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("GStreamer: {0}")]
@@ -179,7 +198,7 @@ impl Recording {
     /// Start recording. Blocks briefly (first frame, encoder probe, pipeline start), so
     /// call it off the UI thread.
     pub fn start(mut source: Box<dyn FrameSource>, spec: RecordSpec) -> Result<Recording> {
-        gst::init()?;
+        init()?;
         let cap = spec.framerate.fps().map(|fps| fps.clamp(1, 240));
         if let Some(fps) = cap {
             source.pace(fps);

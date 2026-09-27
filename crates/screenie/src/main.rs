@@ -79,6 +79,10 @@ enum Command {
     /// Write the man pages into DIR/man1 and DIR/man5, for packaging.
     #[command(hide = true)]
     Man { dir: PathBuf },
+    /// Write the desktop entry, running this binary, and the icon into DIR/applications
+    /// and DIR/icons (a `share` directory), for packaging.
+    #[command(hide = true)]
+    Entry { dir: PathBuf },
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -353,6 +357,18 @@ fn main() -> ExitCode {
             }
         };
     }
+    if let Command::Entry { dir } = &command {
+        return match screenie_desktop::entry::write_packaged(dir) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!(
+                    "screenie: can't write the desktop entry to {}: {e}",
+                    dir.display()
+                );
+                ExitCode::from(2)
+            }
+        };
+    }
     if let Command::Daemon = command {
         let commit = env!("SCREENIE_COMMIT");
         let describe = |s: &screenie_ipc::Status| {
@@ -595,7 +611,9 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
             command: command_path(),
         })?,
         Command::Quit => request_running(&Request::Quit, Response::Ok)?,
-        Command::Daemon | Command::Man { .. } => unreachable!("handled in main"),
+        Command::Daemon | Command::Man { .. } | Command::Entry { .. } => {
+            unreachable!("handled in main")
+        }
     };
     report(response, false)
 }

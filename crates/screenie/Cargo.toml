@@ -17,6 +17,7 @@ screenie-core.workspace = true
 screenie-config.workspace = true
 screenie-ipc.workspace = true
 screenie-app.workspace = true
+screenie-desktop.workspace = true
 clap.workspace = true
 clap_mangen.workspace = true
 anyhow.workspace = true

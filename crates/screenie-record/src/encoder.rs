@@ -117,7 +117,7 @@ impl Encoder {
     /// starts. Blocking; run it off the UI thread, e.g. while the user picks what to
     /// record.
     pub fn warm_up(preference: EncoderPreference, gpu: Option<&GpuDevice>) {
-        if gst::init().is_err() {
+        if crate::init().is_err() {
             return;
         }
         if let Some(encoder) = Encoder::choose(preference, (1920, 1080), gpu)

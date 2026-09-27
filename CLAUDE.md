@@ -104,8 +104,9 @@ hand does the same. The e2e tests don't run in CI, as the
 runners' sway is too old. `mise run ci -j package` runs a job locally with act, in podman
 (`systemctl --user start podman.socket`), in images of GitHub's runners (`.actrc`).
 
-`flake.nix` packages screenie (`nix/package.nix`: the dist profile, man pages, a wrapper
-that points GStreamer at its plugins) and has a dev shell; CI's `nix` job builds it. Its
+`flake.nix` packages screenie (`nix/package.nix`: the dist profile, man pages, the desktop
+entry, and GStreamer's plugin directories built in as `SCREENIE_GST_PLUGIN_PATH`, not
+set by a wrapper, since KWin checks the binary an entry runs) and has a dev shell; CI's `nix` job builds it. Its
 source is a fileset, so a file embedded from outside `crates/`, `patches/` or `assets/`
 needs adding there. A Nix build only opens windows with NixOS's GPU drivers (or nixGL).
 

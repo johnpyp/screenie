@@ -40,8 +40,8 @@
             rustfmt
             rust-analyzer
           ];
-          # What the package's wrapper sets, for `cargo run`.
-          GST_PLUGIN_SYSTEM_PATH_1_0 =
+          # What the package builds in, for `cargo run`.
+          SCREENIE_GST_PLUGIN_PATH =
             with pkgs.gst_all_1;
             pkgs.lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" [
               gstreamer

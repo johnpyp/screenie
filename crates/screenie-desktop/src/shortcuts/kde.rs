@@ -12,7 +12,7 @@ use serde::Deserialize;
 use zbus::zvariant::{OwnedObjectPath, Type};
 
 use super::{Binding, Chord, Error, Holder, Key, Result, Taken};
-use crate::entry;
+use crate::{Desktop, entry};
 
 /// A key sequence as Qt sends it: up to four keys, each a key code with modifier bits.
 type Sequence = (Vec<i32>,);
@@ -93,7 +93,7 @@ pub(crate) fn actions(layout: &[Binding]) -> Vec<entry::Action> {
                     .keys
                     .iter()
                     .filter_map(|k| Chord::parse(k))
-                    .map(|c| portable(&c))
+                    .map(|c| c.label(Desktop::Kde))
                     .collect::<Vec<_>>()
                     .join(","),
             ),
@@ -152,7 +152,7 @@ pub(super) fn install(layout: &'static [Binding], command: &Path) -> Result<Vec<
                 kga.set_foreign_shortcut_keys(&id, &keys).await?;
                 taken.push(Taken {
                     from: id.iter().map(|s| s.to_string()).collect(),
-                    key: portable(&chord),
+                    key: chord.label(Desktop::Kde),
                 });
             }
         }
@@ -279,23 +279,6 @@ fn sequence(chord: &Chord) -> Result<Sequence> {
     Ok((vec![key | modifiers, 0, 0, 0],))
 }
 
-/// `chord` as Qt writes it (`QKeySequence::PortableText`): `Meta+Shift+S`.
-fn portable(chord: &Chord) -> String {
-    let mut parts = Vec::new();
-    for (on, name) in [
-        (chord.logo, "Meta"),
-        (chord.ctrl, "Ctrl"),
-        (chord.alt, "Alt"),
-        (chord.shift, "Shift"),
-    ] {
-        if on {
-            parts.push(name);
-        }
-    }
-    parts.push(&chord.key);
-    parts.join("+")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,14 +297,13 @@ mod tests {
     #[test]
     fn keys_are_written_as_qt_writes_them() {
         let chord = Chord::parse("Shift+Super+S").unwrap();
-        assert_eq!(portable(&chord), "Meta+Shift+S");
-        assert_eq!(Chord::parse(&portable(&chord)), Some(chord));
+        assert_eq!(chord.label(Desktop::Kde), "Meta+Shift+S");
+        assert_eq!(Chord::parse(&chord.label(Desktop::Kde)), Some(chord));
     }
 
     #[test]
     fn every_kde_key_has_a_code() {
-        for (_, chord) in crate::shortcuts::each_key(crate::shortcuts::layout(crate::Desktop::Kde))
-        {
+        for (_, chord) in crate::shortcuts::each_key(crate::shortcuts::layout(Desktop::Kde)) {
             assert!(sequence(&chord).is_ok(), "{chord:?}");
         }
     }

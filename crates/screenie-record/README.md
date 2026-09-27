@@ -10,6 +10,10 @@ recording.set_paused(true)?;
 let finished = recording.stop()?; // path, duration, size, bytes, last frame
 ```
 
+GStreamer finds its plugins where the system keeps them, plus any directories built in
+as `SCREENIE_GST_PLUGIN_PATH` (as in `$PATH`), which a package without a system plugin
+directory sets (Nix).
+
 - `Encoder::choose(preference, size, gpu)` picks the best working H.264 encoder that
   takes the video's size: hardware on the GPU holding the frames, other hardware
   (VA-API, NVENC, gstreamer-vaapi, V4L2), then software (x264, OpenH264). Candidates

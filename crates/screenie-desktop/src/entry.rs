@@ -95,6 +95,22 @@ pub fn ensure(actions: &[Action], command: Option<&Path>) -> std::io::Result<Out
     Ok(outcome)
 }
 
+/// Write the entry for this binary, and the icon, into a package's `share` directory
+/// (`DIR/applications`, `DIR/icons`). With it installed, `ensure` needs no entry of
+/// its own.
+pub fn write_packaged(share: &Path) -> std::io::Result<()> {
+    let exe = std::env::current_exe()?.canonicalize()?;
+    let apps = share.join("applications");
+    let icons = share.join("icons/hicolor/scalable/apps");
+    std::fs::create_dir_all(&apps)?;
+    std::fs::create_dir_all(&icons)?;
+    std::fs::write(
+        apps.join(format!("{APP_ID}.desktop")),
+        render(&exe, &default_actions(), None),
+    )?;
+    std::fs::write(icons.join(format!("{APP_ID}.svg")), ICON)
+}
+
 /// The entry for `exe`, its actions running `command` (or `exe`).
 pub fn render(exe: &Path, actions: &[Action], command: Option<&Path>) -> String {
     let run = |program: &Path, args: &[String]| {

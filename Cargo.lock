@@ -6445,6 +6445,7 @@ dependencies = [
  "screenie-app",
  "screenie-config",
  "screenie-core",
+ "screenie-desktop",
  "screenie-ipc",
  "serde_json",
  "tracing",

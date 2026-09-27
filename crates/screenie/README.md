@@ -115,3 +115,7 @@ Nix builds), shown by `--version` and `query status --json`; the daemon compares
 from the clap definitions, with exit status, environment and files added to the first,
 and `screenie(5)`, the config file key by key, from `screenie_config::reference`. They're
 dated by the commit. `tools/dist.py` puts them in the release archives.
+
+`screenie entry DIR` (hidden too) writes the desktop entry, running this binary, and the
+icon into `DIR/applications` and `DIR/icons`, for a package whose binary stays put (Nix).
+The daemon then needs none of its own.

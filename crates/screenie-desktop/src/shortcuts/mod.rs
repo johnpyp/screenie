@@ -167,7 +167,8 @@ impl Chord {
         (!chord.key.is_empty()).then_some(chord)
     }
 
-    /// As `desktop` shows it: `Super+Shift+S`, or `Meta+Shift+S` on KDE.
+    /// As `desktop` shows it: `Super+Shift+S`, or `Meta+Shift+S` on KDE (as Qt writes
+    /// it, `QKeySequence::PortableText`).
     pub fn label(&self, desktop: Desktop) -> String {
         let logo = if desktop == Desktop::Kde {
             "Meta"

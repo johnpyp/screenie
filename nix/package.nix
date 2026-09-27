@@ -4,7 +4,6 @@
   lib,
   rustPlatform,
   pkg-config,
-  makeWrapper,
   gst_all_1,
   pipewire,
   libxkbcommon,
@@ -59,11 +58,14 @@ rustPlatform.buildRustPackage {
   env = {
     SCREENIE_COMMIT = commit;
     SCREENIE_COMMIT_DATE = commitDate;
+    # Scanned by the binary itself (screenie-record's `init`), rather than set by a
+    # wrapper script: KWin grants screen capture to the binary a desktop entry runs, and
+    # the entry has to run the binary itself.
+    SCREENIE_GST_PLUGIN_PATH = lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins;
   };
 
   nativeBuildInputs = [
     pkg-config
-    makeWrapper
     # libclang, for PipeWire's bindings.
     rustPlatform.bindgenHook
   ];
@@ -79,6 +81,7 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     $out/bin/screenie man $out/share/man
+    $out/bin/screenie entry $out/share
   '';
 
   # The GPU and Wayland libraries are loaded at runtime rather than linked.
@@ -90,10 +93,6 @@ rustPlatform.buildRustPackage {
         libGL
       ]
     } $out/bin/screenie
-    wrapProgram $out/bin/screenie \
-      --prefix GST_PLUGIN_SYSTEM_PATH_1_0 : ${
-        lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins
-      }
   '';
 
   meta = {
