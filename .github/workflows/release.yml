@@ -1,0 +1,75 @@
+name: Release
+
+# Bumps the version on main, tags it, and has CI publish the release from the tag. Run it
+# from the Actions tab, or `gh workflow run release.yml -f bump=minor`.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: Or this exact version, like 0.3.0-rc.1 (a pre-release), or the current one to release it as is
+        type: string
+        default: ""
+      dry_run:
+        description: Show the release commit without pushing it
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      # To push the release commit and tag, and start CI on the tag.
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+      # For `cargo update`, which rewrites the lock file's versions.
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Bump the version
+        id: bump
+        env:
+          HOW: ${{ inputs.version || inputs.bump }}
+        run: |
+          version=$(python3 tools/bump_version.py "$HOW")
+          tag="v$version"
+          found=0
+          git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || found=$?
+          case $found in
+            0) echo "::error::$tag already exists"; exit 1 ;;
+            2) ;; # No such tag.
+            *) echo "::error::Couldn't list origin's tags"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Commit and tag
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Releasing the version Cargo.toml already has (the first release) tags HEAD.
+          git diff --quiet || git commit -am "release: $TAG"
+          git tag -a "$TAG" -m "screenie ${TAG#v}"
+          git show --stat HEAD
+      - name: Push, and start CI on the tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git push --atomic origin HEAD:main "$TAG"
+          # A push with this workflow's token starts no workflows, but a dispatch does.
+          gh workflow run ci.yml --ref "$TAG"
+          echo "Released $TAG: CI is building it, and publishes the release once it passes." >> "$GITHUB_STEP_SUMMARY"
