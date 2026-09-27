@@ -103,7 +103,8 @@ class Gnome:
             if mx <= x and my <= y:
                 best = (mx, my, scale, stream)
         mx, my, scale, stream = best
-        self._rd("NotifyPointerMotionAbsolute", "(sdd)", stream, float(x - mx), float(y - my))
+        sx, sy = (x - mx) * scale, (y - my) * scale
+        self._rd("NotifyPointerMotionAbsolute", "(sdd)", stream, float(sx), float(sy))
 
     def button(self, button, pressed):
         self._rd("NotifyPointerButton", "(ib)", BUTTONS[button], pressed)
