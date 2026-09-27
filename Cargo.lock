@@ -6367,7 +6367,7 @@ dependencies = [
 
 [[package]]
 name = "screenie"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -6384,7 +6384,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-annotate"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cosmic-text",
  "rayon",
@@ -6395,7 +6395,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "ashpd",
@@ -6423,7 +6423,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-capture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "screenie-compositor",
  "screenie-config",
@@ -6435,7 +6435,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-compositor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "screenie-core",
  "serde",
@@ -6446,7 +6446,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "directories",
@@ -6461,7 +6461,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "png 0.18.1",
  "serde",
@@ -6470,7 +6470,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-editor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "gpui-kit",
@@ -6486,7 +6486,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-ipc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rustix",
  "screenie-config",
@@ -6499,7 +6499,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-record"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gstreamer",
  "gstreamer-allocators",
@@ -6517,7 +6517,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-selector"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-channel",
  "gpui-kit",
@@ -6532,7 +6532,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-state"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "screenie-config",
  "serde",
@@ -6544,7 +6544,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-ui-kit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -6561,7 +6561,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-wayland"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gbm",
  "memmap2",
