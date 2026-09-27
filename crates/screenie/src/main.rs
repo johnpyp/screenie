@@ -14,12 +14,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Context;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use screenie_core::Rect;
 use screenie_ipc::{
     ActionOverrides, CaptureKind, Client, RecordRequest, Request, Response, ScreenshotRequest,
     SelectMode, State, Status, Target,
 };
+
+mod man;
 
 /// `0.1.0 (46bce20 2026-09-25 23:20)`
 const VERSION: &str = concat!(
@@ -34,6 +36,9 @@ const VERSION: &str = concat!(
     name = "screenie",
     version = VERSION,
     about = "Screenshots and screen recordings for Wayland",
+    long_about = "Screenshots and screen recordings for Wayland.\n\n\
+        Every command talks to the resident daemon, starting it if needed, and exits \
+        once it has an answer. Bind the ones you use to keys in your compositor.",
     arg_required_else_help = true
 )]
 struct Cli {
@@ -61,6 +66,9 @@ enum Command {
     Daemon,
     /// Stop the daemon.
     Quit,
+    /// Write the man pages into DIR/man1 and DIR/man5, for packaging.
+    #[command(hide = true)]
+    Man { dir: PathBuf },
 }
 
 // A target carries its own options, which follow it: `screenie shot window --copy`.
@@ -313,6 +321,18 @@ fn parse_rect(s: &str) -> Result<Rect, String> {
 fn main() -> ExitCode {
     let command = Cli::parse().command;
 
+    if let Command::Man { dir } = &command {
+        return match man::write(Cli::command(), dir) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!(
+                    "screenie: can't write the man pages to {}: {e}",
+                    dir.display()
+                );
+                ExitCode::from(2)
+            }
+        };
+    }
     if let Command::Daemon = command {
         let commit = env!("SCREENIE_COMMIT");
         let describe = |s: &screenie_ipc::Status| {
@@ -545,7 +565,7 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
             );
         }
         Command::Quit => request_running(&Request::Quit, Response::Ok)?,
-        Command::Daemon => unreachable!("handled in main"),
+        Command::Daemon | Command::Man { .. } => unreachable!("handled in main"),
     };
     report(response, false)
 }

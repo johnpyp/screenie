@@ -5,6 +5,10 @@ The user's settings and where things live.
 - `Config`: the full schema (`screenshot`, `recording`, `preview`, `selector`,
   `editor`, `advanced`, `ui_scale`). Every field has a default and every section is
   optional, so an empty file is valid. `schema.rs` documents every key.
+- `reference::keys()`: every key, in the file's order, with its description (the
+  field's doc comment, then its type's, read through schemars), default, and the words
+  it takes. `screenie(5)` is rendered from it, and a test fails on a key without a doc
+  comment.
 - `Config::load` / `save`: `$XDG_CONFIG_HOME/screenie/config.yaml`. Saves are atomic.
   The daemon reloads on a change of *contents*, not mtime, so a symlink swapped to
   another target (home-manager's Nix store links) counts too.

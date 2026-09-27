@@ -7,6 +7,7 @@
 
 mod naming;
 mod paths;
+pub mod reference;
 mod schema;
 
 use std::path::{Path, PathBuf};

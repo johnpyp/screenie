@@ -18,6 +18,7 @@ screenie-config.workspace = true
 screenie-ipc.workspace = true
 screenie-app.workspace = true
 clap.workspace = true
+clap_mangen.workspace = true
 anyhow.workspace = true
 rustix.workspace = true
 serde_json.workspace = true

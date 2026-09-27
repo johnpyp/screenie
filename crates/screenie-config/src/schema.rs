@@ -1,12 +1,16 @@
 //! The configuration schema. Every field has a default, so a config file only needs the
 //! settings a user actually changed, and unknown keys are ignored for forward
 //! compatibility.
+//!
+//! The doc comments are the config's reference: `screenie(5)` is made from them (see
+//! [`crate::reference`]), so every key needs one, on the field or on its type.
 
 use std::path::PathBuf;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Config {
     /// How big the interface is drawn: buttons, bars, text, cards (never the captures
@@ -22,8 +26,8 @@ pub struct Config {
     pub advanced: AdvancedConfig,
 }
 
-/// `ui_scale`: `auto`, or a factor such as `1.25`.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+/// `auto`, or a factor from 0.5 to 3, such as `1.25`.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "UiScaleRepr", into = "UiScaleRepr")]
 pub enum UiScale {
     /// Follow the desktop's text scaling.
@@ -32,7 +36,7 @@ pub enum UiScale {
     Fixed(f64),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 enum UiScaleRepr {
     Factor(f64),
@@ -61,7 +65,7 @@ impl From<UiScale> for UiScaleRepr {
 }
 
 /// What happens automatically once a screenshot is taken.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct AfterCapture {
     /// Put the capture on the clipboard.
@@ -86,7 +90,9 @@ impl Default for AfterCapture {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Screenshots: where they're saved, what they're called, and what happens once one is
+/// taken.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ScreenshotConfig {
     /// Where screenshots are saved. Empty means `$XDG_PICTURES_DIR/Screenshots`. `~` and
@@ -111,14 +117,16 @@ impl Default for ScreenshotConfig {
     }
 }
 
-/// `recording.framerate`: `native`, or frames per second such as `60`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// `native`, or at most this many frames a second, from 1 to 240. `native` records every
+/// frame shown: a game drawing 280 a second makes the compositor copy 280, which can
+/// starve the recording and the game alike. A number asks the compositor for only as
+/// many.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "WordOr<u32>", into = "WordOr<u32>")]
 pub enum Framerate {
-    /// Every frame the screen (or window) shows. A game drawing 280 frames a second makes
-    /// the compositor copy 280, which can starve the recording and the game alike.
+    /// Every frame the screen (or window) shows.
     Native,
-    /// At most this many a second; the compositor is only asked for as many.
+    /// At most this many a second.
     Fps(u32),
 }
 
@@ -159,10 +167,10 @@ impl From<Framerate> for WordOr<u32> {
     }
 }
 
-/// `recording.resolution`: `native`, or the most lines the video may have, such as
-/// `1080p`. It caps the size, keeping the aspect ratio and never scaling up: `1080p` fits
-/// a recording into 1920×1080, or 1080×1920 when it's taller than wide.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// `native`, or the most lines the video may have, such as `720p`, `1080p`, `1440p` or
+/// `2160p` (also `4k`). It caps the size, keeping the aspect ratio and never scaling up:
+/// `1080p` fits a recording into 1920×1080, or 1080×1920 when it's taller than wide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "String", into = "String")]
 pub enum Resolution {
     /// The captured pixels, one for one.
@@ -218,14 +226,16 @@ impl From<Resolution> for String {
 }
 
 /// A setting that's a keyword or a value, as written in the file.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 enum WordOr<T> {
     Value(T),
     Word(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// How good a recording looks against how big it is. `lossless` is visually lossless,
+/// in far bigger files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Quality {
     Low,
@@ -234,21 +244,26 @@ pub enum Quality {
     Lossless,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Which video encoder records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum EncoderPreference {
     /// Hardware if it works, software otherwise.
     Auto,
+    /// The GPU's (VA-API or NVENC), or none.
     Hardware,
+    /// x264 or OpenH264, on the CPU.
     Software,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Recordings: where they're saved, what they're called, and how they're encoded.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct RecordingConfig {
     /// Where recordings are saved. Empty means `$XDG_VIDEOS_DIR/Screencasts`. Written
     /// like `screenshot.directory`.
     pub directory: PathBuf,
+    /// File name template, without extension. Written like `screenshot.filename`.
     pub filename: String,
     pub framerate: Framerate,
     /// The most the video's size may be: recording a 4K screen at `1080p` makes a
@@ -256,6 +271,7 @@ pub struct RecordingConfig {
     pub resolution: Resolution,
     pub quality: Quality,
     pub encoder: EncoderPreference,
+    /// Include the mouse cursor.
     pub show_cursor: bool,
     /// Record what the speakers play.
     pub system_audio: bool,
@@ -268,7 +284,7 @@ pub struct RecordingConfig {
 
 /// What happens automatically once a recording is finished. It's always saved (it's
 /// written as it's recorded), and there's no video editor, so only these two apply.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct RecordingAfterCapture {
     /// Put the file on the clipboard.
@@ -316,7 +332,7 @@ impl Default for RecordingConfig {
 }
 
 /// Where on the screen something sits: a corner, or the middle of an edge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScreenPosition {
     TopLeft,
@@ -355,10 +371,11 @@ impl ScreenPosition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The preview cards that appear after a capture.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct PreviewConfig {
-    /// Where the cards stack: `bottom-right`, `top-middle`, `left-middle`, ...
+    /// Where the cards stack.
     pub position: ScreenPosition,
     /// Seconds before the card slides away; 0 keeps it until dismissed.
     pub timeout: u32,
@@ -373,7 +390,8 @@ impl Default for PreviewConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The overlay that picks an area, window or screen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct SelectorConfig {
     /// Show the pixel magnifier next to the cursor.
@@ -402,17 +420,18 @@ impl Default for SelectorConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The annotation editor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EditorConfig {
-    /// `overlay`: over the screen, the capture where it was taken; `window`: a regular
-    /// window.
+    /// Where the editor opens.
     pub mode: EditorMode,
     /// Hex colors offered in the palette.
     pub palette: Vec<String>,
-    /// The first editor's colour and size. After that the editor remembers the last ones
-    /// used (in the state file, across restarts).
+    /// The first editor's colour. After that the editor remembers the last one used (in
+    /// the state file, across restarts).
     pub default_color: String,
+    /// The first editor's stroke width, remembered like `default_color`.
     pub stroke_width: f64,
     /// Close the editor as soon as the image is copied (Ctrl+C or the Copy button).
     pub exit_on_copy: bool,
@@ -442,27 +461,33 @@ impl Default for EditorConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum EditorMode {
+    /// Over the screen, with the capture where it was taken.
     #[default]
     Overlay,
+    /// In a window of its own.
     Window,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// The Wayland protocol that captures the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum CaptureBackend {
+    /// Whichever the compositor offers, trying the other when one fails.
     Auto,
     /// `ext-image-copy-capture-v1`
     Ext,
     /// `wlr-screencopy-unstable-v1`
     Wlr,
-    /// xdg-desktop-portal
+    /// xdg-desktop-portal. Planned, and left out of the docs until it captures.
+    #[schemars(skip)]
     Portal,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// For troubleshooting.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct AdvancedConfig {
     pub capture_backend: CaptureBackend,

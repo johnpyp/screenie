@@ -11,11 +11,10 @@ publish.workspace = true
 [dependencies]
 serde.workspace = true
 serde-saphyr.workspace = true
+schemars = { workspace = true, features = ["preserve_order"] }
+serde_json.workspace = true
 chrono.workspace = true
 directories.workspace = true
 shellexpand.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true

@@ -1,6 +1,7 @@
 //! Stamps the binary with the git commit and commit time it was built from, as
 //! `SCREENIE_COMMIT` (e.g. `46bce20 2026-09-25 23:20`). Shown by `screenie --version` and
-//! `screenie query status --json`.
+//! `screenie query status --json`. `SCREENIE_COMMIT_DATE` (`2026-09-25`, or empty) dates
+//! the man pages.
 
 use std::path::Path;
 use std::process::Command;
@@ -27,6 +28,8 @@ fn main() {
     .filter(|c| !c.is_empty())
     .unwrap_or_else(|| "unknown commit".into());
     println!("cargo:rustc-env=SCREENIE_COMMIT={commit}");
+    let date = git(&["log", "-1", "--format=%cd", "--date=short"]).unwrap_or_default();
+    println!("cargo:rustc-env=SCREENIE_COMMIT_DATE={date}");
 
     // Re-stamp when HEAD moves. Missing paths are skipped: cargo would treat them as
     // always changed and rebuild every time.

@@ -98,3 +98,11 @@ this binary doesn't know (from a newer daemon) prints as `unknown`.
 Logging goes to stderr and is filtered by `SCREENIE_LOG` (e.g. `SCREENIE_LOG=debug`).
 `build.rs` stamps the binary with its git commit, shown by `--version` and
 `query status --json`; the daemon compares builds to upgrade itself (see `screenie-ipc`).
+
+## Man pages
+
+`screenie man DIR` (hidden, for packaging) writes them into `DIR/man1` and `DIR/man5`
+(`man.rs`): `screenie(1)` and a page per command and target (`screenie-shot-region(1)`)
+from the clap definitions, with exit status, environment and files added to the first,
+and `screenie(5)`, the config file key by key, from `screenie_config::reference`. They're
+dated by the commit. `tools/dist.py` puts them in the release archives.
