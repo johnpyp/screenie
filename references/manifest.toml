@@ -198,3 +198,8 @@ notes = "Rust PipeWire bindings: consuming a screen-cast node (examples/streams.
 name = "kdotool"
 url = "https://github.com/jinliu/kdotool"
 notes = "Lists and drives KWin windows by loading a KWin script over D-Bus that calls back with the results; KWin 5 and 6 APIs."
+
+[[repo]]
+name = "kando-gnome-shell-integration"
+url = "https://github.com/kando-menu/gnome-shell-integration"
+notes = "A GNOME Shell extension (MIT) serving an app over D-Bus, shells 45 on: patching Main.wm._shouldAnimateActor for its own windows, window info, pointer."
