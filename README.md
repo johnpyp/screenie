@@ -63,11 +63,9 @@ upgrade, the next `screenie` command picks up the new build.
 mise use -g github:johnpyp/screenie
 ```
 
-`mise up` upgrades it.
-
 ### Arch
 
-From the [AUR](https://aur.archlinux.org/packages/screenie-bin), with your AUR helper:
+From the [AUR](https://aur.archlinux.org/packages/screenie-bin):
 
 ```sh
 paru -S screenie-bin
@@ -116,7 +114,7 @@ sudo pacman -S --needed base-devel gstreamer gst-plugins-base-libs \
   gst-plugins-good gst-plugins-bad-libs gst-plugins-ugly gst-libav
 ```
 
-Then build and install it, with its man pages:
+Then:
 
 ```sh
 git clone https://github.com/johnpyp/screenie && cd screenie
@@ -124,8 +122,6 @@ cargo build --profile dist
 install -Dm755 target/dist/screenie ~/.local/bin/screenie
 target/dist/screenie man ~/.local/share/man
 ```
-
-To upgrade, pull, build and install again.
 
 ## Getting started
 
@@ -370,8 +366,7 @@ editor:
   confirm_discard: true   # ask before closing with unsaved annotations
 ```
 
-`man 5 screenie` describes every key. It's made from
-[`schema.rs`](crates/screenie-config/src/schema.rs).
+`man 5 screenie` describes every key.
 
 ### Presets
 
