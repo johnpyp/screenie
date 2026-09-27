@@ -145,6 +145,11 @@ real digging.
   one too. Extensions are also turned off while the screen is locked.
 - **A Mutter remote desktop session's absolute pointer positions are in the stream's
   pixels**, not logical ones: divided by the monitor's scale on the way in.
+- **A Mutter remote desktop session's first press or key goes nowhere.** Its virtual
+  pointer and keyboard are made on their first events, and clients bind the new
+  `wl_pointer` or `wl_keyboard` only after the seat announces it, so a press gets no
+  `enter` first. Selector drags and clicks in the GNOME container silently did nothing
+  (and Escape needed sending twice); `input.py` now makes both devices first.
 
 ## Daemon, files and clipboard
 

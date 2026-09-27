@@ -91,7 +91,12 @@ class Gnome:
             )
             self.monitors.append((x, y, scale, stream))
         call(self.RD, self.session, self.RD + ".Session", "Start")
-        # Streams take a moment to be ready for pointer events.
+        # Mutter makes the virtual pointer and keyboard on their first events, and clients
+        # take up a new one only once the seat says it's there, so that first event is lost
+        # (a press, or a key). Made first, with events that do nothing; the streams, too,
+        # take a moment to be ready for pointer events.
+        self._rd("NotifyPointerMotionRelative", "(dd)", 0.0, 0.0)
+        self.chord("Shift_L")
         time.sleep(0.6)
 
     def _rd(self, method, signature, *args):
