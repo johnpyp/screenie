@@ -366,7 +366,7 @@ editor:
   confirm_discard: true   # ask before closing with unsaved annotations
 ```
 
-`man 5 screenie` describes every key.
+See `man 5 screenie` for every option.
 
 ### Presets
 
