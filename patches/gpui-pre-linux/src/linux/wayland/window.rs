@@ -111,6 +111,9 @@ pub struct WaylandWindowState {
     viewport: Option<wp_viewport::WpViewport>,
     outputs: HashMap<ObjectId, Output>,
     display: Option<(ObjectId, Output)>,
+    // screenie patch: the output the window was opened for (`WindowParams::display_id`),
+    // which it goes fullscreen on. Without one, the compositor picks (the focused output).
+    target_output: Option<wl_output::WlOutput>,
     globals: Globals,
     renderer: WgpuRenderer,
     bounds: Bounds<Pixels>,
@@ -560,6 +563,7 @@ impl WaylandWindowState {
         compositor_gpu: Option<CompositorGpuHint>,
         options: WindowParams,
         parent: Option<WaylandWindowStatePtr>,
+        target_output: Option<wl_output::WlOutput>,
     ) -> anyhow::Result<Self> {
         let renderer = {
             let raw_window = RawWindow {
@@ -611,6 +615,7 @@ impl WaylandWindowState {
             globals,
             outputs: HashMap::default(),
             display: None,
+            target_output,
             renderer,
             bounds: options.bounds,
             scale: 1.0,
@@ -836,7 +841,7 @@ impl WaylandWindow {
             &params,
             parent.clone(),
             popup_grab,
-            target_output,
+            target_output.clone(),
         )?;
 
         if let Some(fractional_scale_manager) = globals.fractional_scale_manager.as_ref() {
@@ -862,6 +867,7 @@ impl WaylandWindow {
                 compositor_gpu,
                 params,
                 parent,
+                target_output,
             )?)),
             callbacks: Rc::new(RefCell::new(Callbacks::default())),
             frame_loop: Rc::new(Cell::new(FrameLoop::Unconfigured)),
@@ -1900,7 +1906,8 @@ impl PlatformWindow for WaylandWindow {
         let state = self.borrow();
         if let Some(toplevel) = state.surface_state.toplevel() {
             if !state.fullscreen {
-                toplevel.set_fullscreen(None);
+                // screenie patch: on the window's own output (see `target_output`).
+                toplevel.set_fullscreen(state.target_output.as_ref());
             } else {
                 toplevel.unset_fullscreen();
             }

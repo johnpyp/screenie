@@ -28,6 +28,13 @@ without a parent instead.
 the relative pointer, and a window under the pointer that gets a few relative moves in a
 row with no motion (pushing against its edge doesn't count) is told the pointer is stuck.
 
+`src/linux/wayland/window.rs` (`target_output`, `toggle_fullscreen`): a fullscreen window
+goes fullscreen on the output it was opened for (`WindowOptions::display_id`).
+
+GPUI asked for fullscreen with no output, so the compositor picked one: on GNOME, where
+the selector and editor are fullscreen windows (no layer-shell), every output's
+selector piled up on the focused output and the others weren't covered.
+
 ## gpui-pre 0.3.6
 
 `src/platform.rs` (`PlatformWindow::on_pointer_stuck`) and `src/window.rs`

@@ -86,7 +86,8 @@ start() {
 run() {
   local name=$1
   shift
-  local tty=()
+  # A terminal, or at least stdin (commands piped to `input -`).
+  local tty=(-i)
   [[ -t 0 ]] && tty=(-it)
   podman exec "${tty[@]}" -w "$PWD" "screenie-$name" "$@"
 }
