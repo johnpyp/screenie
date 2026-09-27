@@ -127,9 +127,10 @@ export class Layers {
         this._windows.set(window, {layer, signals});
         window.hide_from_window_list?.();
         if (layer.keyboard) {
-            window.make_above();
-            // Focused once shown, with the time now: GNOME may otherwise hold it back
-            // (behind a window kept above, say).
+            // Kept above once mapped (`_mapped`): a Wayland window isn't stacked before
+            // it has a buffer, and raising it sooner trips Mutter's assertions. Focused
+            // once shown, with the time now: GNOME may otherwise hold it back (behind a
+            // window kept above, say).
             signals.push(window.connect('shown',
                 () => window.activate(global.display.get_current_time_roundtrip())));
         } else if (this.floats) {
@@ -148,7 +149,11 @@ export class Layers {
 
     _mapped(window) {
         const layer = this._windows.get(window)?.layer;
-        if (layer && !layer.keyboard)
+        if (!layer)
+            return;
+        if (layer.keyboard)
+            window.make_above();
+        else
             this._place(window, layer);
     }
 
