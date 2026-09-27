@@ -6,13 +6,15 @@
 # target directory are mounted at the same paths, so a host build runs inside as is.
 #
 # Usage:
-#   tools/desktop.sh build [gnome|kde]      # build the images (both by default)
-#   tools/desktop.sh start gnome|kde        # start a session (replacing a running one)
+#   tools/desktop.sh build [gnome|kde]          # build the images (both by default)
+#   tools/desktop.sh start gnome|kde [ARG...]   # start a session (replacing a running one);
+#                                               # ARGs go to the compositor (gnome-shell's
+#                                               # --unsafe-mode allows org.gnome.Shell.Eval)
 #   tools/desktop.sh stop gnome|kde
-#   tools/desktop.sh run gnome|kde CMD...   # run a command in the session
-#   tools/desktop.sh shot gnome|kde [FILE]  # screenshot of every output, side by side
-#   tools/desktop.sh input gnome|kde CMD... # pointer and keyboard (see tools/desktop/input.py)
-#   tools/desktop.sh logs gnome|kde         # the compositor's log
+#   tools/desktop.sh run gnome|kde CMD...       # run a command in the session
+#   tools/desktop.sh shot gnome|kde [FILE]      # screenshot of every output, side by side
+#   tools/desktop.sh input gnome|kde CMD...     # pointer and keyboard (see tools/desktop/input.py)
+#   tools/desktop.sh logs gnome|kde             # the compositor's log
 #
 # The session's home is .cache/desktop/<name>/home, kept between runs (delete it to start
 # afresh); screenie's daemon log is under it. The runtime directory (Wayland, D-Bus and
@@ -68,7 +70,7 @@ start() {
   podman run -d --name "screenie-$name" --userns=keep-id --user "$(id -u):$(id -g)" \
     -v "$ROOT:$ROOT" -v "$target:$target:ro" -v "$rundir:/run/user/1000" \
     "${gpu[@]}" --shm-size=1g "${env[@]}" "localhost/screenie-desktop-$name" \
-    "$HERE/session.sh" "$name" >/dev/null
+    "$HERE/session.sh" "$name" "${@:2}" >/dev/null
   for _ in $(seq 100); do
     [[ -S $rundir/wayland-0 ]] && break
     sleep 0.1
@@ -97,7 +99,7 @@ build)
   shift
   build "$@"
   ;;
-start) start "$(desktop "${2:-}")" ;;
+start) start "$(desktop "${2:-}")" "${@:3}" ;;
 stop) podman rm -f "screenie-$(desktop "${2:-}")" >/dev/null && echo stopped ;;
 run)
   name=$(desktop "${2:-}")

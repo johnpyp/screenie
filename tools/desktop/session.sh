@@ -1,7 +1,10 @@
 #!/bin/bash
 # The session inside a desktop image (see tools/desktop.sh): D-Bus, PipeWire, then the
-# compositor with two virtual outputs.
+# compositor with two virtual outputs. Arguments after the desktop's name go to the
+# compositor.
 set -u
+name=$1
+shift
 # The compositors want a system bus to talk to; nothing answers on this one.
 dbus-daemon --session --address="$DBUS_SYSTEM_BUS_ADDRESS" --nofork --nopidfile --syslog-only &
 dbus-daemon --session --address="$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile --syslog-only &
@@ -15,7 +18,7 @@ dbus-update-activation-environment XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNT
 pipewire &
 sleep 0.3
 wireplumber &
-case $1 in
+case $name in
 gnome)
   # Custom keyboard shortcuts are run by gnome-settings-daemon's media-keys plugin,
   # once the shell is up to grab them for it.
@@ -28,10 +31,10 @@ gnome)
     exec /usr/libexec/gsd-media-keys
   ) &
   exec gnome-shell --headless --wayland --no-x11 \
-    --virtual-monitor 1920x1080 --virtual-monitor 2560x1440
+    --virtual-monitor 1920x1080 --virtual-monitor 2560x1440 "$@"
   ;;
 kde)
   exec kwin_wayland --virtual --no-lockscreen --socket wayland-0 \
-    --width 1920 --height 1080 --output-count 2
+    --width 1920 --height 1080 --output-count 2 "$@"
   ;;
 esac
