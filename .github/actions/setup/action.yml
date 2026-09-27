@@ -16,8 +16,9 @@ runs:
         sudo rm -f /var/lib/man-db/auto-update
         # The 22.04 images' LLVM brings libunwind-14-dev, which conflicts with the
         # libunwind-dev that GStreamer's headers need.
+        # (dpkg-query fails when nothing matches, as on 24.04.)
         conflicting=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' 'libunwind-*-dev' 2>/dev/null |
-          awk '$1 == "ii" { print $2 }')
+          awk '$1 == "ii" { print $2 }' || true)
         if [ -n "$conflicting" ]; then sudo apt-get remove -y -q $conflicting; fi
         sudo apt-get update -qq
         sudo apt-get install -y -q --no-install-recommends \
