@@ -111,8 +111,8 @@ fn decode(meta: &HashMap<String, OwnedValue>, data: Vec<u8>) -> Result<Image> {
     // may hand it back with alpha, zero where nothing's drawn: premultiplied, so that
     // reads as black once the alpha's ignored.
     let format = match number("format")? {
-        4 | 5 | 6 => PixelFormat::Bgrx, // RGB32, ARGB32 (premultiplied)
-        16..=18 => PixelFormat::Rgbx,   // RGBX8888, RGBA8888 (premultiplied)
+        4..=6 => PixelFormat::Bgrx,   // RGB32, ARGB32 (premultiplied)
+        16..=18 => PixelFormat::Rgbx, // RGBX8888, RGBA8888 (premultiplied)
         other => {
             return Err(Error::Cast(format!(
                 "KWin's screenshot is in a format screenie doesn't read ({other})"

@@ -14,7 +14,6 @@
 //! each output has its own). Only the cards take input, and only the pointer's: the
 //! keyboard stays with the app you're in (see [`Hover`]).
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -25,18 +24,14 @@ use gpui::{
     FontWeight, Global, ObjectFit, RenderImage, Window, WindowHandle, div, img, px, rgba, size,
 };
 use screenie_config::{Align, ScreenPosition};
-use screenie_core::Image;
-use screenie_ipc::CaptureKind;
 use screenie_ui_kit::hud::{self, color};
 use screenie_ui_kit::{Hover, Icon, LayerSpec, Tip, layer_options, ui};
 
-use crate::clipboard;
+use super::{Action, Media, PreviewItem, format_duration};
 use crate::daemon::Daemon;
-use crate::deliver::{Actions, Capture};
-use crate::last::CaptureId;
 
 /// Largest card edge; thumbnails are fit within it.
-const CARD_MAX: f32 = 236.0;
+pub(super) const CARD_MAX: f32 = 236.0;
 /// Smallest card, so the hover actions always fit. Odd aspect ratios are letterboxed.
 const CARD_MIN: (f32, f32) = (204.0, 116.0);
 const EDGE_MARGIN: f32 = 18.0;
@@ -46,38 +41,7 @@ const MAX_CARDS: usize = 5;
 /// The stack's layer namespace, which also names it for [`conceal`](screenie_ui_kit::conceal).
 pub(crate) const NAMESPACE: &str = "screenie-preview";
 
-/// What can be done with a card, from its buttons.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CardAction {
-    Copy,
-    Save,
-    Reveal,
-    Dismiss,
-    Delete,
-    Annotate,
-}
-
-impl CardAction {
-    const ALL: [CardAction; 6] = [
-        Self::Copy,
-        Self::Save,
-        Self::Reveal,
-        Self::Dismiss,
-        Self::Delete,
-        Self::Annotate,
-    ];
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Copy => "Copy",
-            Self::Save => "Save",
-            Self::Reveal => "Show in folder",
-            Self::Dismiss => "Dismiss",
-            Self::Delete => "Delete",
-            Self::Annotate => "Annotate",
-        }
-    }
-
+impl Action {
     fn icon(self) -> Icon {
         match self {
             Self::Copy => Icon::Copy,
@@ -93,22 +57,6 @@ impl CardAction {
         Tip::new(self.name())
     }
 
-    /// Whether `item` offers it now: only what's left to do.
-    fn offered(self, item: &PreviewItem, cx: &App) -> bool {
-        let screenshot = matches!(item.media, Media::Screenshot { .. });
-        let saved = item.path.is_some();
-        match self {
-            // A recording is copied as its file.
-            Self::Copy => !item.is_copied() && (screenshot || saved),
-            Self::Save => screenshot && !saved,
-            // Nothing to show or delete until there's a file.
-            Self::Reveal | Self::Delete => saved,
-            Self::Dismiss => true,
-            // One overlay editor at a time.
-            Self::Annotate => screenshot && !screenie_editor::overlay_open(cx),
-        }
-    }
-
     fn run(self, stack: &mut PreviewStack, id: u64, cx: &mut Context<PreviewStack>) {
         match self {
             Self::Copy => stack.copy(id, cx),
@@ -121,36 +69,12 @@ impl CardAction {
     }
 }
 
-#[derive(Clone)]
-pub(crate) enum Media {
-    Screenshot {
-        capture: Capture,
-        png: Arc<Vec<u8>>,
-        /// What it was taken to do (`--copy`, `--no-save`…): the editor does it when
-        /// it's done.
-        actions: Actions,
-        /// Its entry in `screenie query last`, which learns where it's saved.
-        noted: CaptureId,
-    },
-    Recording {
-        duration: Duration,
-        /// The file is still being finished.
-        saving: bool,
-    },
-}
-
-pub(crate) struct PreviewItem {
-    id: u64,
-    media: Media,
+/// A capture's card.
+struct Card {
+    item: PreviewItem,
     thumb: Arc<RenderImage>,
-    /// Card size in logical pixels.
-    card: (f32, f32),
-    pixel_size: (u32, u32),
-    bytes: u64,
-    path: Option<PathBuf>,
-    /// The clipboard generation it was copied at, if it was: it's on the clipboard
-    /// until we copy something else.
-    copied: Option<u64>,
+    /// Its size in logical pixels.
+    size: (f32, f32),
     deadline: Option<Instant>,
     hovered: bool,
     /// It's been on screen (rather than concealed from the moment it came).
@@ -160,128 +84,21 @@ pub(crate) struct PreviewItem {
     arrived: bool,
 }
 
-impl PreviewItem {
-    /// `actions`: the ones it was taken with. `noted`: its entry in `screenie query
-    /// last`. `copied`: it was just put on the clipboard.
-    pub async fn screenshot(
-        capture: Capture,
-        png: Arc<Vec<u8>>,
-        actions: Actions,
-        noted: CaptureId,
-        path: Option<PathBuf>,
-        copied: bool,
-        cx: &mut AsyncApp,
-    ) -> Self {
-        let bytes = png.len() as u64;
-        let image = capture.image.clone();
-        Self::new(
-            Media::Screenshot {
-                capture,
-                png,
-                actions,
-                noted,
-            },
-            image,
-            bytes,
-            path,
-            copied,
-            cx,
-        )
-        .await
-    }
-
-    pub async fn recording(
-        finished: screenie_record::Finished,
-        copied: bool,
-        cx: &mut AsyncApp,
-    ) -> Self {
-        let (w, h) = finished.size;
-        let frame = finished
-            .last_frame
-            .unwrap_or_else(|| Image::new(w, h, screenie_core::PixelFormat::Bgra));
-        let media = Media::Recording {
-            duration: finished.duration,
-            saving: false,
-        };
-        Self::new(
-            media,
-            frame,
-            finished.bytes,
-            Some(finished.path),
-            copied,
-            cx,
-        )
-        .await
-    }
-
-    /// A recording that's been stopped but whose file is still being finished; see
-    /// [`saved`].
-    pub async fn recording_saving(
-        frame: Option<Image>,
-        size: (u32, u32),
-        duration: Duration,
-        cx: &mut AsyncApp,
-    ) -> Self {
-        let frame =
-            frame.unwrap_or_else(|| Image::new(size.0, size.1, screenie_core::PixelFormat::Bgra));
-        let media = Media::Recording {
-            duration,
-            saving: true,
-        };
-        Self::new(media, frame, 0, None, false, cx).await
-    }
-
-    pub fn id(&self) -> u64 {
-        self.id
-    }
-
-    fn is_saving(&self) -> bool {
-        matches!(self.media, Media::Recording { saving: true, .. })
-    }
-
-    /// In use, so it mustn't go: under the pointer, or a recording still being finished.
-    fn pinned(&self) -> bool {
-        self.hovered || self.is_saving()
-    }
-
-    /// The thumbnail is scaled on a background thread.
-    async fn new(
-        media: Media,
-        image: Image,
-        bytes: u64,
-        path: Option<PathBuf>,
-        copied: bool,
-        cx: &mut AsyncApp,
-    ) -> Self {
-        let copied = copied.then(clipboard::generation);
-        let (iw, ih) = (image.width().max(1) as f32, image.height().max(1) as f32);
+impl Card {
+    fn new(item: PreviewItem) -> Card {
+        let (iw, ih) = (
+            item.pixel_size.0.max(1) as f32,
+            item.pixel_size.1.max(1) as f32,
+        );
         let fit = (CARD_MAX / iw).min(CARD_MAX / ih).min(1.0);
-        let card = (
+        let size = (
             (iw * fit).clamp(CARD_MIN.0, CARD_MAX),
             (ih * fit).clamp(CARD_MIN.1, CARD_MAX),
         );
-        // Thumbnail at 2x for HiDPI outputs, keeping the image's aspect ratio (the card
-        // letterboxes it).
-        let thumb_scale = (fit * 2.0).min(1.0);
-        let (tw, th) = (
-            ((iw * thumb_scale) as u32).max(1),
-            ((ih * thumb_scale) as u32).max(1),
-        );
-        let pixel_size = (image.width(), image.height());
-        let thumb = cx
-            .background_executor()
-            .spawn(async move { screenie_ui_kit::render_image(&image.resize(tw, th)) })
-            .await;
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        Self {
-            id: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            pixel_size,
-            bytes,
-            media,
-            thumb,
-            card,
-            path,
-            copied,
+        Card {
+            thumb: screenie_ui_kit::render_image(&item.thumb),
+            item,
+            size,
             deadline: None,
             hovered: false,
             seen: false,
@@ -289,30 +106,13 @@ impl PreviewItem {
         }
     }
 
-    fn is_copied(&self) -> bool {
-        self.copied == Some(clipboard::generation())
+    fn id(&self) -> u64 {
+        self.item.id
     }
 
-    fn caption(&self) -> String {
-        match &self.media {
-            Media::Screenshot { .. } => {
-                format!(
-                    "{} × {} · {}",
-                    self.pixel_size.0,
-                    self.pixel_size.1,
-                    format_bytes(self.bytes)
-                )
-            }
-            Media::Recording {
-                duration,
-                saving: true,
-            } => format!("{} · Saving…", format_duration(*duration)),
-            Media::Recording { duration, .. } => format!(
-                "{} · {}",
-                format_duration(*duration),
-                format_bytes(self.bytes)
-            ),
-        }
+    /// In use, so it mustn't go: under the pointer, or a recording still being finished.
+    fn pinned(&self) -> bool {
+        self.hovered || self.item.is_saving()
     }
 }
 
@@ -359,7 +159,8 @@ impl Previews {
 }
 
 /// Show a card, on `output` if given.
-pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
+pub(super) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
+    let item = Card::new(item);
     Previews::prune(cx);
     let placement = Placement {
         output,
@@ -389,7 +190,7 @@ pub(crate) fn show(item: PreviewItem, output: Option<String>, cx: &mut App) {
 }
 
 /// Open a stack surface at `placement`, holding `items`.
-fn open_stack(placement: Placement, items: Vec<PreviewItem>, cx: &mut App) {
+fn open_stack(placement: Placement, items: Vec<Card>, cx: &mut App) {
     // One transparent surface over the output's free area (a size of 0 lets the compositor
     // stretch it between the anchors, clear of bars); input is limited to the cards, so
     // the rest is click-through. Positions are just alignments within it.
@@ -443,20 +244,19 @@ fn raise(handle: WindowHandle<PreviewStack>, cx: &mut App) {
 
 /// A recording's card, shown while it was being finished, now has its file. False if
 /// the card is gone (its surface closed with its output, say).
-pub(crate) fn saved(
+pub(super) fn saved(
     id: u64,
     finished: &screenie_record::Finished,
     copied: bool,
     cx: &mut App,
 ) -> bool {
-    let (path, bytes, duration) = (finished.path.clone(), finished.bytes, finished.duration);
     with_card(id, cx, move |stack, cx| {
-        stack.saved(id, path, bytes, duration, copied, cx)
+        stack.saved(id, finished, copied, cx)
     })
 }
 
 /// Take a card away, e.g. a recording that couldn't be finished.
-pub(crate) fn discard(id: u64, cx: &mut App) {
+pub(super) fn discard(id: u64, cx: &mut App) {
     with_card(id, cx, move |stack, cx| stack.remove(id, cx));
 }
 
@@ -469,7 +269,7 @@ fn with_card(
     let mut f = Some(f);
     for handle in Previews::handles(cx) {
         let _ = handle.update(cx, |stack, _, cx| {
-            if stack.items.iter().any(|i| i.id == id)
+            if stack.items.iter().any(|i| i.id() == id)
                 && let Some(f) = f.take()
             {
                 f(stack, cx);
@@ -486,7 +286,7 @@ pub(crate) struct PreviewStack {
     position: ScreenPosition,
     /// The output the stack is on, where editors open too.
     output: Option<String>,
-    items: Vec<PreviewItem>,
+    items: Vec<Card>,
     /// Input: each card is an area, keyed by its id.
     hover: Entity<Hover<u64>>,
     /// When the cards' time was last counted.
@@ -575,7 +375,7 @@ impl PreviewStack {
     }
 
     /// Give up the cards to a new surface.
-    fn hand_over(&mut self, cx: &mut Context<Self>) -> Vec<PreviewItem> {
+    fn hand_over(&mut self, cx: &mut Context<Self>) -> Vec<Card> {
         cx.notify();
         let timeout = Self::timeout(cx);
         let mut items = std::mem::take(&mut self.items);
@@ -596,7 +396,7 @@ impl PreviewStack {
         }
     }
 
-    fn push(&mut self, mut item: PreviewItem, cx: &mut Context<Self>) {
+    fn push(&mut self, mut item: Card, cx: &mut Context<Self>) {
         // A card moved from another surface keeps its time.
         if !item.arrived {
             item.deadline = Self::timeout(cx).map(|t| Instant::now() + t);
@@ -624,7 +424,7 @@ impl PreviewStack {
         let cards: Vec<_> = self
             .items
             .iter()
-            .map(|i| (i.card.1 * k, i.pinned()))
+            .map(|i| (i.size.1 * k, i.pinned()))
             .collect();
         for i in overflow(&cards, height - 2. * EDGE_MARGIN * k, GAP * k)
             .into_iter()
@@ -663,35 +463,27 @@ impl PreviewStack {
     }
 
     fn remove(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.items.retain(|i| i.id != id);
+        self.items.retain(|i| i.id() != id);
         cx.notify();
     }
 
     fn saved(
         &mut self,
         id: u64,
-        path: PathBuf,
-        bytes: u64,
-        duration: Duration,
+        finished: &screenie_record::Finished,
         copied: bool,
         cx: &mut Context<Self>,
     ) {
         let timeout = Self::timeout(cx);
-        let Some(item) = self.item(id) else { return };
-        item.media = Media::Recording {
-            duration,
-            saving: false,
-        };
-        item.path = Some(path);
-        item.bytes = bytes;
-        item.copied = copied.then(clipboard::generation);
+        let Some(card) = self.item(id) else { return };
+        card.item.saved(finished, copied);
         // Its time starts now that there's something to do with it.
-        item.deadline = timeout.map(|t| Instant::now() + t);
+        card.deadline = timeout.map(|t| Instant::now() + t);
         cx.notify();
     }
 
-    fn item(&mut self, id: u64) -> Option<&mut PreviewItem> {
-        self.items.iter_mut().find(|i| i.id == id)
+    fn item(&mut self, id: u64) -> Option<&mut Card> {
+        self.items.iter_mut().find(|i| i.id() == id)
     }
 
     /// The pointer is on this card (or none).
@@ -699,8 +491,8 @@ impl PreviewStack {
         let changed: Vec<(u64, bool)> = self
             .items
             .iter()
-            .filter(|i| i.hovered != (Some(i.id) == card))
-            .map(|i| (i.id, Some(i.id) == card))
+            .filter(|i| i.hovered != (Some(i.id()) == card))
+            .map(|i| (i.id(), Some(i.id()) == card))
             .collect();
         for (id, hovered) in changed {
             self.set_hovered(id, hovered, cx);
@@ -724,148 +516,68 @@ impl PreviewStack {
     }
 
     fn copy(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(item) = self.item(id) else { return };
-        let (media, path) = (item.media.clone(), item.path.clone());
-        let copying = cx.background_executor().spawn(async move {
-            let result = match (media, path) {
-                (Media::Screenshot { png, .. }, path) => {
-                    clipboard::copy(clipboard::Content::Image {
-                        png: png.to_vec(),
-                        file: path.as_deref(),
-                    })
-                }
-                (Media::Recording { .. }, Some(path)) => {
-                    clipboard::copy(clipboard::Content::File(&path))
-                }
-                (Media::Recording { .. }, None) => Ok(()),
-            };
-            result.map(|()| clipboard::generation())
-        });
+        let Some(card) = self.item(id) else { return };
+        let copying = card.item.copy(cx);
         cx.spawn(async move |this, cx| match copying.await {
             Ok(generation) => {
                 let _ = this.update(cx, |stack, cx| {
-                    if let Some(item) = stack.item(id) {
-                        item.copied = Some(generation);
+                    if let Some(card) = stack.item(id) {
+                        card.item.copied = Some(generation);
                     }
                     cx.notify();
                 });
             }
-            Err(e) => tracing::warn!("{e}"),
+            Err(e) => tracing::warn!("{e:#}"),
         })
         .detach();
     }
 
     fn reveal(&mut self, id: u64, cx: &mut Context<Self>) {
-        if let Some(path) = self.item(id).and_then(|i| i.path.clone()) {
-            cx.reveal_path(&path);
+        if self.item(id).is_some_and(|card| card.item.reveal(cx)) {
             self.remove(id, cx);
         }
     }
 
     fn save(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(item) = self.item(id) else { return };
-        if item.path.is_some() {
-            return;
-        }
-        let Media::Screenshot {
-            png,
-            capture,
-            noted,
-            ..
-        } = item.media.clone()
-        else {
-            return;
-        };
-        let path = crate::deliver::screenshot_path(&Daemon::get(cx).config, &capture);
-        match crate::deliver::write_atomic(&path, &png) {
-            Ok(()) => {
-                Daemon::update(cx, |d, _| {
-                    d.note_saved(noted, CaptureKind::Screenshot, path.clone())
-                });
-                if let Some(item) = self.item(id) {
-                    item.path = Some(path);
-                }
-                cx.notify();
-            }
-            Err(e) => tracing::error!("saving {}: {e}", path.display()),
+        if let Some(card) = self.item(id) {
+            card.item.save(cx);
+            cx.notify();
         }
     }
 
-    /// Open the file in its default app (image viewer, video player). An unsaved
-    /// screenshot is opened from a temporary file.
     fn open(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(item) = self.item(id) else { return };
-        let path = match (&item.path, &item.media) {
-            (Some(path), _) => path.clone(),
-            (None, Media::Screenshot { png, .. }) => {
-                let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S%.3f");
-                let path = screenie_config::Paths::get()
-                    .runtime_dir()
-                    .join(format!("capture-{stamp}.png"));
-                if let Err(e) = crate::deliver::write_atomic(&path, png) {
-                    tracing::error!("writing {}: {e}", path.display());
-                    return;
-                }
-                path
-            }
-            (None, Media::Recording { .. }) => return,
-        };
-        cx.open_with_system(&path);
-        self.remove(id, cx);
+        if self.item(id).is_some_and(|card| card.item.open(cx)) {
+            self.remove(id, cx);
+        }
     }
 
     /// Annotate the capture; the card makes way for the editor.
     fn edit(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(item) = self.item(id) else { return };
-        let Media::Screenshot {
-            mut capture,
-            actions,
-            ..
-        } = item.media.clone()
-        else {
-            return;
-        };
-        // The card stays if another edit is under way.
-        if crate::editor::ensure_free(cx).is_err() {
-            return;
-        }
-        let (path, copied) = (item.path.clone(), item.is_copied());
-        capture.output = capture.output.or_else(|| self.output.clone());
-        // Picked up again later, it opens centred rather than where it was taken.
-        capture.placement = None;
-        self.remove(id, cx);
-        // Done does what the capture was taken to do. And if it's on the clipboard, the
-        // edit replaces it there: pasting the original after blurring something out of
-        // it would defeat the point.
-        let actions = Actions {
-            copy: actions.copy || copied,
-            preview: false,
-            edit: false,
-            want_file: false,
-            ..actions
-        };
-        if let Err(e) = crate::editor::open(capture, path, actions, Default::default(), cx) {
-            tracing::warn!("{e:#}");
+        let output = self.output.clone();
+        let Some(card) = self.item(id) else { return };
+        let item = card.item.clone();
+        // Gone before the editor opens, rather than raised above it.
+        if matches!(item.media, Media::Screenshot { .. }) && crate::editor::ensure_free(cx).is_ok()
+        {
+            self.remove(id, cx);
+            item.edit(output, cx);
         }
     }
 
     fn delete(&mut self, id: u64, cx: &mut Context<Self>) {
-        if let Some(path) = self.item(id).and_then(|i| i.path.clone()) {
-            match std::fs::remove_file(&path) {
-                Ok(()) => Daemon::update(cx, |d, _| d.note_deleted(&path)),
-                Err(e) => tracing::warn!("deleting {}: {e}", path.display()),
-            }
+        if let Some(card) = self.item(id) {
+            card.item.delete(cx);
         }
         self.remove(id, cx);
     }
 
-    fn card(&self, item: &PreviewItem, cx: &mut Context<Self>) -> AnyElement {
-        let id = item.id;
+    fn card(&self, card: &Card, cx: &mut Context<Self>) -> AnyElement {
+        let (id, item) = (card.id(), &card.item);
         // The card's size in pixels at the interface scale (exact, so the thumbnail can
         // fill its inside precisely); everything else in it is in `ui` lengths.
         let k = screenie_ui_kit::ui_scale(cx);
-        let (w, h) = (item.card.0 * k, item.card.1 * k);
-        let hovered = item.hovered;
+        let (w, h) = (card.size.0 * k, card.size.1 * k);
+        let hovered = card.hovered;
         let saved = item.path.is_some();
         // Cards slide in from the edge they sit at (the side one, for corners).
         let slide = match (self.position.horizontal(), self.position.vertical()) {
@@ -875,7 +587,7 @@ impl PreviewStack {
             (Align::Middle, _) => (0.0, 48.0 * k),
         };
 
-        let button = |action: CardAction, cx: &mut Context<Self>| {
+        let button = |action: Action, cx: &mut Context<Self>| {
             div()
                 .id(action.name())
                 .flex()
@@ -982,7 +694,7 @@ impl PreviewStack {
         });
 
         let overlay = hovered.then(|| {
-            let offers: Vec<CardAction> = CardAction::ALL
+            let offers: Vec<Action> = Action::ALL
                 .into_iter()
                 .filter(|a| a.offered(item, cx))
                 .collect();
@@ -992,14 +704,10 @@ impl PreviewStack {
                 .flex_row()
                 .gap_3()
                 .when(saving, |d| d.child(spinner()))
-                .when(offered(CardAction::Copy), |d| {
-                    d.child(middle(CardAction::Copy, cx))
-                })
-                .when(offered(CardAction::Save), |d| {
-                    d.child(middle(CardAction::Save, cx))
-                })
-                .when(offered(CardAction::Reveal), |d| {
-                    d.child(middle(CardAction::Reveal, cx))
+                .when(offered(Action::Copy), |d| d.child(middle(Action::Copy, cx)))
+                .when(offered(Action::Save), |d| d.child(middle(Action::Save, cx)))
+                .when(offered(Action::Reveal), |d| {
+                    d.child(middle(Action::Reveal, cx))
                 });
             // Rows, so nothing can overlap at any card size: the corner buttons with the
             // size caption between them, what's left to do in the middle, and Delete
@@ -1010,7 +718,7 @@ impl PreviewStack {
                 .flex_row()
                 .items_center()
                 .gap_1()
-                .child(slot().child(corner(CardAction::Dismiss, cx)))
+                .child(slot().child(corner(Action::Dismiss, cx)))
                 .child(
                     div()
                         .flex_1()
@@ -1021,8 +729,8 @@ impl PreviewStack {
                         .text_color(rgba(0xffffffb3))
                         .child(item.caption()),
                 )
-                .child(slot().when(offered(CardAction::Annotate), |d| {
-                    d.child(corner(CardAction::Annotate, cx))
+                .child(slot().when(offered(Action::Annotate), |d| {
+                    d.child(corner(Action::Annotate, cx))
                 }));
             let center = div()
                 .flex_1()
@@ -1030,13 +738,12 @@ impl PreviewStack {
                 .items_center()
                 .justify_center()
                 .child(actions);
-            let bottom =
-                div()
-                    .flex()
-                    .flex_row()
-                    .child(slot().when(offered(CardAction::Delete), |d| {
-                        d.child(corner(CardAction::Delete, cx))
-                    }));
+            let bottom = div()
+                .flex()
+                .flex_row()
+                .child(slot().when(offered(Action::Delete), |d| {
+                    d.child(corner(Action::Delete, cx))
+                }));
             div()
                 .absolute()
                 .inset_0()
@@ -1050,7 +757,7 @@ impl PreviewStack {
                 .child(bottom)
         });
 
-        let card = div()
+        let element = div()
             .id(("card", id))
             .relative()
             .w(px(w))
@@ -1068,7 +775,7 @@ impl PreviewStack {
             // own aspect ratio on relative sizes, so `size_full` made a tall capture spill
             // out of the bottom of the card. `object_fit` then letterboxes it within.
             .child(
-                img(item.thumb.clone())
+                img(card.thumb.clone())
                     .absolute()
                     .top_0()
                     .left_0()
@@ -1082,19 +789,20 @@ impl PreviewStack {
             .children(overlay)
             .children(status)
             .child(Hover::area(&self.hover, id));
-        if item.arrived {
-            return card.into_any_element();
+        if card.arrived {
+            return element.into_any_element();
         }
-        card.with_animation(
-            ("card-in", id),
-            Animation::new(Duration::from_millis(260)).with_easing(gpui::ease_out_quint()),
-            move |el, t| {
-                el.left(px(slide.0 * (1.0 - t)))
-                    .top(px(slide.1 * (1.0 - t)))
-                    .opacity(t)
-            },
-        )
-        .into_any_element()
+        element
+            .with_animation(
+                ("card-in", id),
+                Animation::new(Duration::from_millis(260)).with_easing(gpui::ease_out_quint()),
+                move |el, t| {
+                    el.left(px(slide.0 * (1.0 - t)))
+                        .top(px(slide.1 * (1.0 - t)))
+                        .opacity(t)
+                },
+            )
+            .into_any_element()
     }
 }
 
@@ -1117,19 +825,6 @@ fn overflow(cards: &[(f32, bool)], room: f32, gap: f32) -> Vec<usize> {
         }
     }
     drop
-}
-
-fn format_duration(d: Duration) -> String {
-    let s = d.as_secs_f64().round() as u64;
-    format!("{}:{:02}", s / 60, s % 60)
-}
-
-fn format_bytes(n: u64) -> String {
-    match n {
-        n if n >= 1_000_000 => format!("{:.1} MB", n as f64 / 1e6),
-        n if n >= 1_000 => format!("{:.0} KB", n as f64 / 1e3),
-        n => format!("{n} B"),
-    }
 }
 
 impl Render for PreviewStack {

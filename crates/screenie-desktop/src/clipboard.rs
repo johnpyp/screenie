@@ -34,7 +34,6 @@ trait Session {
     fn set_selection(&self, options: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
     fn selection_write(&self, serial: u32) -> zbus::Result<OwnedFd>;
     fn selection_write_done(&self, serial: u32, success: bool) -> zbus::Result<()>;
-    fn stop(&self) -> zbus::Result<()>;
     #[zbus(signal)]
     fn selection_transfer(&self, mime_type: String, serial: u32) -> zbus::Result<()>;
     #[zbus(signal)]
@@ -44,8 +43,8 @@ trait Session {
 /// What's on offer: each MIME type's bytes.
 pub type Offer = Vec<(String, Arc<[u8]>)>;
 
-/// The clipboard of a (never started) Mutter remote desktop session, kept for as long as
-/// this lives.
+/// The clipboard of a (never started) Mutter remote desktop session. The session ends
+/// with its D-Bus connection: `Stop` refuses one that never started.
 pub struct MutterClipboard {
     session: SessionProxy<'static>,
     offer: Arc<Mutex<Offer>>,
@@ -86,12 +85,6 @@ impl MutterClipboard {
             self.session
                 .set_selection(HashMap::from([("mime-types", Value::from(types))])),
         )
-    }
-}
-
-impl Drop for MutterClipboard {
-    fn drop(&mut self) {
-        let _ = async_io::block_on(self.session.stop());
     }
 }
 

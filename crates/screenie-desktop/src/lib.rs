@@ -3,6 +3,7 @@
 
 pub mod clipboard;
 pub mod entry;
+pub mod notify;
 
 /// The desktop screenie runs on, where it matters: GNOME and KDE Plasma have their own
 /// ways (of capturing, of placing windows, of binding keys), and everything else is a
