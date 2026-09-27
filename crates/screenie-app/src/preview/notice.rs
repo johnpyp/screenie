@@ -149,26 +149,24 @@ fn action_key(action: Action) -> &'static str {
 
 /// What the notification for `item` says, shows and offers.
 fn describe(item: &PreviewItem, cx: &App) -> Notification {
-    // The folder: a banner has room for one line, and the file's name says little.
-    let saved_to = item
+    // The folder it's saved in: the file's name says little, and a banner has one line.
+    let folder = item
         .path
         .as_deref()
         .and_then(|path| path.parent())
         .map(|dir| {
             let home = std::env::home_dir();
-            let dir = match home.as_deref().and_then(|h| dir.strip_prefix(h).ok()) {
+            match home.as_deref().and_then(|h| dir.strip_prefix(h).ok()) {
                 Some(relative) => format!("~/{}", relative.display()),
                 None => dir.display().to_string(),
-            };
-            format!("Saved in {dir}")
+            }
         });
-    // One line: banners show no more.
     let (summary, body) = match &item.media {
         Media::Screenshot { .. } => {
-            let body = match (item.is_copied(), saved_to) {
-                (true, Some(saved)) => format!("Copied to the clipboard, and s{}", &saved[1..]),
+            let body = match (item.is_copied(), folder) {
+                (true, Some(folder)) => format!("Copied to the clipboard, and saved in {folder}"),
                 (true, None) => "Copied to the clipboard".to_string(),
-                (false, Some(saved)) => saved,
+                (false, Some(folder)) => format!("Saved in {folder}"),
                 (false, None) => item.caption(),
             };
             ("Screenshot captured", body)
@@ -176,11 +174,10 @@ fn describe(item: &PreviewItem, cx: &App) -> Notification {
         Media::Recording { saving: true, .. } => ("Saving the recording…", item.caption()),
         Media::Recording { .. } => (
             "Recording saved",
-            [saved_to, Some(item.caption())]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · "),
+            match folder {
+                Some(folder) => format!("Saved in {folder} · {}", item.caption()),
+                None => item.caption(),
+            },
         ),
     };
     // What's left to do, most useful first; notifications show three buttons at most.
