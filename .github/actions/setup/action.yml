@@ -14,8 +14,13 @@ runs:
       run: |
         # Skip rebuilding the man page index after installing, which takes longer than the install.
         sudo rm -f /var/lib/man-db/auto-update
+        # The 22.04 images' LLVM brings libunwind-14-dev, which conflicts with the
+        # libunwind-dev that GStreamer's headers need.
+        conflicting=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' 'libunwind-*-dev' 2>/dev/null |
+          awk '$1 == "ii" { print $2 }')
+        if [ -n "$conflicting" ]; then sudo apt-get remove -y -q $conflicting; fi
         sudo apt-get update -qq
-        sudo apt-get install -y -qq --no-install-recommends \
+        sudo apt-get install -y -q --no-install-recommends \
           libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
           libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev
 
