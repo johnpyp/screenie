@@ -31,8 +31,10 @@ export class Layers {
     constructor() {
         /** title → {pid, layer, until} */
         this._expected = new Map();
-        /** MetaWindow → its layer */
+        /** MetaWindow → {layer, signals} */
         this._windows = new Map();
+        /** Windows whose title is awaited → their signals */
+        this._awaiting = new Map();
         this._blockedBanners = false;
 
         this._signals = [
@@ -61,14 +63,16 @@ export class Layers {
     }
 
     destroy() {
+        // With none left, banners are let through again.
+        for (const window of [...this._windows.keys()])
+            this._forget(window);
+        for (const window of [...this._awaiting.keys()])
+            this._stopAwaiting(window);
+        this._expected.clear();
         Main.wm._shouldAnimateActor = this._shouldAnimate;
         for (const [object, id] of this._signals)
             object.disconnect(id);
         this._signals = [];
-        if (this._blockedBanners)
-            Main.messageTray.bannerBlocked = false;
-        this._windows.clear();
-        this._expected.clear();
     }
 
     /**
@@ -96,11 +100,19 @@ export class Layers {
         // The title comes a moment after the window, before its first frame.
         if (this._claim(window))
             return;
-        const id = window.connect('notify::title', () => {
-            if (this._claim(window))
-                window.disconnect(id);
-        });
-        window.connect('unmanaged', () => window.disconnect(id));
+        this._awaiting.set(window, [
+            window.connect('notify::title', () => {
+                if (this._claim(window))
+                    this._stopAwaiting(window);
+            }),
+            window.connect('unmanaged', () => this._stopAwaiting(window)),
+        ]);
+    }
+
+    _stopAwaiting(window) {
+        for (const id of this._awaiting.get(window) ?? [])
+            window.disconnect(id);
+        this._awaiting.delete(window);
     }
 
     /** Take `window` on as the surface it was described as, if it was. */
@@ -111,29 +123,31 @@ export class Layers {
             return false;
         this._expected.delete(title);
         const {layer} = expected;
-        this._windows.set(window, layer);
-        window.connect('unmanaged', () => {
-            this._windows.delete(window);
-            this._syncBanners();
-        });
+        const signals = [window.connect('unmanaged', () => this._forget(window))];
+        this._windows.set(window, {layer, signals});
         window.hide_from_window_list?.();
         if (layer.keyboard) {
             window.make_above();
             // Focused once shown, with the time now: GNOME may otherwise hold it back
             // (behind a window kept above, say).
-            const id = window.connect('shown', () => {
-                window.disconnect(id);
-                window.activate(global.display.get_current_time_roundtrip());
-            });
+            signals.push(window.connect('shown',
+                () => window.activate(global.display.get_current_time_roundtrip())));
         } else if (this.floats) {
             window.set_type(Meta.WindowType.DOCK);
-            window.connect('size-changed', () => this._place(window, layer));
+            signals.push(window.connect('size-changed', () => this._place(window, layer)));
         }
         return true;
     }
 
+    _forget(window) {
+        for (const id of this._windows.get(window)?.signals ?? [])
+            window.disconnect(id);
+        this._windows.delete(window);
+        this._syncBanners();
+    }
+
     _mapped(window) {
-        const layer = this._windows.get(window);
+        const layer = this._windows.get(window)?.layer;
         if (layer && !layer.keyboard)
             this._place(window, layer);
     }
@@ -174,7 +188,7 @@ export class Layers {
     /** Whether one of screenie's surfaces that take the keyboard has it. */
     _hasKeyboard() {
         const focus = global.display.focus_window;
-        return focus !== null && this._windows.get(focus)?.keyboard === true;
+        return focus !== null && this._windows.get(focus)?.layer.keyboard === true;
     }
 
     /** Notification banners wait while a surface that takes the keyboard has it. */
