@@ -76,26 +76,11 @@ command picks up the new build.
 
 ### Nix
 
-The flake builds screenie with the GStreamer plugins it needs, and its man pages:
-
 ```sh
 nix profile add github:johnpyp/screenie
 ```
 
-On NixOS, add it to your flake's inputs and install its package:
-
-```nix
-inputs.screenie.url = "github:johnpyp/screenie";
-```
-
-```nix
-environment.systemPackages = [ inputs.screenie.packages.${pkgs.stdenv.hostPlatform.system}.default ];
-```
-
-It draws with NixOS's graphics drivers (`hardware.graphics.enable`). On other
-distributions a Nix build can't load the system's drivers, so its windows fail to open:
-use a release there, or run it through [nixGL](https://github.com/nix-community/nixGL).
-`nix profile upgrade screenie` upgrades it.
+Outside NixOS, run it through [nixGL](https://github.com/nix-community/nixGL).
 
 ### Building from source
 

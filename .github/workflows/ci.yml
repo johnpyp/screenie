@@ -4,16 +4,18 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    # Skip changes that can't affect the build. Tag pushes ignore this and always run.
+    # Only Rust and Cargo changes, and what the crates embed. Tags ignore this.
     paths: &paths
-      - "**"
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "patches/**"
+      - "assets/**"
       - "!**/*.md"
       - "README.md" # a test parses its config examples
-      - "!ai-docs/**"
-      - "!docs/**"
-      - "!references/**"
-      - "!tests/e2e/**"
-      - "!tools/demo/**"
+      - ".github/workflows/ci.yml"
+      - ".github/actions/**"
   pull_request:
     paths: *paths
   workflow_dispatch:
