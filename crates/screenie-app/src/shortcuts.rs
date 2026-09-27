@@ -192,6 +192,14 @@ fn describe(desktop: Desktop, installed: Option<&Shortcuts>) -> Result<String, S
              `screenie shortcuts remove` gives them back."
         ),
     };
+    if desktop == Desktop::Gnome
+        && screenie_desktop::extension::state() == screenie_desktop::extension::State::NotInstalled
+    {
+        out.push_str(
+            "\n\nScreenie's GNOME Shell extension isn't installed: with it, screenshots are \
+             silent and windows can be picked.\n`screenie extension install` installs it.",
+        );
+    }
     Ok(out)
 }
 
