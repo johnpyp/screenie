@@ -98,7 +98,7 @@ state and home. `mise run test:e2e` (or `mise run test:e2e -- -k save_as -x`). S
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on every push. For a tag
 or a manual run it also builds the release archives for x86_64 and aarch64 with
-`tools/dist.py` (run it locally for the same archive in `.cache/dist/`) and the flake. To release, run the Release workflow
+`tools/dist.py` (run it locally for the same archive in `.cache/dist/`). To release, run the Release workflow
 (`gh workflow run release.yml -f bump=patch|minor|major`, or `-f version=X.Y.Z`,
 `-f dry_run=true` to look first): it bumps the version (`tools/bump_version.py`),
 commits, tags `vX.Y.Z` and starts CI on the tag, which publishes a GitHub release that
@@ -109,7 +109,8 @@ runners' sway is too old. `mise run ci -j package` runs a job locally with act, 
 
 `flake.nix` packages screenie (`nix/package.nix`: the dist profile, man pages, the desktop
 entry, and GStreamer's plugin directories built in as `SCREENIE_GST_PLUGIN_PATH`, not
-set by a wrapper, since KWin checks the binary an entry runs) and has a dev shell; CI's `nix` job builds it. Its
+set by a wrapper, since KWin checks the binary an entry runs) and has a dev shell. CI
+doesn't build it: `nix build .#screenie` after changing dependencies or packaging. Its
 source is a fileset, so a file embedded from outside `crates/`, `patches/` or `assets/`
 needs adding there. A Nix build only opens windows with NixOS's GPU drivers (or nixGL).
 

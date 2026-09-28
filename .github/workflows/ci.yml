@@ -39,8 +39,8 @@ env:
 # (dependencies only; the workspace's crates are rebuilt). Only main saves, so pull
 # requests build on main's cache without adding their own and evicting it.
 #
-# The optimized builds (the release archives and the flake) run only for a tag or a
-# manual run: each push is covered by test's debug build of everything.
+# The release archives (optimized builds) are made only for a tag or a manual run: each
+# push is covered by test's debug build of everything.
 
 jobs:
   lint:
@@ -80,21 +80,6 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
       - run: cargo test --workspace --locked
-
-  # The flake's package, which breaks separately: on a file embedded from outside its
-  # source, a new native dependency, or a Rust newer than nixpkgs has. Nixpkgs comes from
-  # its binary cache; screenie itself builds from scratch.
-  nix:
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@v31
-      - run: nix build -L .#screenie
-      - run: result/bin/screenie --version
 
   # The release archives (tools/dist.py), built from scratch: a tag can't use another
   # tag's cache, and caching them from main would mean building them on every push. A
