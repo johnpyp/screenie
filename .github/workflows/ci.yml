@@ -1,10 +1,10 @@
 name: CI
 
+# Formatting, lints and tests. Publish runs these on a tag before it releases it.
 on:
   push:
     branches: [main]
-    tags: ["v*"]
-    # Only Rust and Cargo changes, and what the crates embed. Tags ignore this.
+    # Only Rust and Cargo changes, and what the crates embed.
     paths: &paths
       - "**/*.rs"
       - "**/Cargo.toml"
@@ -19,11 +19,13 @@ on:
   pull_request:
     paths: *paths
   workflow_dispatch:
+  workflow_call:
 
 # One run per ref at a time: a newer push replaces a waiting run, and on a pull request
-# it cancels the running one too.
+# it cancels the running one too. Not `github.workflow`, which in a run Publish calls is
+# Publish: this would wait on Publish's own group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -37,10 +39,7 @@ env:
 
 # Caching: lint and test each keep their target dir with Swatinem/rust-cache
 # (dependencies only; the workspace's crates are rebuilt). Only main saves, so pull
-# requests build on main's cache without adding their own and evicting it.
-#
-# The release archives (optimized builds) are made only for a tag or a manual run: each
-# push is covered by test's debug build of everything.
+# requests and tags build on main's cache without adding their own and evicting it.
 
 jobs:
   lint:
@@ -80,114 +79,3 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
       - run: cargo test --workspace --locked
-
-  # The release archives (tools/dist.py), built from scratch: a tag can't use another
-  # tag's cache, and caching them from main would mean building them on every push. A
-  # manual run on any branch builds them too, to download from the run.
-  package:
-    name: package (${{ matrix.target }})
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # The oldest Ubuntu runners, so the binaries need only glibc 2.35.
-          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
-          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup
-      - name: Check the tag matches the version
-        if: github.ref_type == 'tag'
-        run: |
-          version=$(cargo pkgid -p screenie | sed 's/.*[#@]//')
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::The tag is $GITHUB_REF_NAME but Cargo.toml says $version"
-            exit 1
-          fi
-      - run: python3 tools/dist.py
-      # Lets `gh attestation verify` and mise check that an archive was built here.
-      # Private repositories need GitHub Enterprise for this.
-      - uses: actions/attest@v4
-        if: github.ref_type == 'tag' && !github.event.repository.private
-        with:
-          subject-path: .cache/dist/*.tar.gz
-      # act (`mise run ci`) has no artifact server that takes v7's uploads.
-      - uses: actions/upload-artifact@v7
-        if: ${{ !env.ACT }}
-        with:
-          name: dist-${{ matrix.target }}
-          path: .cache/dist/
-          if-no-files-found: error
-          retention-days: 14
-
-  # The archives' signed packslip (https://packslip.dev), which mise's packslip backend
-  # installs from: platforms, the executable, digests, what the host needs. Signed with
-  # this workflow's identity, which is what installers pin: moving the signing to another
-  # workflow file is a signer change they refuse. Its own job, so the signing action gets
-  # no write access; release publishes the bundle with the archives.
-  packslip:
-    if: github.ref_type == 'tag'
-    needs: package
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: dist-*
-          path: dist
-          merge-multiple: true
-      - run: python3 tools/packslip.py dist/*.tar.gz > "$RUNNER_TEMP/release.toml"
-      - uses: jdx/packslip@v1
-        id: packslip
-        with:
-          artifacts: dist/*.tar.gz
-          manifest: ${{ runner.temp }}/release.toml
-          # package attested the archives: link its provenance.
-          attest: link
-          upload: false
-      # dist-, so release publishes it with the archives.
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist-packslip
-          path: ${{ steps.packslip.outputs.bundle }}
-          if-no-files-found: error
-          retention-days: 14
-
-  release:
-    if: github.ref_type == 'tag'
-    needs: [lint, test, package, packslip]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: dist-*
-          path: dist
-          merge-multiple: true
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          # A tag like v0.2.0-rc.1 is a pre-release, which mise passes over for latest.
-          prerelease=()
-          if [[ $TAG == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "screenie ${TAG#v}" --generate-notes "${prerelease[@]}"

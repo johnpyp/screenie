@@ -96,17 +96,26 @@ at the shell.
 close/save flows, Save As, remembered state, interface scale); each test gets its own config,
 state and home. `mise run test:e2e` (or `mise run test:e2e -- -k save_as -x`). See its README.
 
-CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on every push. For a tag
-or a manual run it also builds the release archives for x86_64 and aarch64 with
-`tools/dist.py` (run it locally for the same archive in `.cache/dist/`). To release, run the Release workflow
-(`gh workflow run release.yml -f bump=patch|minor|major`, or `-f version=X.Y.Z`,
-`-f dry_run=true` to look first): it bumps the version (`tools/bump_version.py`),
-commits, tags `vX.Y.Z` and starts CI on the tag, which publishes a GitHub release once
-lint and tests pass: the archives and their signed [packslip](https://packslip.dev)
-(described by `tools/packslip.py`), which mise installs from. Pushing a tag by
-hand does the same. The e2e tests don't run in CI, as the
-runners' sway is too old. `mise run ci -j package` runs a job locally with act, in podman
-(`systemctl --user start podman.socket`), in images of GitHub's runners (`.actrc`).
+The workflows, in `.github/workflows/`:
+
+- `ci.yml` runs fmt, clippy and the tests on every push. The e2e tests don't run in CI,
+  as the runners' sway is too old.
+- `package.yml` builds the release archives for x86_64 and aarch64 with `tools/dist.py`
+  (run it locally for the same archive in `.cache/dist/`). Run it by hand to get them
+  from a branch.
+- `packslip.yml` signs the archives' [packslip](https://packslip.dev) (described by
+  `tools/packslip.py`), which mise installs from. Its path is the signer installers pin:
+  never rename it, or sign anywhere else.
+- `publish.yml` releases a `v*` tag: it calls the three above, then publishes the
+  archives and their packslip as a GitHub release once they all pass.
+- `trigger_release.yml` is how to release (`gh workflow run trigger_release.yml -f
+  bump=patch|minor|major`, or `-f version=X.Y.Z`, `-f dry_run=true` to look first): it
+  bumps the version (`tools/bump_version.py`), commits, tags `vX.Y.Z` and starts Publish
+  on the tag. Pushing a tag by hand does the same.
+
+`mise run ci` runs CI's jobs locally with act, in podman (`systemctl --user start
+podman.socket`), in images of GitHub's runners (`.actrc`); `mise run ci:package` builds
+the archives that way.
 
 `flake.nix` packages screenie (`nix/package.nix`: the dist profile, man pages, the desktop
 entry, and GStreamer's plugin directories built in as `SCREENIE_GST_PLUGIN_PATH`, not

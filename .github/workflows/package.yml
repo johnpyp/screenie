@@ -1,0 +1,59 @@
+name: Package
+
+# The release archives (tools/dist.py) for x86_64 and aarch64 Linux. Publish builds them
+# for a release; run this by hand to build them from any branch, and download them from
+# the run.
+#
+# Built from scratch: a tag can't use another tag's cache, and caching them from main
+# would mean building them on every push.
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      attest:
+        description: Attest that the archives were built here, as a release does
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest Ubuntu runners, so the binaries need only glibc 2.35.
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: python3 tools/dist.py
+      # Lets `gh attestation verify` and mise check that an archive was built here.
+      # Private repositories need GitHub Enterprise for this.
+      - uses: actions/attest@v4
+        if: inputs.attest && !github.event.repository.private
+        with:
+          subject-path: .cache/dist/*.tar.gz
+      # act (`mise run ci:package`) has no artifact server that takes v7's uploads.
+      - uses: actions/upload-artifact@v7
+        if: ${{ !env.ACT }}
+        with:
+          name: dist-${{ matrix.target }}
+          path: .cache/dist/
+          if-no-files-found: error
+          retention-days: 14

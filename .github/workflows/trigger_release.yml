@@ -1,7 +1,7 @@
-name: Release
+name: Trigger release
 
-# Bumps the version on main, tags it, and has CI publish the release from the tag. Run it
-# from the Actions tab, or `gh workflow run release.yml -f bump=minor`.
+# Bumps the version on main, tags it, and starts Publish on the tag, which releases it.
+# Run it from the Actions tab, or `gh workflow run trigger_release.yml -f bump=minor`.
 on:
   workflow_dispatch:
     inputs:
@@ -26,12 +26,12 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  trigger_release:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      # To push the release commit and tag, and start CI on the tag.
+      # To push the release commit and tag, and start Publish on the tag.
       contents: write
       actions: write
     steps:
@@ -63,7 +63,7 @@ jobs:
           git diff --quiet || git commit -am "release: $TAG"
           git tag -a "$TAG" -m "screenie ${TAG#v}"
           git show --stat HEAD
-      - name: Push, and start CI on the tag
+      - name: Push, and start Publish on the tag
         if: ${{ !inputs.dry_run }}
         env:
           TAG: ${{ steps.bump.outputs.tag }}
@@ -71,5 +71,5 @@ jobs:
         run: |
           git push --atomic origin HEAD:main "$TAG"
           # A push with this workflow's token starts no workflows, but a dispatch does.
-          gh workflow run ci.yml --ref "$TAG"
-          echo "Released $TAG: CI is building it, and publishes the release once it passes." >> "$GITHUB_STEP_SUMMARY"
+          gh workflow run publish.yml --ref "$TAG"
+          echo "Tagged $TAG: Publish is building it, and releases it once it passes." >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,80 @@
+name: Publish
+
+# Releases a v* tag: checks it (CI), builds the archives (Package), signs their packslip
+# (Packslip), and publishes them as a GitHub release once all that passes. Trigger
+# release tags a version and starts this; pushing a tag by hand does too.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# One run per tag at a time. Named, like CI's group, so the two never share one.
+concurrency:
+  group: publish-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check the tag matches the version
+        run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            echo "::error::Publish releases a tag, not the $GITHUB_REF_TYPE $GITHUB_REF_NAME"
+            exit 1
+          fi
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but Cargo.toml says $version"
+            exit 1
+          fi
+
+  ci:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+
+  package:
+    needs: version
+    uses: ./.github/workflows/package.yml
+    with:
+      attest: true
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+  packslip:
+    needs: package
+    uses: ./.github/workflows/packslip.yml
+    permissions:
+      contents: read
+      id-token: write
+
+  publish:
+    needs: [ci, package, packslip]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A tag like v0.2.0-rc.1 is a pre-release, which mise passes over for latest.
+          prerelease=()
+          if [[ $TAG == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "screenie ${TAG#v}" --generate-notes "${prerelease[@]}"

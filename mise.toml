@@ -12,8 +12,12 @@ description = "End-to-end tests in the headless sway session (args go to pytest)
 run = "uv run --project tests/e2e pytest tests/e2e"
 
 [tasks.ci]
-description = "Run CI's jobs locally with act, in podman (args go to act, e.g. -j package)"
-run = 'DOCKER_HOST="${DOCKER_HOST:-unix://$XDG_RUNTIME_DIR/podman/podman.sock}" act push'
+description = "Run CI's jobs (ci.yml) locally with act, in podman (args go to act, e.g. -j lint)"
+run = 'DOCKER_HOST="${DOCKER_HOST:-unix://$XDG_RUNTIME_DIR/podman/podman.sock}" act push -W .github/workflows/ci.yml'
+
+[tasks."ci:package"]
+description = "Build the release archives as package.yml does, with act in podman (args go to act)"
+run = 'DOCKER_HOST="${DOCKER_HOST:-unix://$XDG_RUNTIME_DIR/podman/podman.sock}" act workflow_dispatch -W .github/workflows/package.yml'
 
 [tasks.fmt]
 description = "Format and lint everything: Rust with rustfmt, Python with ruff"

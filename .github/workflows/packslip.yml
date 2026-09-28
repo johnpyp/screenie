@@ -1,0 +1,50 @@
+name: Packslip
+
+# The archives' signed packslip (https://packslip.dev), which mise's packslip backend
+# installs from: platforms, the executable, digests, what the host needs, man pages and
+# completions (tools/packslip.py). Publish calls this once Package has built the
+# archives, and releases the bundle with them.
+#
+# This file's path is screenie's signing identity: sigstore names the workflow a job is
+# defined in, not the one that called it, and installers pin that path. Never rename or
+# move this file, or sign anywhere else: installers would refuse the next release until
+# each user accepted the new signer.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # Its own job, so the signing action gets no write access.
+  sign:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - run: python3 tools/packslip.py dist/*.tar.gz > "$RUNNER_TEMP/release.toml"
+      - uses: jdx/packslip@v1
+        id: packslip
+        with:
+          artifacts: dist/*.tar.gz
+          manifest: ${{ runner.temp }}/release.toml
+          # Package attested the archives: link its provenance.
+          attest: link
+          upload: false
+      # dist-, so Publish releases it with the archives.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-packslip
+          path: ${{ steps.packslip.outputs.bundle }}
+          if-no-files-found: error
+          retention-days: 14

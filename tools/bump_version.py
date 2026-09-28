@@ -5,7 +5,7 @@
     tools/bump_version.py 0.3.0-rc.1          # exactly this (or the current one, unchanged)
 
 A bump from a pre-release finishes it where it can: `patch` makes 0.3.0-rc.1 into
-0.3.0. The release workflow (.github/workflows/release.yml) runs this, then commits,
+0.3.0. Trigger release (.github/workflows/trigger_release.yml) runs this, then commits,
 tags and pushes.
 """
 
