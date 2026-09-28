@@ -20,4 +20,4 @@ def allow(name: str, exe: str, dbus: tuple[str, ...] = (), wayland: tuple[str, .
         return
     apps.mkdir(parents=True, exist_ok=True)
     desktop.write_text(entry)
-    subprocess.run(["kbuildsycoca6"], capture_output=True)
+    subprocess.run(["kbuildsycoca6"], capture_output=True, check=False)
