@@ -40,7 +40,8 @@ screenie record   # record one
 
 Prebuilt binaries for x86_64 and aarch64 Linux are on the
 [releases page](https://github.com/johnpyp/screenie/releases). They need glibc 2.35 or
-newer and GStreamer's plugins, which the Arch package pulls in. On Debian or Ubuntu:
+newer, PipeWire and GStreamer's plugins, which the Arch package pulls in. On Debian or
+Ubuntu:
 
 ```sh
 sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
@@ -136,7 +137,8 @@ They stay where the desktop has them: <kbd>Print</kbd> picks an area, window or 
 keys follow suit (`screenie shortcuts` lists them). Change them in the desktop's keyboard
 settings; `screenie shortcuts remove` gives the originals back.
 
-On GNOME, also install screenie's GNOME Shell extension, and log out and back in:
+On GNOME 46 or newer, also install screenie's GNOME Shell extension, and log out and back
+in:
 
 ```sh
 screenie extension install
@@ -466,13 +468,12 @@ screenshot keys.
 
 On GNOME, only code in GNOME Shell may see where windows are, float over them, or take a
 screenshot without flashing the screen. Screenie's extension (`screenie extension
-install`, from the next login) does these for it, so screenie works as it does
-elsewhere, except:
+install`, from the next login, on GNOME 46 or newer) does these for it, so screenie
+works as it does elsewhere, except:
 
+- A recording shows in the top bar, as all of GNOME's screen casts do.
 - Before GNOME 49, captures appear as notifications rather than cards, with the same
-  buttons, and a recording shows in the top bar, where its button stops it, with no
-  countdown or pill.
-- A recording also shows in the top bar, as all of GNOME's screen casts do.
+  buttons, and a recording has no countdown or pill: stop it from the top bar.
 
 Without the extension:
 
