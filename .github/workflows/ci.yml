@@ -54,6 +54,12 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: cargo fmt --all --check
+      # The GNOME Shell extension only runs in GNOME Shell, at login: at least it parses.
+      - name: Check the GNOME Shell extension parses
+        run: |
+          for f in crates/screenie-desktop/extension/*.js; do
+            node --input-type=module --check < "$f" || { echo "::error file=$f::Doesn't parse"; exit 1; }
+          done
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
