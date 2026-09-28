@@ -55,7 +55,9 @@ sudo apt install mesa-va-drivers       # AMD
 sudo apt install intel-media-va-driver # Intel
 ```
 
-`man screenie` documents the commands, and `man 5 screenie` the config file. After an
+`man screenie` documents the commands, and `man 5 screenie` the config file. The
+packages and archives come with completions for bash, zsh and fish; for another shell
+(nushell, elvish, PowerShell), `screenie completions SHELL` prints one. After an
 upgrade, the next `screenie` command picks up the new build.
 
 ### mise
@@ -95,6 +97,9 @@ Unpack a release into `~/.local`:
 tar -xzf screenie-*-x86_64-unknown-linux-gnu.tar.gz
 cp -r screenie-*/bin screenie-*/share ~/.local/
 ```
+
+bash and fish find the completions there; zsh does once
+`~/.local/share/zsh/site-functions` is on its `fpath`.
 
 ### Building from source
 

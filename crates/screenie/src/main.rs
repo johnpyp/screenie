@@ -21,6 +21,7 @@ use screenie_ipc::{
     SelectMode, ShortcutsAction, State, Status, Target,
 };
 
+mod completions;
 mod extension;
 mod man;
 
@@ -83,6 +84,12 @@ enum Command {
         #[command(subcommand)]
         action: Option<ExtensionCommand>,
     },
+    /// Print a shell's completion script.
+    ///
+    /// The release archives and packages come with bash's, zsh's and fish's. Otherwise,
+    /// save it where the shell looks, e.g. for fish: `screenie completions fish >
+    /// ~/.config/fish/completions/screenie.fish`.
+    Completions { shell: completions::Shell },
     /// Run the daemon in the foreground (normally started automatically). Upgrades a
     /// daemon running another build, unless it is in use.
     Daemon,
@@ -390,6 +397,16 @@ fn main() -> ExitCode {
             }
         };
     }
+    if let Command::Completions { shell } = command {
+        let script = completions::script(&Cli::command(), shell);
+        return match std::io::stdout().write_all(&script) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("screenie: can't write the completions: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
     if let Command::Extension { action } = command {
         return extension::run(action.unwrap_or(ExtensionCommand::Show));
     }
@@ -638,6 +655,7 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
         Command::Daemon
         | Command::Man { .. }
         | Command::Share { .. }
+        | Command::Completions { .. }
         | Command::Extension { .. } => {
             unreachable!("handled in main")
         }

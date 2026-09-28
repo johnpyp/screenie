@@ -4,6 +4,7 @@
   lib,
   rustPlatform,
   pkg-config,
+  installShellFiles,
   gst_all_1,
   pipewire,
   libxkbcommon,
@@ -66,6 +67,7 @@ rustPlatform.buildRustPackage {
 
   nativeBuildInputs = [
     pkg-config
+    installShellFiles
     # libclang, for PipeWire's bindings.
     rustPlatform.bindgenHook
   ];
@@ -82,6 +84,10 @@ rustPlatform.buildRustPackage {
   postInstall = ''
     $out/bin/screenie man $out/share/man
     $out/bin/screenie share $out/share
+    installShellCompletion --cmd screenie \
+      --bash <($out/bin/screenie completions bash) \
+      --zsh <($out/bin/screenie completions zsh) \
+      --fish <($out/bin/screenie completions fish)
   '';
 
   # The GPU and Wayland libraries are loaded at runtime rather than linked.

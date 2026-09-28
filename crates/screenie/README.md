@@ -116,7 +116,17 @@ from the clap definitions, with exit status, environment and files added to the 
 and `screenie(5)`, the config file key by key, from `screenie_config::reference`. They're
 dated by the commit. `tools/dist.py` puts them in the release archives.
 
-`screenie share DIR` (hidden too) writes what a package whose binary stays put (Nix)
+## Completions
+
+`screenie completions SHELL` prints a completion script (`completions.rs`) for bash, zsh,
+fish, elvish, nushell or PowerShell, from the clap definitions. It leaves out the hidden
+commands, which clap's generators would otherwise offer with the rest. `tools/dist.py`
+puts bash's, zsh's and fish's in the archives' `share/`, where each shell looks, and
+the Nix package installs them.
+
+## Packaging
+
+`screenie share DIR` (hidden, like `man`) writes what a package whose binary stays put (Nix)
 installs into `share`: the desktop entry, running this binary, and the icon
 (`DIR/applications`, `DIR/icons`), which the daemon then needs none of its own of, and
 the GNOME Shell extension (`DIR/gnome-shell/extensions`).

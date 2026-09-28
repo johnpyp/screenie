@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Build and package screenie for release, as CI does.
+"""Build and package screenie for release, as the Package workflow does.
 
 Builds the `dist` profile for this machine and writes, in .cache/dist/:
 
     screenie-<version>-<target>.tar.gz          the archive
     screenie-<version>-<target>.tar.gz.sha256   its checksum, as sha256sum prints it
 
-The archive holds one directory with bin/screenie, the man pages in share/man/man1
-(from `screenie man`), README.md and LICENSE. mise's github backend strips that
+The archive holds one directory with bin/screenie, the man pages in share/man (from
+`screenie man`), bash's, zsh's and fish's completions where each looks in share/ (from
+`screenie completions`), README.md and LICENSE. mise's github backend strips that
 directory and puts bin/ on PATH, and man finds share/man beside it; its packslip backend
-reads both from the release's packslip (tools/packslip.py). The archive is
+reads what's where from the release's packslip (tools/packslip.py). The archive is
 reproducible: entries are sorted, owned by root and dated to the commit.
 
     tools/dist.py
@@ -28,6 +29,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / ".cache/dist"
+# Where each shell looks for a package's completions, under share/.
+COMPLETIONS = {
+    "bash": "bash-completion/completions/screenie",
+    "zsh": "zsh/site-functions/_screenie",
+    "fish": "fish/vendor_completions.d/screenie.fish",
+}
 
 
 def run(*args: str) -> str:
@@ -53,6 +60,11 @@ def main() -> None:
         (stage / "bin").mkdir(parents=True)
         shutil.copy2(binary, stage / "bin/screenie")
         subprocess.run([str(binary), "man", str(stage / "share/man")], check=True)
+        for shell, path in COMPLETIONS.items():
+            script = stage / "share" / path
+            script.parent.mkdir(parents=True)
+            with script.open("wb") as out:
+                subprocess.run([str(binary), "completions", shell], stdout=out, check=True)
         for doc in ("README.md", "LICENSE"):
             shutil.copy2(ROOT / doc, stage / doc)
 
