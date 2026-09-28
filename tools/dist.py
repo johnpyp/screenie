@@ -8,7 +8,8 @@ Builds the `dist` profile for this machine and writes, in .cache/dist/:
 
 The archive holds one directory with bin/screenie, the man pages in share/man/man1
 (from `screenie man`), README.md and LICENSE. mise's github backend strips that
-directory and puts bin/ on PATH, and man finds share/man beside it. The archive is
+directory and puts bin/ on PATH, and man finds share/man beside it; its packslip backend
+reads both from the release's packslip (tools/packslip.py). The archive is
 reproducible: entries are sorted, owned by root and dated to the commit.
 
     tools/dist.py

@@ -129,9 +129,48 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The archives' signed packslip (https://packslip.dev), which mise's packslip backend
+  # installs from: platforms, the executable, digests, what the host needs. Signed with
+  # this workflow's identity, which is what installers pin: moving the signing to another
+  # workflow file is a signer change they refuse. Its own job, so the signing action gets
+  # no write access; release publishes the bundle with the archives.
+  packslip:
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - run: python3 tools/packslip.py dist/*.tar.gz > "$RUNNER_TEMP/release.toml"
+      - uses: jdx/packslip@v1
+        id: packslip
+        with:
+          artifacts: dist/*.tar.gz
+          manifest: ${{ runner.temp }}/release.toml
+          # package attested the archives: link its provenance.
+          attest: link
+          upload: false
+      # dist-, so release publishes it with the archives.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-packslip
+          path: ${{ steps.packslip.outputs.bundle }}
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     if: github.ref_type == 'tag'
-    needs: [lint, test, package]
+    needs: [lint, test, package, packslip]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

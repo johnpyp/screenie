@@ -83,6 +83,14 @@ Why screenie is built the way it is. Change these deliberately, not by drift.
   PipeWire's Rust bindings need newer headers than 22.04's PipeWire (0.3.48), so there
   they compile against 24.04's and link 22.04's library: the linker then refuses anything
   0.3.48 lacks.
+- **Releases carry a signed [packslip](https://packslip.dev)**, the manifest mise's
+  packslip backend installs from: it verifies the signer and digests, and refuses a host
+  without the glibc or libraries the binary needs, where a filename-matching backend
+  installs a binary that can't start. Everything in it is read from the archives
+  (`tools/packslip.py`), not written by hand. It's signed by `ci.yml`'s identity in a job
+  with no write access, and published with the archives rather than after them, so a
+  release never lacks it. Installers pin the signing workflow's path: moving the signing
+  out of `ci.yml` makes them refuse the next release until each user accepts it.
 - **The Nix flake builds with nixpkgs' own Rust** (unstable), so `rust-version` can't
   run ahead of it. It's for NixOS: elsewhere a Nix build can't load the system's GPU
   drivers.

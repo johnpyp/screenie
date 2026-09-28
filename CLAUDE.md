@@ -101,8 +101,9 @@ or a manual run it also builds the release archives for x86_64 and aarch64 with
 `tools/dist.py` (run it locally for the same archive in `.cache/dist/`). To release, run the Release workflow
 (`gh workflow run release.yml -f bump=patch|minor|major`, or `-f version=X.Y.Z`,
 `-f dry_run=true` to look first): it bumps the version (`tools/bump_version.py`),
-commits, tags `vX.Y.Z` and starts CI on the tag, which publishes a GitHub release that
-`mise use github:johnpyp/screenie` installs once lint and tests pass. Pushing a tag by
+commits, tags `vX.Y.Z` and starts CI on the tag, which publishes a GitHub release once
+lint and tests pass: the archives and their signed [packslip](https://packslip.dev)
+(described by `tools/packslip.py`), which mise installs from. Pushing a tag by
 hand does the same. The e2e tests don't run in CI, as the
 runners' sway is too old. `mise run ci -j package` runs a job locally with act, in podman
 (`systemctl --user start podman.socket`), in images of GitHub's runners (`.actrc`).
