@@ -6436,7 +6436,7 @@ dependencies = [
 
 [[package]]
 name = "screenie"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -6454,7 +6454,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-annotate"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "cosmic-text",
  "rayon",
@@ -6465,7 +6465,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-app"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "ashpd",
@@ -6494,7 +6494,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-capture"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "ashpd",
  "async-io",
@@ -6514,7 +6514,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-compositor"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-channel",
  "async-io",
@@ -6530,7 +6530,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-config"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "directories",
@@ -6545,7 +6545,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "png 0.18.1",
  "serde",
@@ -6554,7 +6554,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-desktop"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-channel",
  "async-io",
@@ -6569,7 +6569,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-editor"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "gpui-kit",
@@ -6585,7 +6585,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-ipc"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustix",
  "screenie-config",
@@ -6598,7 +6598,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-pipewire"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "pipewire",
  "rustix",
@@ -6610,7 +6610,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-record"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "gstreamer",
  "gstreamer-allocators",
@@ -6628,7 +6628,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-selector"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-channel",
  "gpui-kit",
@@ -6643,7 +6643,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-state"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "screenie-config",
  "serde",
@@ -6655,7 +6655,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-ui-kit"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -6673,7 +6673,7 @@ dependencies = [
 
 [[package]]
 name = "screenie-wayland"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "gbm",
  "memmap2",
