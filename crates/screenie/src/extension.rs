@@ -22,6 +22,10 @@ pub fn run(action: ExtensionCommand) -> ExitCode {
     let state = match action {
         ExtensionCommand::Show => extension::state(),
         ExtensionCommand::Install => match extension::install() {
+            Ok(state @ (State::TooOld(_) | State::TooNew(_))) => {
+                println!("{}", describe(&state));
+                return ExitCode::from(2);
+            }
             Ok(state) => state,
             Err(e) => return fail(e),
         },
@@ -55,9 +59,16 @@ fn describe(state: &State) -> String {
         State::ExtensionsOff => "Screenie's GNOME Shell extension is installed, but GNOME \
             has extensions turned off: turn them on in the Extensions app."
             .into(),
-        State::OutOfDate => "Screenie's GNOME Shell extension isn't made for this version \
-            of GNOME Shell; a newer screenie may have one that is."
-            .into(),
+        State::TooOld(version) => format!(
+            "Screenie's GNOME Shell extension needs GNOME {} or newer, and this is GNOME \
+             {version}. Screenie works without it, but screenshots flash the screen and \
+             windows can't be picked.",
+            extension::SHELL_VERSIONS[0]
+        ),
+        State::TooNew(version) => format!(
+            "Screenie's GNOME Shell extension isn't made for GNOME {version} yet; a newer \
+             screenie may have one that is."
+        ),
         State::Failed(e) => format!("GNOME Shell couldn't run screenie's extension: {e}"),
         State::NotInstalled => format!(
             "Screenie's GNOME Shell extension isn't installed. {WHAT}\n\

@@ -26,6 +26,9 @@ const FILES: &[(&str, &str)] = &[
     ("windows.js", include_str!("../extension/windows.js")),
 ];
 
+/// The GNOME Shell versions it's made for, oldest first (`metadata.json`'s).
+pub const SHELL_VERSIONS: &[&str] = &["46", "47", "48", "49", "50"];
+
 const SHELL: &str = "org.gnome.shell";
 
 /// How the extension stands.
@@ -42,8 +45,10 @@ pub enum State {
     Disabled,
     /// GNOME has extensions turned off altogether.
     ExtensionsOff,
-    /// Made for other versions of GNOME Shell than this one.
-    OutOfDate,
+    /// This GNOME Shell (its version) is older than any it's made for.
+    TooOld(String),
+    /// Or newer.
+    TooNew(String),
     /// GNOME Shell couldn't run it: why.
     Failed(String),
     NotInstalled,
@@ -68,8 +73,11 @@ pub fn dir() -> PathBuf {
 }
 
 /// Install the extension for this user (unless a package has this very one installed
-/// system-wide) and enable it.
+/// system-wide) and enable it, if it's made for this GNOME Shell.
 pub fn install() -> Result<State> {
+    if let Some(state) = shell().and_then(|s| unsupported(&s.version)) {
+        return Ok(state);
+    }
     let changed = if system_copy().is_some() {
         remove_dir(&dir())?;
         false
@@ -94,6 +102,7 @@ pub fn install() -> Result<State> {
             &gsettings::Value::List(disabled),
         )?;
     }
+    // Enabling one the shell already knows starts it.
     Ok(match state() {
         State::Running if changed => State::Updated,
         state => state,
@@ -139,6 +148,10 @@ pub fn write_packaged(share: &Path) -> std::io::Result<()> {
 
 /// How the extension stands now.
 pub fn state() -> State {
+    let shell = shell();
+    if let Some(state) = shell.as_ref().and_then(|s| unsupported(&s.version)) {
+        return state;
+    }
     let installed = dir().join("metadata.json").exists() || system_copy().is_some();
     let listed = |key| gsettings::get_list(SHELL, key).unwrap_or_default();
     let enabled = listed("enabled-extensions").iter().any(|u| u == UUID)
@@ -154,17 +167,33 @@ pub fn state() -> State {
     if !enabled {
         return State::Disabled;
     }
-    // What the shell says of it; nothing if it was installed since the shell started.
-    match shell_info() {
+    // What the shell says of it; nothing if it was installed since the shell started. Out
+    // of date (4), it's an older screenie's copy: this one's runs from the next login.
+    match shell.and_then(|s| s.extension) {
         Some(info) => match info.state {
             // ACTIVE, ACTIVATING
             1 | 8 => State::Running,
             3 => State::Failed(info.error),
-            4 => State::OutOfDate,
             _ => State::NextLogin,
         },
         None => State::NextLogin,
     }
+}
+
+/// Whether GNOME Shell `version` (like `49.1` or `50.alpha`) is one the extension isn't
+/// made for, and which way.
+fn unsupported(version: &str) -> Option<State> {
+    let major = version.split('.').next()?;
+    if SHELL_VERSIONS.contains(&major) {
+        return None;
+    }
+    let major: u32 = major.parse().ok()?;
+    let first: u32 = SHELL_VERSIONS[0].parse().ok()?;
+    Some(if major < first {
+        State::TooOld(version.into())
+    } else {
+        State::TooNew(version.into())
+    })
 }
 
 /// Write the extension's files into `dir`: whether any changed.
@@ -197,6 +226,13 @@ fn system_copy() -> Option<PathBuf> {
         })
 }
 
+/// What GNOME Shell says of itself and the extension.
+struct Shell {
+    version: String,
+    /// Nothing if it doesn't know the extension.
+    extension: Option<ShellInfo>,
+}
+
 struct ShellInfo {
     state: u32,
     error: String,
@@ -213,28 +249,34 @@ trait Extensions {
         &self,
         uuid: &str,
     ) -> zbus::Result<std::collections::HashMap<String, OwnedValue>>;
+
+    #[zbus(property)]
+    fn shell_version(&self) -> zbus::Result<String>;
 }
 
-/// The extension as GNOME Shell knows it, if it does.
-fn shell_info() -> Option<ShellInfo> {
-    let info = async_io::block_on(async {
+/// What GNOME Shell says, if it's running.
+fn shell() -> Option<Shell> {
+    let (version, info) = async_io::block_on(async {
         let connection = zbus::Connection::session().await?;
-        ExtensionsProxy::new(&connection)
-            .await?
-            .get_extension_info(UUID)
-            .await
+        let extensions = ExtensionsProxy::new(&connection).await?;
+        zbus::Result::Ok((
+            extensions.shell_version().await?,
+            extensions.get_extension_info(UUID).await?,
+        ))
     })
     .inspect_err(|e| tracing::debug!("GNOME Shell's extensions: {e}"))
     .ok()?;
-    let state = info.get("state").and_then(|v| f64::try_from(v).ok())?;
-    let error = info
-        .get("error")
-        .and_then(|v| String::try_from(v.clone()).ok())
-        .unwrap_or_default();
-    Some(ShellInfo {
-        state: state as u32,
-        error,
-    })
+    let extension = info
+        .get("state")
+        .and_then(|v| f64::try_from(v).ok())
+        .map(|state| ShellInfo {
+            state: state as u32,
+            error: info
+                .get("error")
+                .and_then(|v| String::try_from(v.clone()).ok())
+                .unwrap_or_default(),
+        });
+    Some(Shell { version, extension })
 }
 
 #[cfg(test)]
@@ -254,13 +296,34 @@ mod tests {
         assert_eq!(installed, on_disk);
     }
 
-    #[test]
-    fn the_uuid_is_the_metadatas() {
-        let metadata = FILES
+    fn metadata() -> &'static str {
+        FILES
             .iter()
             .find(|(name, _)| *name == "metadata.json")
             .unwrap()
-            .1;
-        assert!(metadata.contains(&format!("\"uuid\": \"{UUID}\"")));
+            .1
+    }
+
+    #[test]
+    fn the_uuid_is_the_metadatas() {
+        assert!(metadata().contains(&format!("\"uuid\": \"{UUID}\"")));
+    }
+
+    #[test]
+    fn the_shell_versions_are_the_metadatas() {
+        let listed: Vec<String> = SHELL_VERSIONS.iter().map(|v| format!("\"{v}\"")).collect();
+        assert!(metadata().contains(&format!("\"shell-version\": [{}]", listed.join(", "))));
+    }
+
+    #[test]
+    fn shell_versions() {
+        assert_eq!(unsupported("48.2"), None);
+        assert_eq!(unsupported("50.alpha"), None);
+        assert_eq!(unsupported("42.9"), Some(State::TooOld("42.9".into())));
+        assert_eq!(
+            unsupported("51.beta"),
+            Some(State::TooNew("51.beta".into()))
+        );
+        assert_eq!(unsupported("unknown"), None);
     }
 }

@@ -8,7 +8,7 @@ compositors have the usual Wayland protocols.
 | `Desktop` | Which desktop this is, from `XDG_CURRENT_DESKTOP` (or `KDE_FULL_SESSION`). Desktops built on GNOME's libraries with a shell of their own (Budgie, Cinnamon, Pantheon…) count as other. |
 | `entry` | The desktop entry `dev.johnpyp.Screenie.desktop` and its icon, in `$XDG_DATA_HOME`. KWin grants its screenshots and casts to the binary an entry runs, and the portals need an app id with an entry, so `ensure` rewrites it whenever the binary moves, and has KDE rebuild its app database. A packaged entry for the same binary makes it unnecessary. |
 | `shortcuts` | `screenie shortcuts`: the desktop's screenshot keys, for screenie. |
-| `extension` | Screenie's GNOME Shell extension (`extension/`, embedded): installing, enabling, removing it (`screenie extension`), keeping an installed copy current, and how it stands. |
+| `extension` | Screenie's GNOME Shell extension (`extension/`, embedded): installing, enabling, removing it (`screenie extension`), keeping an installed copy current, and how it stands. It's made for GNOME 46 to 50 (`SHELL_VERSIONS`, as `metadata.json` has them), and isn't installed on others. |
 | `shell` | Asking the running extension things (see below). |
 | `gsettings` | GNOME's settings, through the `gsettings` tool. |
 | `overview` | GNOME's overview takes a window opened over it in as a thumbnail, and it's up after login and still animating out after launching an app from it. Captures leave it first (through `org.gnome.Shell`'s `OverviewActive`), waiting until it's gone. |
