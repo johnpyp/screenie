@@ -80,6 +80,9 @@ Why screenie is built the way it is. Change these deliberately, not by drift.
   against the system's GStreamer, so one build runs on most distributions. The archive
   is laid out like a prefix (`bin/`, `share/man/`), which is what mise's github backend
   and `man` both look for.
+  PipeWire's Rust bindings need newer headers than 22.04's PipeWire (0.3.48), so there
+  they compile against 24.04's and link 22.04's library: the linker then refuses anything
+  0.3.48 lacks.
 - **The Nix flake builds with nixpkgs' own Rust** (unstable), so `rust-version` can't
   run ahead of it. It's for NixOS: elsewhere a Nix build can't load the system's GPU
   drivers.

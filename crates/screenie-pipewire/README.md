@@ -20,3 +20,11 @@ also a restricted remote to reach it through, `Remote::Fd`).
 - The stream is over when PipeWire says so, or when its node goes away: a cast stopped
   from GNOME's top bar only pauses the consumer's stream, so the registry's
   `global_remove` of the node is what ends it.
+
+`examples/first_picture.rs` reads a node's first picture from the session's daemon, as a
+still is read: `cargo run -p screenie-pipewire --example first_picture -- NODE`.
+
+The bindings (`pipewire` 0.10) need PipeWire 1.0's headers or newer to build, but the
+binary runs against 0.3.x: the release archives, built on Ubuntu 22.04 (0.3.48), compile
+against 24.04's headers and link 22.04's library
+(`.github/actions/setup/pipewire-headers.sh`).

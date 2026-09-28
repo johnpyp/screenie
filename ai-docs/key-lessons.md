@@ -159,6 +159,13 @@ real digging.
   configure. GPUI's `set_input_region` committed at once, during the first draw; it waits
   for the first frame now (a patch, `patches/README.md`).
 
+## Packaging
+
+- **Rust bindings to a C library build against its headers, not its ABI.** `libspa` 0.10
+  wraps SPA helpers that were still macros in PipeWire 0.3.48 and struct fields added
+  since, so the 22.04 release builds failed where 24.04's tests passed. Newer headers
+  with the old library to link against keep the binary to what the old one has.
+
 ## Daemon, files and clipboard
 
 - **Wayland clipboards die with their owner**, so an upgrade that replaces the daemon

@@ -1,5 +1,5 @@
 name: Set up
-description: The system libraries screenie builds against (and libclang, for PipeWire's bindings), and stable Rust.
+description: The system libraries screenie builds against (and libclang and new enough headers, for PipeWire's bindings), and stable Rust.
 
 inputs:
   components:
@@ -24,6 +24,12 @@ runs:
         sudo apt-get install -y -q --no-install-recommends \
           libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev \
           libxkbcommon-dev libxkbcommon-x11-dev libgbm-dev libfontconfig-dev libclang-dev
+
+    # 22.04's PipeWire (0.3.48) is too old for the Rust bindings' headers; see the script.
+    - name: Newer PipeWire headers, on 22.04
+      shell: bash
+      run: |
+        "$GITHUB_ACTION_PATH/pipewire-headers.sh" "$RUNNER_TEMP/pipewire-headers"
 
     # Before rust-cache, which keys on the compiler's version.
     - uses: dtolnay/rust-toolchain@stable
