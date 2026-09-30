@@ -158,6 +158,10 @@ real digging.
   Mutter warn of invalid window geometry and of content committed without acknowledging a
   configure. GPUI's `set_input_region` committed at once, during the first draw; it waits
   for the first frame now (a patch, `patches/README.md`).
+- **A monitor that sleeps comes back as a new `wl_output` with the same name.** GPUI
+  never handled `global_remove`, so the dead output stayed listed under that name and a
+  surface opened on it was closed at once: the selector skipped a monitor after it woke,
+  until the daemon restarted. It forgets removed outputs now (a patch, `patches/README.md`).
 
 ## Packaging
 
