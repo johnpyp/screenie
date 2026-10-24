@@ -346,6 +346,9 @@ pub(crate) struct WaylandClientState {
     outputs: HashMap<ObjectId, Output>,
     in_progress_outputs: HashMap<ObjectId, InProgressOutput>,
     wl_outputs: HashMap<ObjectId, wl_output::WlOutput>,
+    // screenie patch: registry name -> bound wl_output, to forget an output when its
+    // global is removed (see `GlobalRemove`).
+    wl_output_globals: HashMap<u32, ObjectId>,
     keyboard_layout: LinuxKeyboardLayout,
     keymap_state: Option<xkb::State>,
     compose_state: Option<xkb::compose::State>,
@@ -856,6 +859,7 @@ impl WaylandClient {
         let mut in_progress_outputs = HashMap::default();
         #[allow(clippy::mutable_key_type)]
         let mut wl_outputs: HashMap<ObjectId, wl_output::WlOutput> = HashMap::default();
+        let mut wl_output_globals: HashMap<u32, ObjectId> = HashMap::default();
         globals.contents().with_list(|list| {
             for global in list {
                 match &global.interface[..] {
@@ -875,6 +879,7 @@ impl WaylandClient {
                             (),
                         );
                         in_progress_outputs.insert(output.id(), InProgressOutput::default());
+                        wl_output_globals.insert(global.name, output.id());
                         wl_outputs.insert(output.id(), output);
                     }
                     _ => {}
@@ -1017,6 +1022,7 @@ impl WaylandClient {
             outputs: HashMap::default(),
             in_progress_outputs,
             wl_outputs,
+            wl_output_globals,
             windows: HashMap::default(),
             common,
             keyboard_layout: LinuxKeyboardLayout::new(UNKNOWN_KEYBOARD_LAYOUT_NAME),
@@ -1510,12 +1516,26 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
                     state
                         .in_progress_outputs
                         .insert(output.id(), InProgressOutput::default());
+                    state.wl_output_globals.insert(name, output.id());
                     state.wl_outputs.insert(output.id(), output);
                 }
                 _ => {}
             },
-            wl_registry::Event::GlobalRemove { name: _ } => {
-                // TODO: handle global removal
+            wl_registry::Event::GlobalRemove { name } => {
+                // screenie patch: forget a removed output. A monitor that sleeps or is
+                // unplugged comes back as a new global with the same name; kept, the dead
+                // one was still listed in `displays()` under that name, and a window
+                // opened on it was a layer surface on an inert wl_output, which the
+                // compositor closes (niri: "no output for new layer surface").
+                if let Some(id) = state.wl_output_globals.remove(&name) {
+                    state.outputs.remove(&id);
+                    state.in_progress_outputs.remove(&id);
+                    if let Some(output) = state.wl_outputs.remove(&id)
+                        && output.version() >= 3
+                    {
+                        output.release();
+                    }
+                }
             }
             _ => {}
         }

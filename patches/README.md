@@ -43,6 +43,16 @@ carried the configure's acknowledgement with no buffer, so the buffer came next 
 one. Mutter warned that the window geometry was invalid and that the client had
 committed content without acknowledging a configure (working around both).
 
+`src/linux/wayland/client.rs` (`wl_output_globals`, `GlobalRemove`): forget an output when
+its global is removed.
+
+GPUI ignored `wl_registry.global_remove`. A monitor that goes to sleep or is unplugged
+comes back as a new global with the same connector name, and the dead output stayed in
+`displays()` beside it. `display_for_output` could pick the dead one, and a layer surface
+on it is closed by the compositor (niri: "no output for new layer surface, closing"), so
+the selector left that monitor uncovered until the daemon restarted. Upstream: Zed's
+`gpui_linux` (still a `TODO` there).
+
 ## gpui-pre 0.3.6
 
 `src/platform.rs` (`PlatformWindow::on_pointer_stuck`) and `src/window.rs`
